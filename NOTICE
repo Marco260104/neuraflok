@@ -1,0 +1,10 @@
+NEURAFLOK
+Copyright 2026 NEURAFLOK contributors
+SPDX-License-Identifier: MIT
+
+The root LICENSE (MIT) applies to NEURAFLOK application source. Copyright holders authorized the
+project to distribute incorporated application source under that license. Third-party frameworks,
+dependencies, and native components remain under their own terms, listed in THIRD-PARTY-NOTICES.txt
+and docs/licenses/.
+
+NEURAFLOK is independent and is not affiliated with or endorsed by any browser or model provider.
