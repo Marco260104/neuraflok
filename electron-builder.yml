@@ -1,0 +1,153 @@
+appId: com.neuraflok.desktop
+productName: NEURAFLOK
+copyright: Copyright © 2026 NEURAFLOK contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# Ship built output and runtime dependencies only, with native payloads narrowed to each target OS and CPU.
+files:
+  - out/**
+  - package.json
+  - '!node_modules/@img/sharp-*/**/*'
+  - '!node_modules/@img/sharp-libvips-*/**/*'
+  # PDF.js ships in the renderer, so its Node-only optional canvas fallback is not needed.
+  - '!node_modules/pdfjs-dist/**/*'
+  - '!node_modules/@napi-rs/canvas/**/*'
+  - '!node_modules/@napi-rs/canvas-*/**/*'
+  # Exclude node-pty host builds so they cannot override target-architecture prebuilds.
+  - '!node_modules/node-pty/build/**/*'
+  - '!node_modules/node-pty/third_party/**/*'
+  - '!node_modules/node-pty/prebuilds/**/*'
+
+# Include common resources and append platform-specific notices for native artifacts.
+extraResources:
+  - from: LICENSE
+    to: LICENSE
+  - from: NOTICE
+    to: NOTICE
+  - from: THIRD-PARTY-NOTICES.txt
+    to: THIRD-PARTY-NOTICES.txt
+  - from: brand/LogotipoSN.png
+    to: brand/LogotipoSN.png
+  - from: node_modules/electron/dist/LICENSE
+    to: LICENSE.electron.txt
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: LICENSES.chromium.html
+  - from: ./browser-extension
+    to: browser-extension
+    filter:
+      - '**/*'
+      - '!**/*.map'
+
+npmRebuild: false
+
+# macOS-only post-pack hook; it is a no-op on other platforms.
+afterPack: scripts/afterpack-macos-adhoc-seal.mjs
+
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+  - '**/node_modules/sharp/**'
+  - '**/node_modules/@img/**'
+compression: maximum
+
+# Use electron-builder's static AppImage runtime because Ubuntu 24.04 does not install FUSE2 by default.
+toolsets:
+  appimage: "1.0.3"
+
+win:
+  target: nsis
+  icon: build/icon.ico
+  requestedExecutionLevel: asInvoker
+  files:
+    - from: resources/packaging/native/win32/${arch}/node_modules
+      to: node_modules
+      filter: ['**/*']
+  extraResources:
+    - from: resources/packaging/native/win32/${arch}/node_modules/@img/sharp-win32-${arch}/README.md
+      to: THIRD-PARTY-NOTICES-sharp-win32-${arch}.md
+    - from: resources/packaging/rg/win32/${arch}
+      to: rg
+      filter: ['**/*']
+
+nsis:
+  license: LICENSE
+  include: scripts/windows-installer-acl.nsh
+  oneClick: false
+  perMachine: false
+  buildUniversalInstaller: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: NEURAFLOK
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  artifactName: NEURAFLOK-Setup-${arch}.${ext}
+  uninstallDisplayName: NEURAFLOK
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - dmg
+    - zip
+  icon: build/icon.png
+  category: public.app-category.developer-tools
+  minimumSystemVersion: "13.0"
+  extendInfo:
+    NSUserNotificationAlertStyle: alert
+    NSScreenCaptureUsageDescription: NEURAFLOK captures a display or window only when an enabled desktop tool asks it to observe it.
+  # Keep macOS unsigned and unnotarized until release credentials exist; afterPack ad-hoc seals and verifies the bundle.
+  identity: null
+  notarize: false
+  artifactName: NEURAFLOK-macOS-${arch}.${ext}
+  files:
+    - from: resources/packaging/native/darwin/${arch}/node_modules
+      to: node_modules
+      filter: ['**/*']
+  extraResources:
+    - from: resources/packaging/desktop/darwin/${arch}
+      to: desktop
+      filter: ['macos-desktop-addon.node', 'libneuraflok-desktop.dylib']
+    - from: resources/packaging/native/darwin/${arch}/node_modules/@img/sharp-libvips-darwin-${arch}/README.md
+      to: THIRD-PARTY-NOTICES-sharp-libvips-darwin-${arch}.md
+    - from: resources/packaging/rg/darwin/${arch}
+      to: rg
+      filter: ['**/*']
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/icon.png
+  category: Development
+  executableName: neuraflok
+  syncDesktopName: true
+  # Preserve one public architecture label because electron-builder rewrites x64 by package format.
+  artifactName: NEURAFLOK-Linux-${env.NEURAFLOK_PACKAGE_ARCH}.${ext}
+  files:
+    - from: resources/packaging/native/linux/${arch}/node_modules
+      to: node_modules
+      filter: ['**/*']
+  extraResources:
+    - from: build/runtime-icon.png
+      to: runtime-icon.png
+    - from: resources/packaging/native/linux/${arch}/node_modules/@img/sharp-libvips-linux-${arch}/README.md
+      to: THIRD-PARTY-NOTICES-sharp-libvips-linux-${arch}.md
+    - from: resources/packaging/rg/linux/${arch}
+      to: rg
+      filter: ['**/*']
+
+deb:
+  depends:
+    # Keep the previous GTK package name as an alternative for Ubuntu 22.04 and Debian.
+    - libgtk-3-0 | libgtk-3-0t64
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libuuid1
+    - libsecret-1-0
