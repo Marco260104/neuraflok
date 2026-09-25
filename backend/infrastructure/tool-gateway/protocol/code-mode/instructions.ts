@@ -1,0 +1,6 @@
+export const CODE_MODE_INSTRUCTIONS = [
+  'Code mode: batch calls to the tools listed in ALL_TOOLS. Use only their advertised names and schemas, and await every nested call. Run operations in parallel only when they are independent; await each mutation before a dependent action.',
+  'Inspect isError, content, and structuredContent in returned tool results. Emit intended text with text(...) and forward images with image(...); never serialize image data as text. Unemitted results stay within the run while each nested call is recorded separately. Keep emitted text below 40,000 UTF-8 bytes and images to four. For large reads, request smaller byte limits or line ranges. An oversized emission may return a truncated preview and stop the script.',
+  'Nested tools inherit the parent request identity and recheck current permissions. A script error does not cancel an action that was already dispatched; inspect the result before retrying. New user messages and worker inbox items arrive with the outer response, not inside the JavaScript context.',
+  'Call session_finish and agents action=finish directly. Code mode cannot invoke exec recursively, retain state between runs, wait, or yield. Long-running tools use their normal continuation identifiers.'
+].join('\n');
