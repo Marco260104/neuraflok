@@ -1,0 +1,115 @@
+/* Which pass of a staged compaction is running. */
+.hint.is-step {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+/* Per-agent timeline filter. Hidden unless a session has more than one attribution. */
+#chatAgentFilter {
+  margin-bottom: 10px;
+}
+
+.errbox {
+  padding: 8px 10px;
+  border: 1px solid var(--red-line);
+  border-radius: var(--r-md);
+  background: var(--red-wash);
+  color: var(--red);
+  font-size: calc(12px * var(--text-scale, 1));
+}
+
+.hint.is-warn {
+  color: var(--soft);
+  font-weight: 600;
+}
+
+/* A setup step that silently does nothing when skipped — sub-agents without the companion extension. Uses the same --red as the error surfaces so it reads as a prerequisite rather than as decoration, and it stays legible in both themes because --red is defined per theme. */
+.hint.is-required {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.foot.is-warn {
+  color: var(--red);
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.model,
+.agent {
+  padding: 6px 9px;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+}
+
+.model {
+  cursor: pointer;
+}
+
+.model:hover {
+  background: var(--hover);
+}
+
+.model.is-sel {
+  background: var(--wash);
+  border-color: var(--blue-line);
+}
+
+.agent {
+  border-color: var(--line);
+}
+
+/* Pushed to the far end of the row, quiet until pointed at: it ends a run or a slot, so it should be reachable without being the thing the eye lands on first. */
+.agent-clear {
+  margin-left: auto;
+  flex: none;
+  color: var(--faint);
+}
+
+.agent-clear:hover:not(:disabled) {
+  background: var(--red-wash);
+  color: var(--red);
+}
+
+.model-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-top b {
+  font-size: calc(12.5px * var(--text-scale, 1));
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-sub {
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--text-scale, 1));
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: calc(11.5px * var(--text-scale, 1));
+  color: var(--faint);
+}
+

@@ -1,0 +1,5 @@
+@import "./styles/settings/appearance-and-workspace.css";
+@import "./styles/settings/setup-panel.css";
+@import "./styles/settings/usage-and-automation.css";
+@import "./styles/settings/shared-controls.css";
+@import "./styles/settings/sidebar-search.css";

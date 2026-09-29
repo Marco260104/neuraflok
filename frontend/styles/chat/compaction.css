@@ -1,0 +1,130 @@
+/* Compaction + panes styles. */
+
+/* The single column is `minmax(0, 1fr)` and never plain `auto`. An implicit `auto` track is floored by the widest child's min-content width, and the settings rows are wide: a row whose hint is `white-space: nowrap` reports its whole sentence as min-content, so the track was sized 724px inside a 674px content box and the pane pushed 50px of every row — the switches, the units, "Select model" — out under the card's clipped right edge. The rows already know how to yield; the track has to let them. */
+.pane {
+  padding: 12px 14px 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-content: start;
+}
+
+.pane h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: calc(10.5px * var(--text-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* One setting per row: what it does on the left, its number and its switch on the right. The rows are the whole settings sheet now, so they carry the separators instead of a stack of headings, and the explanation is one clause rather than a paragraph — anything longer than that was documentation filed in the wrong place. */
+/* In a narrow window the controls wrap under the explanation rather than past the row's edge; the text keeps room for a readable line first. */
+.setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 2px;
+}
+
+.setting + .setting {
+  border-top: 1px solid var(--line);
+}
+
+.setting-text {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.setting-text b {
+  display: block;
+  font-size: calc(13px * var(--text-scale, 1));
+  font-weight: 550;
+}
+
+.setting-text em {
+  display: block;
+  font-style: normal;
+  font-size: calc(11.5px * var(--text-scale, 1));
+  color: var(--faint);
+  white-space: normal;
+}
+
+/* Numbers are read against each other down the column, so they are fixed width, right-aligned and tabular. The selector carries the element on purpose: the shared `input[type='number']` rule above sets width 100%, and a bare class would lose the specificity tie and stretch the field across the whole row. */
+input.num {
+  flex: 0 0 auto;
+  width: 92px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Matches `select:disabled`: a number its switch has turned off reads as inactive. */
+input.num:disabled { opacity: .5; cursor: default; }
+
+.unit {
+  flex: 0 0 auto;
+  width: 42px;
+  font-size: calc(11px * var(--text-scale, 1));
+  color: var(--faint);
+}
+
+/* A dropdown in a settings row is as wide as the word it holds, not as wide as the row. The shared `input[…], select` rule sets `width: 100%` for the stacked fields in `.field`, and inherited into a flex row that made "Default" a 708px control with its own label squeezed to nothing. Same reasoning as `input.num` above: the selector carries the element to win the specificity tie. */
+.setting select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 132px;
+  /* One line, always. A long choice that does not fit beside its explanation moves below it (the row wraps) instead of breaking its own label over two lines. */
+  max-width: 100%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The row's button is its action; the explanation is the thing that yields. Left shrinkable it clipped to "Select mod" rather than letting the hint ellipsize. */
+.setting .btn {
+  flex: 0 0 auto;
+  /* A long translated label wraps inside the button. */
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* Inside a settings row the switch is one of several controls, not the thing the row pushes to the far end. */
+.setting .sw {
+  margin-left: 0;
+}
+
+.pane h3:first-child {
+  margin-top: 0;
+}
+
+.pane .field {
+  margin-top: 0;
+}
+
+.stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.stage {
+  padding: 3px 9px;
+  border-radius: var(--pill);
+  background: var(--sunk);
+  color: var(--faint);
+  font-size: calc(11px * var(--text-scale, 1));
+  font-weight: 600;
+}
+
+.stage.is-done {
+  background: var(--wash);
+  color: var(--blue);
+}
+
+.stage.is-now {
+  background: var(--ink);
+  color: var(--page);
+}
+
