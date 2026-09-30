@@ -1,0 +1,26 @@
+/* Shared settings controls and disclosure motion. */
+/* Title and language flags share a row only while both fit. A grid gave the flags their full width and squeezed the title under them; wrapping moves the flags below the title instead. */
+.setup-heading.settings-page-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; margin-bottom: 20px; }
+.setup-heading > div:first-child { flex: 1 1 260px; min-width: 0; }
+.disclosure-chevron { display: block; width: 14px; height: 14px; flex: 0 0 auto; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; transform: rotate(0deg); transform-box: view-box; transform-origin: 50% 50%; transition: transform 150ms cubic-bezier(.2, .8, .2, 1); }
+.details-chevron { width: 12px; height: 12px; }
+.dropdown-chevron { width: 14px; height: 14px; align-self: center; transform: rotate(90deg); }
+.connection-advanced-setting { min-height: 30px; display: flex; align-items: center; gap: 8px; padding: 5px 6px; color: var(--soft); font-size: calc(10.5px * var(--text-scale, 1)); cursor: pointer; }
+.connection-advanced-setting + .connection-advanced-setting { border-top: 1px solid var(--edge); }
+.connection-advanced-setting .sw { transform: scale(.82); transform-origin: right center; }
+.setup-optional > summary::-webkit-details-marker { display: none; }
+details.connector[open] > summary .connector-chevron { transform: rotate(90deg); }
+.lede .btn { flex: none; min-height: 34px; }
+.step-mark::before { content: counter(setup-step); }
+.step.is-done .step-mark::before { display: none; }
+.step.is-done .step-mark .tick { display: block; }
+@media (max-width: 520px) {
+  .lede { align-items: flex-start; flex-direction: column; }
+  .wizard { gap: 10px; }
+  .step { grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 16px; }
+  .wizard.is-tidy .step.is-done { padding-inline: 14px; }
+}
+.worker-toggle .disclosure-chevron { width: 12px; height: 12px; }
+.worker-toggle[aria-expanded="true"] .disclosure-chevron { transform: rotate(90deg); }
+:where(.setup-optional, .session-diagnostics, .connection-runtime)[open] > summary .details-chevron { transform: rotate(90deg); }
+

@@ -1,0 +1,248 @@
+/* Permissions styles. */
+
+.perm + .perm {
+  border-top: 1px solid var(--line);
+}
+
+/* The row is a container, not a control: the name expands the group, the switch turns it on. Two separate targets, so neither click can mean the other. */
+.perm-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+}
+
+.perm-head:hover {
+  background: var(--hover);
+}
+
+.perm-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.perm-main > .ico:first-child {
+  color: var(--faint);
+}
+
+.perm.is-on .perm-main > .ico:first-child {
+  color: var(--ink);
+}
+
+.perm-main b {
+  font-size: calc(13.5px * var(--text-scale, 1));
+  font-weight: 550;
+  display: block;
+}
+
+.perm-main em {
+  font-style: normal;
+  font-size: calc(11.5px * var(--text-scale, 1));
+  color: var(--faint);
+}
+
+.perm.is-on .perm-main em {
+  color: var(--soft);
+}
+
+.perm-main .chev { width: 13px; height: 13px; color: var(--faint); }
+
+.perm.is-open .perm-main .chev {
+  transform: rotate(90deg);
+}
+
+.perm.is-locked {
+  opacity: 0.55;
+}
+
+/* The switch. A real checkbox underneath, so the keyboard still works. */
+.sw {
+  margin-left: auto;
+  flex: 0 0 auto;
+  position: relative;
+  width: 34px;
+  height: 20px;
+}
+
+.sw input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sw i {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--pill);
+  background: var(--track);
+  transition: background 0.15s;
+  pointer-events: none;
+}
+
+.sw i::after {
+  content: '';
+  position: absolute;
+  inset: 2px auto 2px 2px;
+  width: 16px;
+  border-radius: 50%;
+  background: var(--knob-off);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
+  transition: transform 0.15s, background 0.15s;
+}
+
+.sw input:checked + i {
+  background: var(--blue);
+}
+
+.sw input:checked + i::after {
+  transform: translateX(14px);
+  background: var(--knob-on);
+}
+
+.sw input:indeterminate + i {
+  background: var(--blue-line);
+}
+
+.sw input:indeterminate + i::after {
+  transform: translateX(7px);
+}
+
+.sw input:focus-visible + i {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.sw input:disabled + i {
+  opacity: 0.5;
+}
+
+/* Individual tools, revealed one group at a time so nothing else moves. The left inset lines the rows up under the group's title rather than under its icon; the other three sides match the header's own 14/9, so the block sits square inside the card instead of being pushed against its right edge. */
+.tools {
+  display: none;
+  padding: 2px 16px 10px;
+}
+
+.perm.is-open .tools {
+  display: grid;
+  gap: 2px;
+}
+
+/* One capability checkbox inside a permission group. Scoped to `.tools` on purpose. This used to be a bare `.tool`, which also matched the expanded tool call in the Chat timeline — a `<details class="tool">` further down this file that never sets `display` of its own. That made the timeline's `<details>` a flex container, so its `<summary>` and its `.raw` body became siblings laid out side by side: the arguments/result panel appeared pinned to the right edge of the card and clipped, instead of opening underneath the row it belongs to. */
+.tools .tool {
+  /* Two columns — the box, then everything else — rather than a flex row. Both are the same picture when a row has a checkbox; the grid is what makes the rows *without* one line up, because the text column starts in the same place whether or not the first cell is filled. The flex version had to reproduce that with a padding of 28 + 14 + 10 worked out by hand, which is the sort of arithmetic that quietly stops matching the moment a number above changes. */
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  /* Centred on the row, not pinned to its first line. These rows are two lines — a name and a sentence explaining it — and a box parked against the top of the taller ones made the column of ticks read as ragged even though every row was the same width. */
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 30px;
+  border: 0;
+  border-radius: var(--r-sm);
+  font-size: calc(12.5px * var(--text-scale, 1));
+  color: var(--soft);
+  cursor: pointer;
+}
+
+/* The row is the target, so it says so. Replaces the per-row hairline, which drew a box around text that was never a container and left four stacked outlines in a group. */
+.tools .tool:hover {
+  background: var(--hover);
+}
+
+.tools .tool input {
+  appearance: none;
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--edge);
+  border-radius: var(--r-xs);
+  background: var(--card);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.tools .tool input:checked {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+/* The tick: two borders of an empty box, turned. `place-items: center` on the box above already puts it in the middle, and a rotation is about the element's own centre, so it stays there — the nudge this used to carry only moved it back off again. */
+.tools .tool input:checked::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border: 1.6px solid var(--page);
+  border-top: 0;
+  border-right: 0;
+  transform: rotate(-45deg);
+}
+
+.tools .tool input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tools .tool strong {
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.tools .tool em {
+  display: block;
+  font-style: normal;
+  font-size: calc(11.5px * var(--text-scale, 1));
+  color: var(--faint);
+}
+
+/* Informational rows inside the Sub-agents group. The group has one master exposure switch, so drawing six fake per-tool checkboxes would imply controls that do not exist. */
+.tools .tool.is-static {
+  cursor: default;
+}
+
+/* Nothing in the checkbox column, so the text starts in the second one and lands exactly where a ticked row's text does, without a padding computed to match. */
+.tools .tool.is-static span {
+  grid-column: 2;
+}
+
+.tools .tool.is-static:hover {
+  background: none;
+}
+
+/* The tools this group actually publishes, named as the model sees them. Set apart from the rows above because it is a fact about the connector, not another thing to tick. */
+.tool-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 5px 0 1px 30px;
+}
+
+.tool-names code {
+  padding: 2px 8px;
+  border-radius: var(--pill);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  color: var(--faint);
+  font-size: calc(10.5px * var(--text-scale, 1));
+}
+
+.command-allowlist { display: grid; gap: 8px; padding: 12px 0 2px; border-top: 1px solid var(--line); }
+.command-allowlist-toggle { padding: 0; }
+.command-policy-mode { justify-self: start; }
+.command-allowlist-label { font-size: 12px; font-weight: 650; }
+.command-allowlist textarea { width: 100%; min-height: 104px; resize: vertical; font: 12px/1.45 var(--mono); }
+.command-allowlist .hint { margin: 0; }
+.command-allowlist-error { margin: 0; color: var(--red); font-size: 12px; }
+

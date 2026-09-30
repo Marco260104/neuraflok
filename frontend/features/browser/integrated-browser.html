@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src data:; base-uri 'none'; form-action 'none'" />
+  <link rel="stylesheet" href="../../icons.css" />
+  <link rel="stylesheet" href="./integrated-browser.css" />
+  <title>NEURAFLOK Browser</title>
+</head>
+<body>
+  <header class="browser-toolbar">
+    <nav class="browser-navigation" aria-label="Browser navigation">
+      <button class="browser-control" id="back" type="button" title="Back" aria-label="Back" disabled><i class="ph ph-arrow-left" aria-hidden="true"></i></button>
+      <button class="browser-control" id="forward" type="button" title="Forward" aria-label="Forward" disabled><i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+      <button class="browser-control" id="reload" type="button" title="Reload" aria-label="Reload" disabled><i class="ph ph-arrow-clockwise" id="reloadGlyph" aria-hidden="true"></i></button>
+    </nav>
+    <div class="browser-tabs" id="tabs" role="tablist" aria-label="Browser tabs"></div>
+    <button class="browser-extension-control" id="extensionControl" type="button" title="NEURAFLOK extension, status unknown" aria-label="NEURAFLOK extension, status unknown">
+      <span class="browser-extension-mark" id="extensionMark" aria-hidden="true" hidden></span>
+      <i class="ph ph-puzzle-piece" id="extensionFallback" aria-hidden="true"></i>
+      <span class="browser-extension-status" id="extensionStatus" data-state="unknown" aria-hidden="true"></span>
+      <span class="screen-reader-only" id="extensionAnnouncement" role="status" aria-live="polite">Browser extension status unknown</span>
+    </button>
+  </header>
+  <script type="module" src="./toolbar/entry.ts"></script>
+</body>
+</html>

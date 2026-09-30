@@ -1,0 +1,296 @@
+/* Timeline styles. */
+
+#timeline {
+  padding: 8px 0 10px;
+}
+#timeline:has(+ #inputQueue > .pending-message) { padding-bottom: 0; }
+/* Reserve follows recorded AND pending messages, never separates their bubbles. */
+#timelineContent { padding-bottom: var(--timeline-scroll-reserve, 0px); }
+/* Back to the end: a quiet round button pinned to the bottom of the chat, shown only when content lies below. A zero-height sticky dock keeps it out of the content's flow. */
+.jump-latest-dock { position: sticky; bottom: 14px; z-index: 5; height: 0; display: flex; justify-content: center; pointer-events: none; }
+.jump-latest { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; transform: translateY(calc(-100% + 8px)); border: 1px solid var(--edge); border-radius: 50%; background: var(--card); color: var(--soft); box-shadow: 0 4px 16px #0003; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity 160ms ease, transform 160ms ease; }
+.jump-latest.is-shown { opacity: 1; pointer-events: auto; transform: translateY(-100%); }
+.jump-latest:hover { color: var(--ink); background: var(--hover); }
+.jump-latest .ico { --ico: 16px; --glyph: 16px; }
+@media (prefers-reduced-motion: reduce) { .jump-latest { transition: none; } }
+
+.ev {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.ev > time {
+  display: none;
+  padding-top: 2px;
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--text-scale, 1));
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-body {
+  min-width: 0;
+}
+
+/* Activity is a compact log; authored messages keep their own breathing room. */
+.ev-tool_call, .ev-page_tool, .ev-agent_message {
+  padding: 1px 0;
+}
+
+.ev-turn_start {
+  margin-top: 6px;
+}
+
+.meta {
+  font-size: calc(12px * var(--text-scale, 1));
+  color: var(--faint);
+}
+
+.meta.is-progress {
+  color: var(--soft);
+  font-weight: 520;
+  letter-spacing: 0.005em;
+}
+
+.thinking-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Page activity shares the tool row's rhythm: same height, icon column, face and weight, so a mixed run of calls and page steps reads as one aligned list. */
+.meta.is-progress.thinking-line {
+  min-height: var(--activity-row);
+  font-size: var(--activity-size);
+  font-weight: 450;
+  letter-spacing: 0;
+}
+
+.thinking-ico {
+  --ico: 14px;
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.meta.is-warn {
+  color: var(--soft);
+  font-weight: 600;
+}
+
+
+.meta.is-bad {
+  color: var(--red);
+}
+
+.meta.is-good {
+  color: var(--green);
+}
+
+.said { padding: 8px 0; border-radius: 0; background: transparent; }
+/* Copy and export under a completed turn's answer: quiet until pointed at, like the answer's own text. The export menu is anchored to its button and flips at the window edge; it enters like the composer menus and fades out while ::details-content keeps it painted. */
+/* A completed turn's duration above its answer: quiet text on a hairline, the boundary between the turn's work and what it says. */
+.turn-worked { margin: 12px 0 8px; padding-bottom: 9px; border-bottom: 1px solid var(--line); color: var(--faint); font-size: calc(12.5px * var(--text-scale, 1)); font-weight: 500; letter-spacing: .01em; line-height: 18px; font-variant-numeric: tabular-nums; }
+.turn-worked[hidden] { display: none; }
+/* While the turn works, a light sheen passes through the words (not the rule under them). */
+.turn-status.is-working .turn-worked-label {
+  color: transparent;
+  background: linear-gradient(100deg, var(--faint) 38%, var(--ink) 50%, var(--faint) 62%) 0 0 / 260% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  animation: turn-sheen 4.2s ease-in-out infinite;
+}
+@keyframes turn-sheen { from { background-position: 130% 0; } to { background-position: -130% 0; } }
+/* What the turn does right now: a running step shares the activity rows' rhythm and wears its eventual icon. A quiet three-bar cue marks provider thinking. A new state fades in where the last one was; a long label truncates rather than wrapping. */
+.turn-now[hidden] { display: none; }
+.turn-now-icon { flex: none; display: grid; place-items: center; width: 14px; height: 14px; color: var(--accent); }
+.turn-now-icon .ico { --ico: 14px; }
+.turn-now-body { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* Every state holds the same slot, set apart from the rows above, so a change of state never moves it. */
+.meta.is-progress.thinking-line.turn-now { margin-top: 14px; }
+.meta.is-progress.thinking-line.turn-now.is-thinking { gap: 10px; font-weight: 500; }
+.turn-now.is-thinking .turn-now-icon { width: 14px; height: 14px; animation: none; }
+.turn-now.is-thinking .turn-now-icon::before { content: none; }
+.turn-now-text {
+  min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--ink);
+}
+.turn-now-time { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
+.turn-now-time:empty { display: none; }
+.turn-now.is-new { animation: none; }
+@keyframes turn-now-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .turn-status.is-working .turn-worked-label { animation: none; color: var(--soft); background: none; }
+  .turn-now.is-new, .turn-now-icon { animation: none; }
+  .turn-now-text { animation: none; color: var(--soft); background: none; }
+}
+/* The status now opens each turn in the timeline; the header shows it only in developer mode. */
+.subhead-note.is-mirrored { display: none; }
+.subhead:has(#chatState.is-mirrored) { display: none; }
+.answer-actions { display: flex; align-items: center; gap: 2px; margin: 8px 0 0 -6px; }
+.answer-action { display: grid; place-items: center; width: 28px; height: 28px; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: var(--faint); cursor: pointer; list-style: none; }
+.answer-action::-webkit-details-marker { display: none; }
+.answer-action .ico { --ico: 16px; --glyph: 16px; }
+.answer-action:hover, .answer-export[open] > .answer-action { background: var(--hover); color: var(--ink); }
+.answer-action:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.answer-action.is-done { color: var(--green); }
+.answer-export { anchor-scope: --answer-export; }
+.answer-export > summary { anchor-name: --answer-export; }
+.answer-export::details-content { transition: content-visibility 120ms allow-discrete; }
+.answer-export[open]::details-content { transition: none; }
+.answer-export-menu { position: fixed; z-index: 40; position-anchor: --answer-export; position-area: bottom span-right; margin-top: 6px; position-try-fallbacks: flip-block, flip-inline; display: grid; gap: 2px; min-width: 170px; padding: 5px; border: 1px solid var(--edge); border-radius: 10px; background: var(--card); box-shadow: 0 8px 28px #0003; opacity: 0; transform: translateY(4px); transition: opacity 120ms ease-in, transform 120ms ease-in; pointer-events: none; }
+.answer-export[open] > .answer-export-menu { opacity: 1; transform: none; transition: none; pointer-events: auto; animation: surface-in 140ms ease-out; }
+.answer-export-choice { display: flex; align-items: center; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: calc(12.5px * var(--text-scale, 1)); text-align: left; cursor: pointer; }
+.answer-export-choice:hover, .answer-export-choice:focus-visible { background: var(--hover); outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  .answer-export::details-content, .answer-export-menu { transition: none; transform: none; animation: none !important; }
+}
+
+.said.is-user { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding: 0; margin: 4px 0 4px auto; max-width: 82%; width: fit-content; }
+/* Reserve once, before native reaction metadata arrives. Badge changes never alter the bubble, attachments or the next row's geometry. */
+.said.is-user.has-reaction-slot { position: relative; margin-bottom: 26px; }
+.message-reaction { position: absolute; inset-inline-end: 12px; top: calc(100% - 4px); width: 28px; height: 28px; display: grid; place-items: center; border: 2px solid var(--page); border-radius: 50%; background: var(--card); font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif; font-size: calc(17px * var(--text-scale, 1)); line-height: 1; user-select: none; }
+.said.is-user.has-reaction-slot.has-input-receipt { margin-bottom: 26px; }
+/* Delivery stays at the right edge; a reaction shares the footer to its left. */
+.has-reaction-slot.has-input-receipt > .message-reaction { inset-inline-end: 30px; }
+.user-message-text, .pending-message-text { max-width: 100%; padding: 16px 20px; border-radius: 20px; background: var(--hover); }
+
+.said b {
+  display: none;
+  font-size: calc(10px * var(--text-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.msg {
+  font-size: calc(15px * var(--text-scale, 1));
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: none;
+  overflow: visible;
+}
+
+.msg.rich {
+  white-space: normal;
+  line-height: 1.5;
+}
+
+/* Plain messages keep independent bidi paragraphs, including mixed-language pastes. Direction stays on text surfaces; the app shell and action rows do not mirror. */
+.msg:not(.rich), .pending-message-text { unicode-bidi: plaintext; text-align: start; }
+.msg.rich, textarea[dir='auto'], .queue-label[dir='auto'] { text-align: start; }
+.msg.rich :is(pre, code, kbd) { unicode-bidi: isolate; }
+
+.msg.rich > :first-child {
+  margin-top: 0;
+}
+
+.msg.rich > :last-child {
+  margin-bottom: 0;
+}
+
+.msg.rich p,
+.msg.rich ul,
+.msg.rich ol,
+.msg.rich blockquote,
+.msg.rich pre,
+.msg.rich table,
+.msg.rich h1,
+.msg.rich h2,
+.msg.rich h3,
+.msg.rich h4,
+.msg.rich h5,
+.msg.rich h6 {
+  margin: 0.55em 0;
+}
+
+.msg.rich ul,
+.msg.rich ol {
+  padding-inline-start: 1.6em;
+}
+
+.msg.rich blockquote {
+  margin-inline-start: 0;
+  padding-inline-start: 0.8em;
+  border-inline-start: 2px solid var(--line);
+  color: var(--soft);
+}
+
+.msg.rich blockquote.native-prompt-readonly {
+  padding: 0.65em 0.9em;
+  border-radius: var(--r-sm);
+  background: var(--wash);
+  color: var(--ink);
+}
+.msg.rich .native-prompt-readonly li { margin: 0.2em 0; }
+.msg.rich .native-prompt-readonly em { color: var(--soft); font-size: 0.9em; }
+
+.msg.rich code {
+  font-family: var(--mono);
+  font-size: 0.94em;
+  padding: 0.08em 0.28em;
+  border-radius: var(--r-xs);
+  background: var(--wash);
+}
+
+.msg.rich pre {
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--wash);
+  white-space: pre;
+}
+
+.msg.rich pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.msg.rich .markdown-code {
+  margin: 0.55em 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.msg.rich .markdown-code pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.msg.rich a {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+.msg.rich .markdown-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.msg.rich table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.msg.rich th,
+.msg.rich td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  /* `start`, not `left`: a table inside a right-to-left answer aligns with its own text. */
+  text-align: start;
+  vertical-align: top;
+}
+
+.cut {
+  color: var(--faint);
+  font-style: italic;
+}
+

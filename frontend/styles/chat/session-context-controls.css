@@ -1,0 +1,60 @@
+/* Contextual controls: normal chat contains prose and work, diagnostics stay optional. */
+#workspaceSettings { flex: 1; min-height: 36px; height: 36px; justify-content: flex-start; text-align: left; font-size: calc(13px * var(--text-scale, 1)); padding: 8px 10px; border: 0; border-radius: 9px; }
+#chatSettingsBtn { display: none; }
+.picker-chevron { flex: none; width: 14px; height: 14px; }
+.send-control { position: relative; }
+.send-options { display: none; position: absolute; bottom: 100%; right: -8px; padding-bottom: 12px; width: 190px; z-index: 40; }
+.send-control:hover .send-options:not([hidden]), .send-control:focus-within .send-options:not([hidden]) { display: block; }
+.delivery-choices { display: grid; gap: 2px; padding: 5px; border: 1px solid var(--edge); border-radius: 12px; background: var(--popover, var(--card)); box-shadow: 0 8px 25px #0004; animation: surface-in 120ms ease-out; }
+.delivery-choices button { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: calc(13px * var(--text-scale, 1)); cursor: pointer; text-align: left; }
+.delivery-choices button:hover, .delivery-choices button:focus-visible { background: var(--hover); }
+.delivery-choices button[aria-checked='false'] .ico { visibility: hidden; }
+.send-button.is-stop > .send-icon { display: none; }
+.send-button.is-stop::after { content: ''; width: 12px; height: 12px; border-radius: 2px; background: currentColor; }
+.agent-communication > summary { display: flex; gap: 8px; align-items: center; min-height: var(--activity-row); cursor: pointer; color: var(--soft); font-size: var(--activity-size); }
+.agent-communication > .msg { margin: 12px 0 0 24px; }
+.agent-chat-open { margin: 10px 0 2px 24px; padding: 5px 0; gap: 7px; border-radius: 4px; color: var(--soft); font-size: calc(12px * var(--text-scale, 1)); font-weight: 500; }
+.agent-chat-open:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.agent-chat-open:hover span { text-decoration: underline; text-underline-offset: 3px; }
+.agent-chat-open:focus-visible { outline: 2px solid var(--soft); outline-offset: 4px; }
+.agent-chat-open .ico { --ico: 13px; }
+.queue-label[draggable='true'] { cursor: grab; }
+.queue-label[draggable='true']:active { cursor: grabbing; }
+.queue-label[draggable='true']:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 3px; }
+
+.project-group { margin: 8px 0; }
+.project-group[data-sort-scope] { position: relative; }
+.project-heading { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 6px 6px 6px 8px; border-radius: 8px; list-style: none; }
+/* Like a chat row: the row lights up under the pointer, and its menu button sits in the chats' column. */
+.project-heading:hover, .project-heading:has(.project-menu[aria-expanded='true']) { background: var(--hover); }
+.project-heading[data-sort-handle] { cursor: grab; user-select: none; }
+.project-heading::-webkit-details-marker { display: none; }
+.project-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A project's color tints its folder; the menu (⋯ or a right click) changes it. */
+.project-group[data-project-color='blue'] > .project-heading > .ico { color: #4c7fc1; }
+.project-group[data-project-color='green'] > .project-heading > .ico { color: #3f9b68; }
+.project-group[data-project-color='amber'] > .project-heading > .ico { color: #c38b2f; }
+.project-group[data-project-color='purple'] > .project-heading > .ico { color: #8063b2; }
+.project-group[data-project-color='rose'] > .project-heading > .ico { color: #bd5d72; }
+.project-group[data-project-color='teal'] > .project-heading > .ico { color: #388f91; }
+/* One "⋯" per row, shown on hover or focus and while its menu is open. */
+.row-menu-button { display: grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--faint); }
+.row-menu-button:hover, .row-menu-button[aria-expanded='true'] { color: var(--ink); background: var(--hover); }
+.row-menu-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The new chat button and the menu appear together, on hover or focus and while the menu is open. */
+:is(.project-new, .project-menu) { opacity: 0; transition: opacity 120ms ease; }
+@media (prefers-reduced-motion: reduce) { :is(.project-new, .project-menu) { transition: none; } }
+.project-heading:is(:hover, :focus-within, :has(.project-menu[aria-expanded='true'])) :is(.project-new, .project-menu) { opacity: 1; }
+/* Its center 27px from the menu's, where a chat row's sub-agent arrow sits beside its "⋯" on hover. */
+.project-heading > .project-new { width: 24px; margin-inline-end: -7px; }
+/* Heading: 8px padding + 17px folder + 9px gap. Rows already supply 10px padding. */
+.project-group > .sess, .project-group > .worker-group { margin-inline-start: 24px; }
+.project-show-more { margin-inline-start: 34px; color: var(--faint); font-size: calc(14px * var(--text-scale, 1)); padding: 6px 0; border: 0; background: transparent; }
+.sess[data-sort-scope] .sess-top { cursor: grab; user-select: none; }
+.sess-top:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 5px; }
+#sessionList.is-sorting, #sessionList.is-sorting * { cursor: grabbing; user-select: none; }
+:is(.sess, .project-group).is-sorting { opacity: .45; }
+:is(.sess, .project-group).sort-before::before, :is(.sess, .project-group).sort-after::after { content: ''; position: absolute; inset-inline: 0; height: 2px; border-radius: 2px; background: var(--blue); pointer-events: none; }
+:is(.sess, .project-group).sort-before::before { top: -2px; }
+:is(.sess, .project-group).sort-after::after { bottom: -2px; }
+

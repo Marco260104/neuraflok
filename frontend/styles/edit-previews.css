@@ -1,0 +1,205 @@
+/* Theme-aware layout for recorded edits and unified diffs. */
+.edit-cards {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.edit-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--page);
+}
+
+.edit-card-header {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto 12px;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--ink);
+  font: calc(11px * var(--text-scale, 1)) var(--mono);
+}
+
+.edit-card-header::-webkit-details-marker {
+  display: none;
+}
+
+.edit-card-header .ico {
+  --ico: 14px;
+}
+
+.edit-card-header b {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-card-header > .meta {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  color: var(--faint);
+}
+
+.edit-card-header:hover,
+.edit-card[open] > .edit-card-header {
+  background: var(--hover);
+}
+
+.edit-card-header:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.edit-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform 160ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.edit-card[open] > summary .edit-chevron {
+  transform: rotate(90deg);
+}
+
+.edit-card-path {
+  padding: 0 10px 8px;
+  color: var(--faint);
+  font: calc(10px * var(--text-scale, 1)) var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.edit-card-controls {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 8px;
+  border-block-end: 1px solid var(--line);
+  background: var(--card);
+}
+
+.tool .edit-card-controls .tool-copy {
+  margin: 0;
+  opacity: 1;
+}
+
+.tool .edit-card-controls .tool-copy:disabled {
+  display: inline-block;
+  opacity: .5;
+}
+
+.unified-diff {
+  max-block-size: 20rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  direction: ltr;
+  font: calc(11px * var(--text-scale, 1)) / 1.65 var(--mono);
+}
+
+.edit-card.is-expanded .unified-diff {
+  max-block-size: min(40rem, 65vh);
+}
+
+.unified-diff:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 4ch 4ch 2.5ch minmax(0, 1fr);
+  min-width: 0;
+}
+
+.diff-line.is-added {
+  background: var(--green-wash);
+}
+
+.diff-line.is-removed {
+  background: var(--red-wash);
+}
+
+.diff-line.is-gap {
+  background: var(--sunk);
+  color: var(--faint);
+}
+
+.diff-gutter {
+  padding-inline-end: 6px;
+  border-inline-end: 1px solid var(--line);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  user-select: none;
+}
+
+.diff-sign {
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  user-select: none;
+}
+
+.diff-line.is-added .diff-sign,
+.metric-added {
+  color: var(--green);
+}
+
+.diff-line.is-removed .diff-sign,
+.metric-removed {
+  color: var(--red);
+}
+
+.diff-code {
+  min-width: 0;
+  padding-inline: 7px;
+  font: inherit;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.diff-code .tok-keyword {
+  color: var(--syntax-keyword);
+}
+
+.diff-code .tok-string {
+  color: var(--syntax-string);
+}
+
+.diff-code .tok-number,
+.diff-code .tok-bool {
+  color: var(--syntax-number);
+}
+
+.diff-code .tok-comment {
+  color: var(--syntax-comment);
+}
+
+@media (max-width: 520px) {
+  .edit-card-header {
+    column-gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .diff-line {
+    grid-template-columns: 3.5ch 3.5ch 2.25ch minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edit-chevron {
+    transition: none;
+  }
+}

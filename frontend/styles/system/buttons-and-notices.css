@@ -1,0 +1,157 @@
+/* Quiet button styles. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  padding: 5px 10px;
+  font: inherit;
+  font-size: calc(12px * var(--text-scale, 1));
+  font-weight: 550;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition-property: background-color, color, transform, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
+}
+
+.btn:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn .ico {
+  --ico: 15px;
+}
+
+.btn.is-on {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.btn-solid {
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 7px 13px;
+  font-size: calc(12.5px * var(--text-scale, 1));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn-solid:hover:not(:disabled) {
+    background: var(--hover);
+  }
+}
+
+.btn-quiet {
+  padding: 2px 4px;
+}
+
+.btn-icon {
+  padding: 7px;
+}
+
+/* A two-button segmented control, used for the log filter. */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+}
+
+.seg button {
+  border: 0;
+  background: none;
+  border-radius: 6px;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: calc(11px * var(--text-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.seg button:hover {
+  color: var(--ink);
+}
+
+.seg button.is-sel {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.problems {
+  font-size: calc(11px * var(--text-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--red);
+  background: var(--red-wash);
+  border-radius: var(--pill);
+  padding: 2px 8px;
+}
+
+/* The one button in the header that asks for something rather than reporting it. Ink, the single accent this design has, so a waiting update reads as an action next to Connect. */
+.btn-install {
+  background: var(--ink);
+  color: var(--page);
+  padding: 8px 14px;
+  font-size: calc(12.5px * var(--text-scale, 1));
+  font-weight: 600;
+}
+
+.btn-install:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--page);
+  filter: brightness(1.35);
+}
+
+:root[data-theme='dark'] .btn-install:hover:not(:disabled) {
+  filter: brightness(0.86);
+}
+
+/* Notice styles. */
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  font-size: calc(12px * var(--text-scale, 1));
+  color: var(--ink);
+  background: var(--wash);
+  border-bottom: 1px solid var(--line);
+}
+
+.notice .ico {
+  flex: none;
+  color: var(--blue);
+}
+
+.notice span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A state that blocks sending, not a tip: stated in weight, as `.hint.is-warn` does. */
+.notice.is-warn span { font-weight: 600; }
+.notice.is-warn .ico { color: var(--ink); }
+

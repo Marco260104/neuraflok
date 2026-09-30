@@ -1,0 +1,305 @@
+/* Remaining chrome: concentric radii, named motion, cool graphite surfaces. */
+
+.eyebrow {
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+.send-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--accent-fill, var(--accent));
+  color: var(--on-accent, var(--page));
+  box-shadow: var(--shadow-border);
+  transition-property: background-color, transform, opacity, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+.send-button > .send-icon { transform: translateY(-0.5px); }
+@media (hover: hover) and (pointer: fine) {
+  .send-button:not(:disabled):hover { box-shadow: var(--shadow-border-hover); }
+}
+.send-button:not(:disabled):active { transform: scale(0.96); }
+.send-button.is-stop::after { border-radius: 3px; }
+
+.composer :is(#attachmentMenu > summary, #composerSettings > summary, #createPlan, #contextMeterButton) {
+  border-radius: var(--r-sm);
+  transition-property: background-color, color, transform;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+.composer-menu > summary { border-radius: var(--r-sm); }
+.composer-popover {
+  border: 1px solid transparent;
+  border-radius: calc(var(--r-md) + 6px);
+  box-shadow: var(--shadow-border), var(--lift);
+  overscroll-behavior: contain;
+}
+.composer-popover button { border-radius: var(--r-sm); }
+.composer-selected-skill {
+  color: var(--ink);
+  background: var(--sunk);
+  border-color: transparent;
+  box-shadow: var(--shadow-border);
+  border-radius: var(--pill);
+}
+.composer-image img {
+  outline: 1px solid var(--image-outline);
+  outline-offset: -1px;
+}
+
+.user-message-text, .pending-message-text {
+  border-radius: calc(var(--r-md) + 4px);
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.jump-latest {
+  border-radius: var(--r-sm);
+  border-color: transparent;
+  box-shadow: var(--shadow-border), var(--lift);
+  transition-property: opacity, transform, background-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+.answer-action { border-radius: var(--r-sm); }
+.answer-export-menu { border-radius: var(--r-md); overscroll-behavior: contain; }
+
+.sess { border-radius: var(--r-sm); }
+.project-heading { border-radius: var(--r-sm); }
+.sess-rename { border-radius: var(--r-sm); }
+
+:is(.work-dock-tab, .terminal-tab) { border-radius: var(--r-sm); }
+.work-dock-bar > .btn, .work-dock-add > summary,
+:is(.work-dock-add > summary, .terminal-bar .terminal-panel-close, .file-panel-refresh.btn-icon),
+.header-dock-controls > .btn {
+  border-radius: var(--r-sm);
+  transition-property: background-color, color, transform;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+.work-dock-menu { border-radius: calc(var(--r-md) + 4px); overscroll-behavior: contain; }
+
+input[type='text'],
+input[type='password'],
+input[type='number'],
+textarea,
+select {
+  border-radius: var(--r-sm);
+  background: var(--sunk);
+  border-color: transparent;
+  box-shadow: 0 0 0 1px var(--edge);
+  transition-property: background-color, box-shadow, color;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+input[type='text']:focus,
+input[type='password']:focus,
+input[type='number']:focus,
+textarea:focus,
+select:focus {
+  box-shadow: 0 0 0 1px var(--accent-edge), 0 0 0 4px var(--ring);
+}
+select::picker(select) { border-radius: var(--r-md); }
+select option { border-radius: var(--r-sm); }
+
+.sw i {
+  transition: background-color 150ms var(--ease-out);
+}
+.sw i::after {
+  transition: transform 150ms ease-out, background-color 150ms var(--ease-out);
+}
+.sw input:checked + i { background: var(--accent); }
+
+.appearance-preview {
+  min-height: 220px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--r-md) + 8px);
+  box-shadow: var(--shadow-border);
+}
+.appearance-preview-sidebar {
+  gap: 10px;
+  padding: 18px 14px;
+}
+.appearance-preview-sidebar .brand-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  background: #101418;
+  color: #e8eef3;
+  padding: 4px;
+}
+.appearance-preview-sidebar span { border-radius: var(--r-xs); height: 8px; }
+.appearance-preview-sidebar .is-selected {
+  height: 26px;
+  margin: 0;
+  border-radius: var(--r-sm);
+  border-color: transparent;
+  box-shadow: 0 0 0 1px var(--accent-edge);
+  background: var(--accent-wash);
+}
+.appearance-preview-chat { gap: 10px; padding: 18px; }
+.appearance-preview-message { gap: 10px; }
+.appearance-preview-avatar {
+  min-height: 24px;
+  border-radius: var(--r-sm);
+  font-size: calc(10px * var(--text-scale, 1));
+  font-weight: 600;
+}
+.appearance-preview-message pre { border-radius: var(--r-sm); border-color: transparent; box-shadow: var(--shadow-border); }
+.appearance-preview-composer {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-border);
+}
+.appearance-preview-composer b {
+  width: 26px;
+  border-radius: var(--r-sm);
+}
+
+.appearance-color {
+  gap: 10px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--sunk);
+  box-shadow: var(--shadow-border);
+}
+.appearance-color input[type='color'] {
+  width: 28px;
+  height: 28px;
+}
+.appearance-color input[type='color']::-webkit-color-swatch {
+  border-radius: 50%;
+}
+.appearance-range input {
+  accent-color: var(--accent);
+}
+.appearance-panel .setting select {
+  min-height: 34px;
+  border-radius: var(--r-sm);
+  background: var(--sunk);
+}
+
+.wizard > .step.is-open {
+  padding: 24px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--r-md) + 8px);
+  background: var(--card);
+  box-shadow: var(--shadow-border);
+  animation: pane-enter 300ms var(--ease-out) both;
+}
+.setup-board .wizard > .step.is-open {
+  padding: 4px 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.setup-board .setup-rail button { border-radius: var(--r-sm); }
+.setup-board .access-choice .browser-option {
+  border-radius: calc(var(--r-md) + 4px);
+  background: var(--card);
+  box-shadow: var(--shadow-border);
+}
+.setup-board .access-choice .browser-option[aria-checked="true"] {
+  background: var(--accent-wash);
+  box-shadow: 0 0 0 1px var(--accent-edge);
+}
+.browser-option {
+  border-radius: calc(var(--r-md) + 4px);
+  transition-property: background-color, box-shadow, transform;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+.browser-option:not(:disabled):active { transform: scale(0.96); }
+.step-art { border-radius: var(--r-lg); }
+.step-art .ph { border-radius: var(--r-lg); }
+.ready-badge { border-radius: 50%; }
+.ready-check { border-radius: var(--r-sm); }
+.setup-rail-mark { border-radius: 50%; }
+
+.skill-page-head h1 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.skill-add, .skill-import-menu > summary.skill-add {
+  border-radius: var(--r-md);
+  border-color: transparent;
+  box-shadow: var(--shadow-border);
+}
+.skill-library-card .skill-entry {
+  border-radius: calc(var(--r-md) + 4px);
+  background: var(--card);
+  box-shadow: var(--shadow-border);
+  transition-property: background-color, box-shadow, transform;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+.skill-library-icon { border-radius: var(--r-md); }
+.skill-dialog {
+  border: 1px solid transparent;
+  border-radius: calc(var(--r-md) + 8px);
+  box-shadow: var(--shadow-border), var(--lift);
+  overscroll-behavior: contain;
+}
+
+.search-dialog {
+  border-radius: calc(var(--r-md) + 8px);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-border), var(--lift);
+  overscroll-behavior: contain;
+}
+.search-result { border-radius: var(--r-sm); }
+
+.row-menu, .row-menu-leaving {
+  border-radius: calc(var(--r-md) + 4px);
+  border-color: transparent;
+  box-shadow: var(--shadow-border), var(--lift);
+  overscroll-behavior: contain;
+}
+.row-menu-item { border-radius: var(--r-sm); }
+
+.language-tabs { border-radius: var(--r-md); padding: 4px; }
+.language-tabs button { border-radius: var(--r-sm); }
+
+.seg { border-radius: var(--r-sm); }
+.seg button { border-radius: 6px; }
+
+.composer-popover .model-picker-connect,
+.composer-popover .model-picker-disconnect {
+  border-radius: 10px;
+  transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+}
+
+.usage-summary {
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.usage-summary > div { min-height: 96px; }
+.automation-switch { border-radius: 12px; }
+.automation-switch button { border-radius: 10px; }
+
+.field > label {
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-weight: 550;
+  color: var(--soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard > .step.is-open,
+  .skill-library-card .skill-entry,
+  .browser-option,
+  .send-button {
+    animation: none;
+  }
+  .send-button:not(:disabled):active,
+  .browser-option:not(:disabled):active,
+  .skill-library-card .skill-entry:active {
+    transform: none;
+  }
+}

@@ -1,0 +1,62 @@
+/* Activity. Grey monospace, one line per event. The only colour is red, and only when something actually failed — so a red line is always worth looking at. */
+
+.feed {
+  padding: 4px 10px 10px;
+  font-size: calc(11.5px * var(--text-scale, 1));
+  color: var(--soft);
+  font-family: var(--mono);
+}
+
+.feed p {
+  display: grid;
+  grid-template-columns: 82px 132px minmax(0, 1fr);
+  gap: 10px;
+  min-height: 26px;
+  align-items: baseline;
+  padding: 4px 8px;
+  border-radius: var(--r-xs);
+}
+
+.feed p:hover {
+  background: var(--hover);
+}
+
+.feed time {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+/* A fixed column, so the subjects line up however long they are. */
+.feed .what {
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed .rest {
+  overflow-wrap: anywhere;
+}
+
+.feed .bad,
+.feed .bad .what {
+  color: var(--red);
+}
+
+.feed.only-bad p:not(.bad) {
+  display: none;
+}
+
+[data-panel='activity'] .card {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.foot {
+  padding: 7px 14px;
+  border-top: 1px solid var(--line);
+  font-size: calc(11px * var(--text-scale, 1));
+  color: var(--faint);
+}
+
