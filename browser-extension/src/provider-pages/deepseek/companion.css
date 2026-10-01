@@ -1,0 +1,16 @@
+/* Visible companion mark on chat.deepseek.com. Isolated from the companion overlay. No bare element selectors; colour follows the page so light and dark both read. */
+#neuraflok-deepseek-badge {
+  position: fixed;
+  z-index: 2147483646;
+  right: 12px;
+  bottom: 12px;
+  pointer-events: none;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font: 600 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  color: currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  opacity: 0.85;
+}

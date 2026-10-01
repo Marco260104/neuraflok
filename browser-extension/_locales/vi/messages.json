@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "Tiện ích đồng hành NEURAFLOK"
+  },
+  "extension_description": {
+    "message": "Kết nối NEURAFLOK với các phiên trình duyệt đã đăng nhập của DeepSeek, Kimi, Qwen và Z AI."
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

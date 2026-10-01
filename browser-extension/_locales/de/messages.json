@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "NEURAFLOK-Browserbegleiter"
+  },
+  "extension_description": {
+    "message": "Verbindet NEURAFLOK mit angemeldeten Browsersitzungen von DeepSeek, Kimi, Qwen und Z AI."
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

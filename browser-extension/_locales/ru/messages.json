@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "Браузерный компаньон NEURAFLOK"
+  },
+  "extension_description": {
+    "message": "Подключает NEURAFLOK к авторизованным сессиям DeepSeek, Kimi, Qwen и Z AI в браузере."
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

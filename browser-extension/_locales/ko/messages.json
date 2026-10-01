@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "NEURAFLOK 브라우저 컴패니언"
+  },
+  "extension_description": {
+    "message": "NEURAFLOK를 DeepSeek, Kimi, Qwen 및 Z AI의 로그인된 브라우저 세션에 연결합니다."
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

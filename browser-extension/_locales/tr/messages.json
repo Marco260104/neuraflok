@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "NEURAFLOK tarayıcı yardımcısı"
+  },
+  "extension_description": {
+    "message": "NEURAFLOK’i DeepSeek, Kimi, Qwen ve Z AI için açık tarayıcı oturumlarına bağlar."
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}
