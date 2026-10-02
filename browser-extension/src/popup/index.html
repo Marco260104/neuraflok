@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 NEURAFLOK contributors -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>NEURAFLOK</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="topbar">
+        <img class="brand-mark" src="../../assets/icons/icon48.png" alt="" width="34" height="34" />
+        <div class="brand-copy"><strong>NEURAFLOK</strong><span data-i18n="companion">Browser companion</span></div>
+        <button id="refreshBtn" class="icon-button" type="button" data-i18n-aria-label="refresh" data-i18n-title="refresh">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.1 8A6.4 6.4 0 0 0 5.2 5.7L3.7 7.2M3.7 7.2V3.8m0 3.4h3.4M3.9 12a6.4 6.4 0 0 0 10.9 2.3l1.5-1.5m0 0v3.4m0-3.4h-3.4" /></svg>
+        </button>
+      </header>
+
+      <section id="bridgeState" class="bridge-state" data-state="checking" role="status" aria-live="polite">
+        <span class="connection-light" aria-hidden="true"><i></i></span>
+        <span id="state" data-i18n="stateSearching">Looking for NEURAFLOK…</span>
+        <span id="port" class="port"></span>
+      </section>
+      <p id="appHint" class="app-hint" data-i18n="appHint" hidden>Open NEURAFLOK on your desktop. The connection will resume when the app is ready.</p>
+      <p id="alert" class="alert" role="alert" hidden></p>
+
+      <section class="active-session" aria-labelledby="activeTitle">
+        <div class="section-heading"><span id="activeTitle" data-i18n="activeHeading">ACTIVE TAB</span><span id="activeLabel" class="active-chip" data-i18n="noProvider">No provider</span></div>
+        <div class="active-provider">
+          <span id="activeMark" class="provider-code">NF</span>
+          <div class="active-copy"><strong id="activeProvider" data-i18n="noProvider">No provider</strong><span id="activeDetail" data-i18n="openSupported">Open a supported provider page.</span></div>
+          <div id="thinkingIndicator" class="thinking" role="status" data-i18n-aria-label="responding" hidden>
+            <span class="thinking-bars" aria-hidden="true"><i></i><i></i><i></i></span><span data-i18n="thinking">Thinking</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="providers" aria-labelledby="providersTitle">
+        <div class="providers-heading"><strong id="providersTitle" data-i18n="providers">Providers</strong><span id="providerCount">0 of 4 active</span></div>
+        <div class="provider-list">
+          <article class="provider-row" data-provider="deepseek">
+            <span class="provider-code">DS</span><span class="provider-name">DeepSeek</span><span class="provider-status" id="providerDeepSeekStatus" data-i18n="notDetected">Not detected</span>
+            <button class="open-provider" type="button" data-open-provider="deepseek" aria-label="Open DeepSeek" data-i18n="open" data-i18n-aria-label="open">Open</button>
+          </article>
+          <article class="provider-row" data-provider="kimi">
+            <span class="provider-code">K</span><span class="provider-name">Kimi</span><span class="provider-status" id="providerKimiStatus" data-i18n="notDetected">Not detected</span>
+            <button class="open-provider" type="button" data-open-provider="kimi" aria-label="Open Kimi" data-i18n="open" data-i18n-aria-label="open">Open</button>
+          </article>
+          <article class="provider-row" data-provider="qwen">
+            <span class="provider-code">Q</span><span class="provider-name">Qwen</span><span class="provider-status" id="providerQwenStatus" data-i18n="notDetected">Not detected</span>
+            <button class="open-provider" type="button" data-open-provider="qwen" aria-label="Open Qwen" data-i18n="open" data-i18n-aria-label="open">Open</button>
+          </article>
+          <article class="provider-row" data-provider="glm">
+            <span class="provider-code">Z</span><span class="provider-name">Z AI</span><span class="provider-status" id="providerGlmStatus" data-i18n="notDetected">Not detected</span>
+            <button class="open-provider" type="button" data-open-provider="glm" aria-label="Open Z AI" data-i18n="open" data-i18n-aria-label="open">Open</button>
+          </article>
+        </div>
+      </section>
+
+      <details class="diagnostics">
+        <summary data-i18n="details">Connection details</summary>
+        <dl>
+          <dt data-i18n="app">App</dt><dd id="appVersion">—</dd>
+          <dt data-i18n="extension">Extension</dt><dd id="extensionVersion">—</dd>
+          <dt data-i18n="pending">Pending items</dt><dd id="pendingCount">—</dd>
+        </dl>
+      </details>
+
+      <footer class="footer">
+        <span id="footerState" data-i18n="footerAuto">Status updates automatically.</span>
+        <button id="retryBtn" type="button" data-i18n="retry" hidden>Retry</button>
+      </footer>
+    </main>
+    <script src="localization.js"></script>
+    <script src="controller.js"></script>
+  </body>
+</html>

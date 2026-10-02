@@ -1,0 +1,83 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extension_name__",
+  "version": "0.1.0",
+  "description": "__MSG_extension_description__",
+  "default_locale": "en",
+  "minimum_chrome_version": "125",
+  "permissions": [
+    "storage",
+    "scripting",
+    "alarms",
+    "debugger",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://chat.deepseek.com/*",
+    "https://kimi.com/*",
+    "https://www.kimi.com/*",
+    "https://chat.qwen.ai/*",
+    "https://z.ai/*",
+    "https://chat.z.ai/*",
+    "https://chatglm.cn/*",
+    "https://www.chatglm.cn/*",
+    "http://127.0.0.1:8765/*",
+    "http://127.0.0.1:8766/*",
+    "http://127.0.0.1:8767/*",
+    "http://127.0.0.1:8768/*",
+    "http://127.0.0.1:8769/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "src/provider-pages/deepseek/dom-adapter.js",
+        "src/provider-pages/shared/delivery-agent.js",
+        "src/provider-pages/deepseek/controller.js"
+      ],
+      "css": [
+        "src/provider-pages/deepseek/companion.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://kimi.com/*",
+        "https://www.kimi.com/*",
+        "https://chat.qwen.ai/*",
+        "https://z.ai/*",
+        "https://chat.z.ai/*",
+        "https://chatglm.cn/*",
+        "https://www.chatglm.cn/*"
+      ],
+      "js": [
+        "src/provider-pages/web/dom-adapter.js",
+        "src/provider-pages/shared/delivery-agent.js",
+        "src/provider-pages/web/controller.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "__MSG_extension_action_title__",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  }
+}
