@@ -1,0 +1,9 @@
+import './lifecycle/restarting-the-bridge.js';
+import './lifecycle/goal-decisions.js';
+import './lifecycle/goal-controls.js';
+import './lifecycle/shutting-the-listener-down.js';
+import './lifecycle/independent-prime-browser-transports.js';
+import './lifecycle/app-requests-to-stop-one-exact-active-turn.js';
+import './lifecycle/exact-turn-and-port-transition.js';
+import './lifecycle/which-extension-build-is-running.js';
+import './lifecycle/opening-a-chat-in-the-browser-that-runs-the-extension-882-.js';
