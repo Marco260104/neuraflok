@@ -1,0 +1,12 @@
+import './input-delivery/context.js';
+import './input-delivery/recovery-queue-delivery.test.js';
+import './input-delivery/image-storage-and-goal-source.test.js';
+import './input-delivery/running-turn-input-delivery.test.js';
+import './input-delivery/direct-corrections-and-recording.test.js';
+import './input-delivery/manual-send-and-mcp-receipts.test.js';
+import './input-delivery/wire-errors-and-turn-timeouts.test.js';
+import './input-delivery/attachments-and-workflow-context.test.js';
+import './input-delivery/ipc-input-and-goal-controls.test.js';
+import './input-delivery/late-desktop-send-cleanup.test.js';
+import './input-delivery/native-progress-silence.test.js';
+import './input-delivery/lost-browser-receipt-recovery.test.js';
