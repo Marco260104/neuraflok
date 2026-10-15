@@ -1,0 +1,180 @@
+name: Canary
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'test/**'
+      - '*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: canary
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  candidate:
+    uses: ./.github/workflows/release.yml
+    with:
+      platforms: common
+
+  publish:
+    name: Publish canary
+    needs: candidate
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: neuraflok-candidate-${{ github.run_id }}
+          path: publish
+
+      - name: Re-verify the checksums
+        working-directory: publish
+        run: sha256sum -c SHA256SUMS.txt
+
+      - name: Limit checksums to published canary assets
+        working-directory: publish
+        run: |
+          set -euo pipefail
+          grep -v 'NEURAFLOK-Native-Sources.tar.gz' SHA256SUMS.txt > SHA256SUMS.canary.txt
+          mv SHA256SUMS.canary.txt SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+
+      - name: Replace the canary prerelease
+        working-directory: publish
+        run: |
+          set -euo pipefail
+
+          github_get_status() {
+            local url="$1"
+            local body status
+            body="$(mktemp)"
+            set +e
+            status="$(curl -sS -o "$body" -w '%{http_code}' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$url")"
+            local curl_status=$?
+            set -e
+            if [ "$curl_status" -ne 0 ]; then
+              echo "curl transport failed"
+              rm -f "$body"
+              exit 1
+            fi
+            case "$status" in
+              200|404) printf '%s' "$status" ;;
+              *) echo "Unexpected GitHub API status: $status"; cat "$body"; rm -f "$body"; exit 1 ;;
+            esac
+            rm -f "$body"
+          }
+
+          staging_tag=""
+          draft_id=""
+          swap_started=""
+          staging_promoted=""
+
+          cleanup_staging_ref() {
+            [ -n "$staging_tag" ] || return 0
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${staging_tag}" >/dev/null 2>&1 || true
+          }
+
+          cleanup_staging() {
+            if [ "${staging_promoted:-}" = "true" ]; then
+              return 0
+            fi
+            if [ -n "${draft_id:-}" ] && [ "$swap_started" != "true" ]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${draft_id}" >/dev/null 2>&1 || true
+            fi
+            cleanup_staging_ref
+          }
+          trap cleanup_staging EXIT
+
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$GITHUB_SHA" != "$main_sha" ]; then
+            echo "Skipping stale canary run"
+            exit 0
+          fi
+
+          staging_tag="canary-staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          draft_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+            -f tag_name="$staging_tag" \
+            -f target_commitish="$GITHUB_SHA" \
+            -f name="canary staging ${GITHUB_SHA}" \
+            -F draft=true \
+            -F prerelease=true)"
+          draft_id="$(printf '%s' "$draft_json" | jq -r .id)"
+          upload_url="$(printf '%s' "$draft_json" | jq -r .upload_url | sed 's/{.*//')"
+
+          find . -type f ! -name '*Native-Sources*' ! -name 'SHA256SUMS.txt' | sort > expected-canary-assets.txt
+          : > actual-canary-assets.txt
+          : > expected-canary-digests.txt
+          : > actual-canary-digests.txt
+
+          while IFS= read -r file; do
+            name="$(basename "$file")"
+            curl -sS -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$file" \
+              "${upload_url}?name=${name}" >/dev/null
+            echo "$name" >> actual-canary-assets.txt
+            sha256sum "$file" | awk '{print $1"  "$2}' >> expected-canary-digests.txt
+          done < expected-canary-assets.txt
+          basename -a $(cat expected-canary-assets.txt) | sort > expected-canary-assets.txt.sorted
+          mv expected-canary-assets.txt.sorted expected-canary-assets.txt
+          sort -o actual-canary-assets.txt actual-canary-assets.txt
+          diff -u expected-canary-assets.txt actual-canary-assets.txt
+
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${draft_id}/assets" --jq '.[].name' | sort > actual-canary-assets.txt
+          diff -u expected-canary-assets.txt actual-canary-assets.txt
+
+          while IFS= read -r name; do
+            url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${staging_tag}/${name}"
+            curl -sSL -H "Authorization: Bearer ${GH_TOKEN}" -o "/tmp/${name}" "$url"
+            sha256sum "/tmp/${name}" | awk -v n="$name" '{print $1"  "n}' >> actual-canary-digests.txt
+          done < expected-canary-assets.txt
+          sort -o expected-canary-digests.txt expected-canary-digests.txt
+          sort -o actual-canary-digests.txt actual-canary-digests.txt
+          diff -u expected-canary-digests.txt actual-canary-digests.txt
+
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$GITHUB_SHA" != "$main_sha" ]; then
+            echo "Skipping stale canary run"
+            exit 0
+          fi
+
+          canary_release_status="$(github_get_status "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/canary")"
+          canary_ref_status="$(github_get_status "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/canary")"
+
+          swap_started=true
+          if [ "$canary_release_status" = "200" ]; then
+            gh release delete canary --yes
+          fi
+          if [ "$canary_ref_status" = "200" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/canary"
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref='refs/tags/canary' \
+            -f sha="$GITHUB_SHA" >/dev/null || \
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/canary" \
+            -f sha="$GITHUB_SHA" >/dev/null
+
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${draft_id}" \
+            -f tag_name=canary \
+            -f name="NEURAFLOK canary" \
+            -F draft=false \
+            -F prerelease=true >/dev/null
+          staging_promoted=true
+
+          gh release view canary --json tagName,isDraft,isPrerelease,assets
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${draft_id}/assets?name=${name}" >/dev/null 2>&1 || true
+          echo "Published https://github.com/${GITHUB_REPOSITORY}/releases/download/canary/"
