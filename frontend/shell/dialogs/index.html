@@ -1,0 +1,106 @@
+    <!-- Chat search (⌘K / Ctrl+K, or the magnifier beside the app name): recent chats, then matches. -->
+    <dialog class="quick-settings-dialog" id="quickSettingsDialog" aria-labelledby="quickSettingsTitle">
+      <form class="quick-settings" method="dialog">
+        <header class="quick-settings-head">
+          <h2 id="quickSettingsTitle">Settings</h2>
+          <button class="btn quick-settings-close" id="quickSettingsClose" type="submit" value="close" title="Close" aria-label="Close"><i class="ico ph ph-x" aria-hidden="true"></i></button>
+        </header>
+        <div class="quick-settings-layout">
+          <nav class="quick-settings-nav" aria-label="Settings sections">
+            <button type="button" data-quick-pane="general" aria-current="page"><i class="ico ph ph-sliders-horizontal" aria-hidden="true"></i><span>General</span></button>
+            <button type="button" data-quick-pane="models"><i class="ico ph ph-circuitry" aria-hidden="true"></i><span>Models</span></button>
+            <button type="button" data-quick-pane="connections"><i class="ico ph ph-plug" aria-hidden="true"></i><span>Connections</span></button>
+            <span class="quick-settings-nav-gap" aria-hidden="true"></span>
+            <button type="button" data-settings-go="appearance"><i class="ico ph ph-sun" aria-hidden="true"></i><span>Appearance</span></button>
+            <button type="button" data-settings-go="home"><i class="ico ph ph-house" aria-hidden="true"></i><span>Workspace</span></button>
+            <button type="button" data-settings-go="skills"><i class="ico ph ph-cube" aria-hidden="true"></i><span>Skills</span></button>
+            <button type="button" data-settings-go="settings"><i class="ico ph ph-robot" aria-hidden="true"></i><span>Agents</span></button>
+            <button type="button" data-settings-go="activity"><i class="ico ph ph-activity" aria-hidden="true"></i><span>Activity</span></button>
+          </nav>
+          <div class="quick-settings-stage">
+            <section class="quick-settings-view" data-quick-view="general">
+              <h3>General</h3>
+              <p class="quick-settings-lead">Everyday workspace behavior. Changes apply immediately.</p>
+              <div class="quick-settings-body">
+                <div class="quick-setting">
+                  <span class="quick-setting-label">Theme</span>
+                  <div class="quick-theme" role="group" aria-label="Theme">
+                    <button type="button" data-quick-theme="light" aria-pressed="false">Light</button>
+                    <button type="button" data-quick-theme="dark" aria-pressed="true">Dark</button>
+                  </div>
+                </div>
+                <label class="quick-setting" for="uiLanguage">
+                  <span class="quick-setting-label">Language</span>
+                  <select id="uiLanguage" class="language-select" translate="no">
+                    <option value="de" lang="de">Deutsch</option>
+                    <option value="en" lang="en">English</option>
+                    <option value="es" lang="es">Español</option>
+                    <option value="fr" lang="fr">Français</option>
+                    <option value="pt-BR" lang="pt-BR">Português (Brasil)</option>
+                    <option value="pt-PT" lang="pt-PT">Português (Portugal)</option>
+                    <option value="ru" lang="ru">Русский</option>
+                    <option value="tr" lang="tr">Türkçe</option>
+                    <option value="vi" lang="vi">Tiếng Việt</option>
+                    <option value="ja" lang="ja">日本語</option>
+                    <option value="ko" lang="ko">한국어</option>
+                    <option value="zh-CN" lang="zh-CN">简体中文</option>
+                    <option value="zh-TW" lang="zh-TW">繁體中文</option>
+                  </select>
+                </label>
+                <label class="quick-setting">
+                  <span class="quick-setting-label">Follow new output</span>
+                  <input id="quickFollowOutput" type="checkbox" />
+                </label>
+              </div>
+            </section>
+            <section class="quick-settings-view" data-quick-view="models" hidden>
+              <h3>Models</h3>
+              <p class="quick-settings-lead">Pick a signed-in web session in the composer, or add an API model for local keys.</p>
+              <div class="quick-settings-cards">
+                <div class="quick-settings-card">
+                  <b>Web sessions</b>
+                  <span>DeepSeek, Kimi, Qwen, and Z AI run in the private browser after you sign in.</span>
+                </div>
+                <div class="quick-settings-card">
+                  <b>API models</b>
+                  <span>OpenAI-compatible endpoints live under Agents. Set a key once, then choose the model in the composer.</span>
+                </div>
+              </div>
+              <button type="button" class="btn btn-solid" data-settings-go="settings">Manage models</button>
+            </section>
+            <section class="quick-settings-view" data-quick-view="connections" hidden>
+              <h3>Connections</h3>
+              <p class="quick-settings-lead">Open a provider in the private browser, share a folder, and choose what the workspace may do.</p>
+              <button type="button" class="btn btn-solid" data-settings-go="setup">Continue setup</button>
+            </section>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="search-dialog" id="searchDialog" aria-label="Search chats">
+      <div class="search-dialog-field">
+        <i class="ico ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input id="chatSearch" type="search" placeholder="Search chats" aria-label="Search chats" aria-controls="searchResults" autocomplete="off" spellcheck="false" />
+        <button class="btn search-dialog-clear" id="chatSearchClear" type="button" title="Clear search" aria-label="Clear search" hidden></button>
+      </div>
+      <div class="search-dialog-results" id="searchResults" aria-live="polite"></div>
+    </dialog>
+
+    <dialog class="whats-new-dialog" id="whatsNewDialog" aria-labelledby="whatsNewTitle" aria-describedby="whatsNewLead">
+      <header class="whats-new-head">
+        <!-- The app's own tile, sealed with a sparkle: the same language as the browser sign-in card. -->
+        <div class="whats-new-hero" aria-hidden="true">
+          <span class="whats-new-tile"><svg class="ico" viewBox="0 0 24 24"><use href="#i-mark" /></svg></span>
+          <span class="whats-new-seal"><i class="ico ph ph-sparkle"></i></span>
+        </div>
+        <span class="whats-new-version" id="whatsNewVersion"></span>
+        <h2 id="whatsNewTitle">What's new</h2>
+        <p class="whats-new-lead" id="whatsNewLead"></p>
+      </header>
+      <ul class="whats-new-list" id="whatsNewList"></ul>
+      <footer class="whats-new-actions">
+        <button class="whats-new-link" id="whatsNewNotes" type="button"><i class="ico ph ph-arrow-square-out" aria-hidden="true"></i>Full release notes</button>
+        <button class="whats-new-done" id="whatsNewDone" type="button">Got it</button>
+      </footer>
+    </dialog>

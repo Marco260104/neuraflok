@@ -1,0 +1,54 @@
+/* Folders styles. */
+
+.root {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 20px;
+  font-size: calc(13px * var(--text-scale, 1));
+}
+
+.root + .root {
+  border-top: 1px solid var(--line);
+}
+
+.root > .ico { color: var(--faint); width: 15px; height: 15px; }
+
+.root b {
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.root-rename {
+  width: 150px;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.root span {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: calc(11.5px * var(--text-scale, 1));
+  max-width: 58%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.root .btn {
+  margin-left: 0;
+  padding: 3px 5px;
+  flex-shrink: 0;
+  opacity: .55;
+}
+
+.root:hover .btn,
+.root:focus-within .btn {
+  opacity: 1;
+}
+

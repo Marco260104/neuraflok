@@ -1,0 +1,9 @@
+import './ipc-context.js';
+import './ipc-settings.ts';
+import './ipc-input-workspace.ts';
+import './ipc-history-cursors.ts';
+import './ipc-startup-agents.ts';
+import './ipc-provider-settings.ts';
+import './ipc-roots-navigation-goal.ts';
+import './ipc-session-contracts.ts';
+import './ipc-window-lifecycle.ts';

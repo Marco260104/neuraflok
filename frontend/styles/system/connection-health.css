@@ -1,0 +1,174 @@
+/* Health styles. */
+
+/* The two figures sit optically centered between the card's top edge and the facts divider. */
+.big {
+  display: flex;
+  gap: 26px;
+  padding: 11px 14px 16px;
+}
+
+.big b {
+  display: block;
+  line-height: 1.15;
+  font-size: calc(22px * var(--text-scale, 1));
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--blue);
+}
+
+.big b.is-cold {
+  color: var(--faint);
+}
+
+.big b.is-bad {
+  color: var(--red);
+}
+
+.big span {
+  display: block;
+  margin-top: 3px;
+  line-height: 1.3;
+  font-size: calc(11px * var(--text-scale, 1));
+  color: var(--faint);
+}
+
+/* The wiring, as plain facts. Nothing here is an action, so nothing is coloured. */
+.facts {
+  padding: 10px 14px 12px;
+  display: grid;
+  gap: 5px;
+  font-size: calc(12px * var(--text-scale, 1));
+  color: var(--soft);
+  border-top: 1px solid var(--line);
+}
+
+/* Both columns are allowed to shrink to nothing, so a long route or a long version string is cut short instead of widening the card. */
+.fact {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.fact > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fact code {
+  justify-self: end;
+  max-width: 100%;
+  color: var(--ink);
+  font-size: calc(11.5px * var(--text-scale, 1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fact code.is-bad {
+  color: var(--red);
+}
+
+/* Self-test results, in the same card as the facts they explain. */
+.checks {
+  border-top: 1px solid var(--line);
+  padding: 10px 14px 12px;
+}
+
+.checks-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: calc(12px * var(--text-scale, 1));
+  margin-bottom: 8px;
+}
+
+.checks-head strong {
+  font-weight: 600;
+}
+
+.checks-head .btn {
+  margin-left: auto;
+}
+
+.checks ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.check {
+  display: flex;
+  gap: 9px;
+  font-size: calc(12px * var(--text-scale, 1));
+}
+
+.check-mark {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: calc(9px * var(--text-scale, 1));
+  font-weight: 700;
+  background: var(--sunk);
+  color: var(--faint);
+}
+
+.check.is-ok .check-mark {
+  background: var(--wash);
+  color: var(--blue);
+}
+
+.check.is-bad .check-mark {
+  background: var(--red-wash);
+  color: var(--red);
+}
+
+.check.is-skipped .check-mark,
+.check.is-not-run .check-mark {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--faint);
+}
+
+.check strong {
+  font-weight: 600;
+  display: block;
+}
+
+.check p {
+  color: var(--soft);
+  font-size: calc(11.5px * var(--text-scale, 1));
+}
+
+.check.is-bad strong {
+  color: var(--red);
+}
+
+/* Live macOS TCC state from the in-process backend that will capture/control the desktop. */
+.desktop-access {
+  margin: 8px 10px 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, var(--line));
+  border-radius: 9px;
+  background: var(--red-wash);
+  font-size: calc(11.5px * var(--text-scale, 1));
+}
+
+.desktop-access strong {
+  color: var(--red);
+  font-size: calc(12px * var(--text-scale, 1));
+}
+
+.desktop-access p {
+  margin: 4px 0 8px;
+  color: var(--soft);
+  line-height: 1.4;
+}
+

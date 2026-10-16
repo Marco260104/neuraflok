@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "NEURAFLOK 瀏覽器小幫手"
+  },
+  "extension_description": {
+    "message": "將 NEURAFLOK 連線至 DeepSeek、Kimi、Qwen 和 Z AI 的已登入瀏覽器工作階段。"
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

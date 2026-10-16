@@ -1,0 +1,255 @@
+name: Release candidate
+
+on:
+  workflow_call:
+    inputs:
+      platforms:
+        description: all or common
+        type: string
+        default: all
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan targets
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.targets.outputs.include }}
+      files: ${{ steps.targets.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - id: targets
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: node scripts/release-targets.mjs "$PLATFORMS"
+
+  package:
+    name: ${{ matrix.name }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.include) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build installer
+        run: npm run ${{ matrix.script }}
+
+      - name: Verify generated macOS archives
+        if: matrix.platform == 'darwin'
+        env:
+          architecture: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          dmg="release/NEURAFLOK-macOS-${{ matrix.arch }}.dmg"
+          zip="release/NEURAFLOK-macOS-${{ matrix.arch }}.zip"
+          hdiutil verify "$dmg"
+          set +e
+          codesign --display --verbose=4 "$dmg" >dmg-codesign.log 2>&1
+          dmg_codesign_status=$?
+          set -e
+          if [ "$dmg_codesign_status" -eq 0 ]; then
+            echo "Expected the DMG to be unsigned"
+            cat dmg-codesign.log
+            exit 1
+          fi
+          grep -Eqi 'code object is not signed( at all)?' dmg-codesign.log
+          mount_dir="$(mktemp -d)"
+          zip_dir="$(mktemp -d)"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_dir"
+          test -L "$mount_dir/Applications"
+          test "$(readlink "$mount_dir/Applications")" = /Applications
+          ditto -x -k "$zip" "$zip_dir"
+          node scripts/smoke-macos-bundle.mjs '${{ matrix.arch }}' "$mount_dir/NEURAFLOK.app"
+          node scripts/smoke-macos-bundle.mjs '${{ matrix.arch }}' "$zip_dir/NEURAFLOK.app"
+          hdiutil detach "$mount_dir" || true
+
+      - name: Audit packaged macOS bundle metadata and Mach-O payloads
+        if: matrix.platform == 'darwin'
+        run: node scripts/smoke-macos-bundle.mjs ${{ matrix.arch }}
+
+      - name: Launch packaged macOS app normally
+        if: matrix.platform == 'darwin'
+        run: node scripts/smoke-macos-gui.mjs ${{ matrix.arch }}
+
+      - name: Install generated DEB on target distro
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+          deb="release/NEURAFLOK-Linux-${{ matrix.arch }}.deb"
+          test "$(dpkg-deb --field "$deb" Package)" = neuraflok
+          test "$(dpkg-deb --field "$deb" Version)" = "$(node -p "require('./package.json').version")"
+          if [ '${{ matrix.arch }}' = x64 ]; then expected_deb_arch=amd64; else expected_deb_arch=arm64; fi
+          test "$(dpkg-deb --field "$deb" Architecture)" = "$expected_deb_arch"
+          sudo dpkg -i "$deb" || sudo apt-get install -f -y
+          desktop="/usr/share/applications/neuraflok.desktop"
+          grep -Fxq 'Name=NEURAFLOK' "$desktop"
+          grep -Fxq 'Icon=neuraflok' "$desktop"
+          test -L /usr/bin/neuraflok
+          installed_executable="$(readlink -f /usr/bin/neuraflok)"
+          test -x "$installed_executable"
+          dpkg-query -S "$installed_executable"
+          node scripts/smoke-packaged-runtime.mjs --platform linux --arch '${{ matrix.arch }}' --root "$(dirname "$installed_executable")"
+
+      - name: Launch installed DEB normally under Xvfb
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          cleanup_path_with_retries() {
+            local target="$1"
+            local attempt=0
+            while [ "$attempt" -lt 5 ]; do
+              rm -rf "$target" 2>/dev/null || true
+              [ ! -e "$target" ] && return 0
+              attempt=$((attempt + 1))
+              sleep 1
+            done
+            rm -rf "$target" 2>/dev/null || true
+          }
+          deb_smoke_root="$(mktemp -d)"
+          trap 'cleanup_path_with_retries "$deb_smoke_root"' EXIT
+          mkdir -p "$deb_smoke_root/home" "$deb_smoke_root/config" "$deb_smoke_root/cache" "$deb_smoke_root/data" "$deb_smoke_root/state"
+          export HOME="$deb_smoke_root/home"
+          export XDG_CONFIG_HOME="$deb_smoke_root/config"
+          export XDG_CACHE_HOME="$deb_smoke_root/cache"
+          export XDG_DATA_HOME="$deb_smoke_root/data"
+          export XDG_STATE_HOME="$deb_smoke_root/state"
+          set +e
+          NEURAFLOK_DEBUG=1 timeout --signal=TERM --kill-after=5s 12s xvfb-run -a /usr/bin/neuraflok >deb-gui.log 2>&1
+          set -e
+          grep -Fq '[info] app started' deb-gui.log
+          grep -Fq '[info] window loaded' deb-gui.log
+          grep -Fq '[info] renderer state ready' deb-gui.log
+          if grep -Fq '[error] window failed to load' deb-gui.log; then exit 1; fi
+          if grep -Fq '[error] renderer:' deb-gui.log; then exit 1; fi
+
+      - name: Execute generated static-runtime AppImage
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          cleanup_path_with_retries() {
+            local target="$1"
+            rm -rf "$target" 2>/dev/null || true
+          }
+          appimage="$(echo release/NEURAFLOK-Linux-${{ matrix.arch }}.AppImage)"
+          chmod +x "$appimage"
+          fake_bin="$(mktemp -d)"
+          normal_smoke_root="$(mktemp -d)"
+          fallback_smoke_root="$(mktemp -d)"
+          trap 'rm -rf "$fake_bin" "$normal_smoke_root" "$fallback_smoke_root"' EXIT
+          printf '#!/bin/sh\nexit 1\n' > "$fake_bin/unshare"
+          chmod +x "$fake_bin/unshare"
+          run_appimage_smoke() {
+            local mode="$1"
+            local smoke_root="$2"
+            local launch_path="$3"
+            local log="$4"
+            mkdir -p "$smoke_root/home" "$smoke_root/config" "$smoke_root/cache" "$smoke_root/data" "$smoke_root/state"
+            export HOME="$smoke_root/home"
+            export XDG_CONFIG_HOME="$smoke_root/config"
+            export XDG_CACHE_HOME="$smoke_root/cache"
+            export XDG_DATA_HOME="$smoke_root/data"
+            export XDG_STATE_HOME="$smoke_root/state"
+            export PATH="$launch_path"
+            set +e
+            NEURAFLOK_DEBUG=1 timeout --signal=TERM --kill-after=5s 12s xvfb-run -a "$appimage" >"$log" 2>&1
+            set -e
+            grep -Fq '[info] app started' "$log"
+            grep -Fq '[info] window loaded' "$log"
+            grep -Fq '[info] renderer state ready' "$log"
+            if grep -Fq '[error] window failed to load' "$log"; then exit 1; fi
+            if grep -Fq '[error] renderer:' "$log"; then exit 1; fi
+            echo "AppImage $mode smoke passed"
+          }
+          run_appimage_smoke normal "$normal_smoke_root" "$PATH" appimage-normal-gui.log
+          run_appimage_smoke forced-fallback "$fallback_smoke_root" "$fake_bin:$PATH" appimage-fallback-gui.log
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  assemble:
+    name: Assemble candidate
+    needs: [plan, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: release
+      - name: Package the browser companion
+        run: |
+          set -euo pipefail
+          node scripts/packaging/extension-fingerprint.mjs
+          cd browser-extension
+          required_files=(
+            manifest.json
+            build-stamp.txt
+            src/background/service-worker.js
+            src/popup/index.html
+            src/popup/styles.css
+            src/popup/controller.js
+            src/popup/localization.js
+            assets/icons/icon16.png
+            assets/icons/icon32.png
+            assets/icons/icon48.png
+            assets/icons/icon128.png
+            src/provider-pages/deepseek/dom-adapter.js
+            src/provider-pages/shared/delivery-agent.js
+            src/provider-pages/deepseek/controller.js
+            src/provider-pages/deepseek/companion.css
+            src/provider-pages/web/dom-adapter.js
+            src/provider-pages/web/controller.js
+            _locales/en/messages.json
+            LICENSE
+            NOTICE
+          )
+          for file in "${required_files[@]}"; do
+            test -f "$file"
+          done
+          mkdir -p ../release
+          zip -r ../release/NEURAFLOK-Provider-Extension.zip . -x '*.map'
+      - name: Package native sources
+        run: node scripts/package-native-sources.mjs
+      - name: Create SHA-256 checksums
+        working-directory: release
+        env:
+          FILES: ${{ needs.plan.outputs.files }}
+        run: |
+          set -euo pipefail
+          sha256sum $FILES > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: neuraflok-candidate-${{ github.run_id }}
+          path: |
+            release/NEURAFLOK-*
+            release/SHA256SUMS.txt
+          if-no-files-found: error

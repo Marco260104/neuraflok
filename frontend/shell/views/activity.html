@@ -1,0 +1,34 @@
+        <!-- Activity section. -->
+        <section class="panel activity-panel" data-panel="activity">
+          <div class="settings-page-content activity-content">
+          <header class="settings-page-head">
+            <h1>Activity</h1>
+            <p>Recent local events and failures.</p>
+          </header>
+          <section class="card">
+            <h2>
+              <span class="sr-only">Activity</span>
+              <span class="acts">
+                <span class="seg" id="logAgentFilter" hidden></span>
+                <span class="seg" id="logFilter">
+                  <button class="is-sel" data-filter="all" type="button">All</button>
+                  <button data-filter="bad" type="button">Problems</button>
+                </span>
+                <span class="problems" id="logProblems" hidden></span>
+                <button class="btn" id="copyLogJson" type="button">
+                  <i class="ico ph ph-copy" aria-hidden="true"></i>JSON
+                </button>
+                <button class="btn" id="copyLogText" type="button">
+                  <i class="ico ph ph-copy" aria-hidden="true"></i>Text
+                </button>
+                <button class="btn" id="saveDiagnosticsReport" type="button" title="Save one file with versions, settings, the connection state and the log, with personal details removed, to attach to a bug report.">
+                  <i class="ico ph ph-file-text" aria-hidden="true"></i>Diagnostics report
+                </button>
+              </span>
+            </h2>
+            <div class="scroll feed" id="fullFeed"></div>
+            <!-- Whether this app and its extension are current, in the panel people open to find out what is going on. Green when there is nothing to do, red when a check or a download failed; hidden until GitHub has answered. -->
+            <p class="upline" id="updateLine" hidden></p>
+          </section>
+          </div>
+        </section>

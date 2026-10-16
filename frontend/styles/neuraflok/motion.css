@@ -1,0 +1,70 @@
+/* Better UI motion: named properties, press 0.96 / 150ms, reduced-motion opacity fallback. */
+.theme-switching,
+.theme-switching * {
+  transition: none !important;
+}
+
+:is(button, .btn, summary, .sidebar-settings, .quick-settings-nav button):not(:disabled):not(.sess):active {
+  transform: scale(0.96);
+}
+
+.send-button:not(:disabled):active { transform: scale(0.96); }
+
+.row-menu,
+.composer-popover,
+.skill-autocomplete {
+  overscroll-behavior: contain;
+}
+
+.quick-settings-view {
+  animation: pane-enter 300ms var(--ease-out);
+}
+.quick-settings-view[hidden] { animation: none; }
+
+@keyframes pane-enter {
+  from { opacity: 0; transform: translateY(12px); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.appearance-section,
+.workspace-section,
+.setup-heading,
+.skill-page-head,
+.provider-card {
+  animation: pane-enter 300ms var(--ease-out) both;
+}
+.appearance-section:nth-child(2),
+.workspace-section:nth-child(2),
+.provider-card:nth-child(2) { animation-delay: 100ms; }
+.appearance-section:nth-child(3),
+.workspace-section:nth-child(3),
+.provider-card:nth-child(3) { animation-delay: 200ms; }
+.provider-card:nth-child(4) { animation-delay: 300ms; }
+
+.provider-logo img {
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appearance-section,
+  .workspace-section,
+  .setup-heading,
+  .skill-page-head,
+  .quick-settings-view,
+  .boot-splash-mark,
+  .provider-card,
+  #timelineEmpty.workspace-empty,
+  .connection-popover:not([hidden]) {
+    animation: fade-only 200ms ease both;
+    filter: none !important;
+    transform: none !important;
+  }
+  @keyframes fade-only {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .app :is(button, .btn):active:not(:disabled),
+  :is(button, .btn, summary):not(:disabled):active {
+    transform: none;
+  }
+}

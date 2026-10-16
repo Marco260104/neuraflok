@@ -1,0 +1,491 @@
+        <!-- Chat section. -->
+        <section class="panel is-active" data-panel="chat">
+          <!-- Sessions section. -->
+          <!-- Session body section. -->
+          <!-- The main session grid keeps transcript scrolling separate from the composer. -->
+          <section class="card is-session">
+            <!-- The chat's own header: the first row of the chat column, so the right panel beside the column runs from the title bar to the bottom, and expanding the panel hides it with the chat. -->
+            <header class="chat-head">
+              <span id="chatTitle">New chat</span>
+              <span class="mark"><svg class="ico" viewBox="0 0 24 24"><use href="#i-mark" /></svg></span>
+              <span class="title">
+                NEURAFLOK
+                <span id="headerSub">Not set up yet</span>
+              </span>
+              <span class="state">
+                <!-- Only ever visible with a downloaded, digest-checked update waiting. This app lives in the tray and is closed to it, so "installs the next time you start it" can mean days. This is the press that means now. -->
+                <button class="btn btn-install" id="installUpdate" type="button" hidden>
+                  <i class="ico ph ph-lightning" aria-hidden="true"></i>
+                  <span>Install update</span>
+                </button>
+              </span>
+            </header>
+            <button id="chatSettingsBtn" type="button" hidden>Chat settings</button>
+            <div class="subhead">
+              <span class="seg" id="chatView" hidden>
+                <button class="is-sel" data-view="timeline" type="button">Timeline</button>
+                <button data-view="compact" type="button">Handoff</button>
+              </span>
+              <span class="subhead-note" id="chatState"></span>
+
+            </div>
+
+            <div class="scroll" id="chatBody">
+              <!-- timeline -->
+              <div class="view" id="timelineContent" data-view="timeline">
+                <!-- Only shown while a multi-agent run has agents in this session. -->
+                <div class="seg" id="chatAgentFilter" hidden></div>
+                <div id="timeline"></div>
+                <div id="inputQueue" class="input-queue" aria-live="polite"></div>
+                <p class="empty workspace-empty" id="timelineEmpty">
+                  <span class="workspace-empty-title">What should we work on?</span>
+                </p>
+              </div>
+
+              <!-- the brief the last compaction left behind -->
+              <div class="view" data-view="compact" hidden>
+                <div class="pane">
+                  <h3 id="handoffHead" hidden>
+                    Latest handoff
+                    <button class="btn" id="copyHandoff" type="button" hidden>
+                      <i class="ico ph ph-copy" aria-hidden="true"></i>Copy
+                    </button>
+                  </h3>
+                  <div id="handoffBox"></div>
+                </div>
+              </div>
+
+              <!-- Settings, and only settings that change behaviour. Three rows. Everything that used to be explained in six paragraphs here is either a fact about where files go - which belongs in the docs, not in a property sheet - or a threshold that now has exactly one number instead of three overlapping ones. The pairing instructions moved into Setup, where the rest of the once-only work already lives. -->
+              <div class="view settings-page-content automation-content" data-view="settings" hidden>
+                <header class="settings-page-head automation-page-head"><div><h1>Agents &amp; automation</h1><p>Fine-tune your workspace and the way your agents work.</p></div></header>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Continuation sources</h2><p>Choose where continuations come from and what their handoffs include.</p></div></header>
+                <div class="settings-surface pane">
+                  <label class="setting">
+                    <span class="setting-text">
+                      <b>Automatically recover unfinished answers</b>
+                      <em>Continue an interrupted answer when the app can verify the unfinished turn.</em>
+                    </span>
+                    <input id="autoContinue" type="checkbox" />
+                  </label>
+                  <details class="setting-timing"><summary><svg class="disclosure-chevron sum-chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg>Recovery timing details</summary><p>Recover unfinished answers, including in Goal and Loop. Reload after 2 minutes without progress (Pro: 10). If still generating, wait 1 more minute (Pro: 5), then stop and send. A final answer selects Goal or Loop instead of Continue. Undelivered steps get at most three page reloads (after 2, 5, and 10 minutes); recovery then stops visibly while the original pending work remains saved.</p></details>
+                  <div class="setting" hidden><span class="setting-text"><b id="goalBackendTitle">Goal response source</b><em>Use the selected web provider, an API endpoint, or offline completion markers.</em></span><select id="goalBackend" aria-labelledby="goalBackendTitle"><option value="web">Web provider</option><option value="api">API provider</option><option value="templates">Offline · No API cost</option></select></div>
+                  <div class="setting" hidden><span class="setting-text"><b id="loopBackendTitle">Loop response source</b><em>Loop keeps going until you switch it off.</em></span><select id="loopBackend" aria-labelledby="loopBackendTitle"><option value="api">API provider</option><option value="web">Web provider</option></select></div>
+                  <label class="setting"><span class="setting-text"><b>Include tool details in handoffs</b><em>Compact &amp; Resume briefs keep tool calls and their results. Goal and Loop always read only your messages and the assistant's updates and answers.</em></span><input id="goalIncludeToolCalls" type="checkbox" /></label>
+                  </div>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Provider connections</h2><p>Connect accounts in NEURAFLOK's private browser, then activate a verified session in the composer.</p></div></header>
+                <div class="settings-surface pane provider-settings">
+                  <select id="chatExecutor" hidden aria-hidden="true" tabindex="-1"><option value="web">Web session</option><option value="api">Configured model</option></select>
+                  <div class="setting"><span class="setting-text"><b>Default web provider</b><em>Viewified sessions can be activated from the message composer.</em></span><select id="webProvider" aria-label="Default web provider"><option value="deepseek">DeepSeek</option><option value="kimi">Kimi</option><option value="qwen">Qwen</option><option value="glm">Z AI</option></select></div>
+                  <p class="provider-hint" id="webProviderHint" role="status">Checking browser sessions…</p>
+                  <div class="provider-notes">
+                    <p class="provider-account-warning"><i class="ico ph ph-warning-circle" aria-hidden="true"></i><span><strong>Separate account recommended.</strong> Sessions stay in the browser where you sign in; NEURAFLOK never copies cookies between profiles.</span></p>
+                    <p class="provider-resource-note">Pages used by active provider sessions can stay open in the background. More sessions may use more memory and CPU.</p>
+                  </div>
+                  <div class="provider-grid" id="webProviderCards">
+                    <article class="provider-card" data-provider-card="deepseek"><div class="provider-card-title"><span class="provider-code" data-provider-logo="deepseek"></span><span class="provider-card-copy"><strong>DeepSeek</strong><span id="providerStatusDeepseek">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="deepseek">Activate</button><button class="btn" type="button" data-open-provider="deepseek">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="deepseek" hidden>Disconnect</button></div></article>
+                    <article class="provider-card" data-provider-card="kimi"><div class="provider-card-title"><span class="provider-code" data-provider-logo="kimi"></span><span class="provider-card-copy"><strong>Kimi</strong><span id="providerStatusKimi">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="kimi">Activate</button><button class="btn" type="button" data-open-provider="kimi">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="kimi" hidden>Disconnect</button></div></article>
+                    <article class="provider-card" data-provider-card="qwen"><div class="provider-card-title"><span class="provider-code" data-provider-logo="qwen"></span><span class="provider-card-copy"><strong>Qwen</strong><span id="providerStatusQwen">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="qwen">Activate</button><button class="btn" type="button" data-open-provider="qwen">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="qwen" hidden>Disconnect</button></div></article>
+                    <article class="provider-card" data-provider-card="glm"><div class="provider-card-title"><span class="provider-code" data-provider-logo="glm"></span><span class="provider-card-copy"><strong>Z AI</strong><span id="providerStatusGlm">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="glm">Activate</button><button class="btn" type="button" data-open-provider="glm">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="glm" hidden>Disconnect</button></div></article>
+                  </div>
+                </div>
+                <header class="settings-section-head automation-section-head" hidden><div><h2 class="settings-section-title">Worker model settings</h2><p>Choose a model and reasoning level for browser workers.</p></div></header>
+                <div class="settings-surface pane" hidden>
+                  <div class="setting"><span class="setting-text"><b id="workerModelTitle">Default worker model</b><em>Optional model ID sent to the selected provider. Leave blank to use its default.</em></span><input id="workerModel" type="text" maxlength="80" placeholder="Provider default" aria-labelledby="workerModelTitle" /></div>
+                  <div class="setting"><span class="setting-text"><b id="workerReasoningTitle">Default worker reasoning</b><em>Requested independently from the model; the provider may ignore unsupported levels.</em></span><select id="workerReasoning" aria-labelledby="workerReasoningTitle"><option value="">Automatic</option><option value="none">Instant</option><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option><option value="ultra">Ultra</option><option value="pro">Pro</option></select></div>
+                  </div>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Skills</h2><p>Choose whether imported Skills can be matched to ordinary messages.</p></div></header>
+                <div class="settings-surface pane">
+                  <label class="setting"><span class="setting-text"><b>Auto-select Skills</b><em>Match one imported Skill by its exact name in the message, not by topic. Explicit Skill choices always win.</em></span><input id="autoSelectSkills" type="checkbox" /></label>
+                </div>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Workers & recovery</h2><p>Set worker limits and which chats can resume after interruptions.</p></div></header>
+                <div class="settings-surface pane">
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b id="maWorkersTitle">Sub-agent workers</b>
+                      <em>Needs the browser extension to be connected. This sets the most worker chats one run may open.</em>
+                    </span>
+                    <input id="maWorkers" aria-labelledby="maWorkersTitle" class="num" type="number" min="1" max="8" step="1" />
+                    <span class="unit">max</span>
+                  </div>
+
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b id="globalMaWorkersTitle">Workers across all chats</b>
+                      <em>The most workers that may run at once over all your chats together. 0 means no extra limit; each chat still keeps the limit above.</em>
+                    </span>
+                    <input id="globalMaWorkers" aria-labelledby="globalMaWorkersTitle" class="num" type="number" min="0" max="64" step="1" />
+                  </div>
+
+                  <label class="setting">
+                    <span class="setting-text">
+                      <b>Allow unattributed calls</b>
+                      <em>Lets tools run, including computer use, file editing and JavaScript, even when the app can’t tell which chat called them. Sub-agents and other chat actions still need a known chat. These calls are listed under Unattributed activity.</em>
+                    </span>
+                    <input id="allowUnattributedCalls" type="checkbox" />
+                  </label>
+
+                  <label class="setting">
+                    <span class="setting-text">
+                      <b>Trust only selected chats</b>
+                      <em>Only chats you trust can use this computer's tools. Existing chats start untrusted; hover a chat in the sidebar and choose Trust (✓). Workers and resumed chats follow the chat they came from. Calls the app can't link to a chat are refused.</em>
+                    </span>
+                    <input id="strictChatAllowlist" type="checkbox" />
+                  </label>
+
+                  <label class="setting">
+                    <span class="setting-text">
+                      <b>Recover other chats’ tabs</b>
+                      <em>Restore missing or unresponsive work chats. Goal and Loop chats recover automatically.</em>
+                    </span>
+                    <input id="recoverAgentTabs" type="checkbox" />
+                  </label>
+
+                  <label class="setting">
+                    <span class="setting-text">
+                      <b>Wait for sub-agents</b>
+                      <em>Goal and Loop wait until this chat's workers have reported before taking their next step, so they decide with the results. Messages you type or queue are sent as usual.</em>
+                    </span>
+                    <input id="waitForSubAgents" type="checkbox" />
+                  </label>
+
+                  <label class="setting">
+                    <span class="setting-text">
+                      <b>End background processes of workers asleep for more than 30 minutes</b>
+                      <em>The worker chat and history stay reusable. Off by default; each cleanup is recorded in that worker's transcript.</em>
+                    </span>
+                    <input id="endSleepingWorkerProcesses" type="checkbox" />
+                  </label>
+
+                  <div id="swarmList"></div>
+                  <div class="step-actions">
+                    <button class="btn" id="swarmReset" type="button">Clear workers</button>
+                  </div>
+                </div>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Keep the turn open</h2><p>Control plan generation and what happens near the end of a turn.</p></div></header>
+                <div class="settings-surface pane">
+                  <label class="setting" hidden><span class="setting-text"><b>Plan generation</b><em>Create staged tasks with the selected web provider or API.</em></span><select id="planBackend"><option value="web">Web provider</option><option value="api">API provider</option></select></label>
+                  <label class="setting" hidden><span class="setting-text"><b>Session finish</b><em>Holds the turn open near its end so the next step arrives in the same turn.</em></span><input id="finishTool" type="checkbox" /></label>
+                  <div class="setting"><span class="setting-text"><b id="finishLeadMinutesTitle">Requested notice</b><em>How long before its end the model should hold the turn. A request to the model, not a guaranteed countdown.</em></span><select id="finishLeadMinutes" aria-labelledby="finishLeadMinutesTitle"><option value="3">3 minutes</option><option value="5">5 minutes</option></select></div>
+                  <p class="muted">When the model ends the turn this way with Goal or Loop on in this chat, the next step is written from that prompt and response source. Otherwise you get a notification.</p>
+                  </div>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Browser & history</h2><p>Manage background tabs, browser preferences, and history compaction.</p></div></header>
+                <div class="settings-surface pane">
+                  <input type="hidden" id="chatBrowser" value="integrated" />
+                  <div class="setting"><span class="setting-text"><b>Integrated browser companion</b><em>NEURAFLOK loads and updates this component automatically.</em><span id="bridgeState" class="muted"></span></span><button class="btn" id="bridgeUnpair" type="button">Disconnect browser</button></div>
+                  <label class="setting"><span class="setting-text"><b>Browser bridge port</b><em id="browserBridgePortHint">Auto uses the first available port. A fixed port must be available.</em></span><select id="browserBridgePort"><option value="auto">Auto</option><option value="8765">8765</option><option value="8766">8766</option><option value="8767">8767</option><option value="8768">8768</option><option value="8769">8769</option></select></label>
+                  <label class="setting"><span class="setting-text"><b>Background provider tabs</b><em>Keep provider pages opened by the workspace in the background.</em></span><input id="backgroundChats" type="checkbox" /></label>
+                  <label class="setting"><span class="setting-text"><b>Browser only</b><em>Do not open tabs for automatic chat recovery. Explicit new chats, workers and Reload models still work.</em></span><input id="browserOnly" type="checkbox" /></label>
+                  <p class="muted">Idle app-created tabs close after two minutes. Sleeping worker tabs can close earlier when the worker limit is exceeded. Active turns and unsent drafts stay open.</p>
+                  <label class="setting" hidden><span class="setting-text"><b>Show local activity in provider pages</b><em>Show recorded local activity in supported browser pages.</em></span><input id="browserOverwrite" type="checkbox" disabled /></label>
+                  <label class="setting" hidden><span class="setting-text"><b>Show durations in provider pages</b><em>Uses the same preference as the extension popup.</em></span><input id="browserDurations" type="checkbox" disabled /></label>
+                  <div class="setting"><span class="setting-text"><b>Browser preferences</b><em id="browserPreferencesStatus" role="status">Refresh to read the browser's current preferences.</em></span><button id="browserPreferencesRefresh" class="btn" type="button">Refresh browser preferences</button></div>
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b id="autoCompactTitle">Compact automatically</b>
+                      <em id="autoCompactHint"></em>
+                    </span>
+                    <input id="autoCompactTokens" aria-labelledby="autoCompactTitle" class="num" type="number" min="10000" max="4000000" step="10000" />
+                    <span class="unit">tokens</span>
+                    <span class="sw"><input type="checkbox" id="autoCompact" aria-labelledby="autoCompactTitle" /><i></i></span>
+                  </div>
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b id="handoffLengthTitle">Handoff length</b>
+                      <em>How much a Compact &amp; Resume brief keeps. Longer briefs carry more detail into the new chat; shorter ones leave it more room.</em>
+                    </span>
+                    <select id="handoffLength" aria-labelledby="handoffLengthTitle">
+                      <option value="thorough">Thorough · 10k–30k tokens</option>
+                      <option value="standard">Standard · 4k–10k tokens</option>
+                      <option value="short">Short · 2k–6k tokens</option>
+                    </select>
+                  </div>
+                  </div>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Model providers</h2><p>Connect a provider once, then choose one of its available models.</p></div></header>
+                <div class="settings-surface pane">
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b id="goalProviderTitle">Provider</b>
+                      <em>OpenAI, OpenRouter, or an OpenAI-compatible endpoint such as Ollama, vLLM, or LM Studio.</em>
+                    </span>
+                    <select id="goalProvider" aria-labelledby="goalProviderTitle">
+                      <option value="openai">OpenAI</option>
+                      <option value="openrouter">OpenRouter</option>
+                      <option value="custom">Custom compatible endpoint</option>
+                    </select>
+                  </div>
+
+                  <div class="field" id="goalCustomPanel" hidden>
+                    <label for="goalBaseUrl">Endpoint base URL</label>
+                    <input id="goalBaseUrl" type="text" spellcheck="false" placeholder="http://localhost:11434/v1" autocomplete="off" />
+                    <p class="hint">https, or http on localhost. <code>/chat/completions</code> and <code>/models</code> are called under it.</p>
+                    <label for="goalCustomModel">Model</label>
+                    <input id="goalCustomModel" type="text" spellcheck="false" placeholder="llama3.1" autocomplete="off" />
+                    <p class="hint">Your endpoint's own model id, typed exactly as it serves it.</p>
+                    <label for="goalCustomKey">Endpoint API key (optional)</label>
+                    <input id="goalCustomKey" type="password" spellcheck="false" placeholder="leave empty for a keyless local server" autocomplete="off" />
+                    <p class="hint" id="goalCustomKeyState"></p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalCustomKeyRemove" type="button">Remove stored key</button>
+                    </div>
+                  </div>
+                  <div class="field" id="goalKeyField">
+                    <label for="goalKey">OpenRouter API key</label>
+                    <input id="goalKey" type="password" spellcheck="false" placeholder="sk-or-v1-…" autocomplete="off" />
+                    <p class="hint" id="goalKeyState"></p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalKeyRemove" type="button">Remove stored key</button>
+                      <button class="btn" type="button" data-link="https://openrouter.ai/settings/keys">
+                        <i class="ico ph ph-arrow-square-out" aria-hidden="true"></i>Open OpenRouter keys
+                      </button>
+                    </div>
+                  </div>
+                  <div class="field" id="goalOpenAiKeyField" hidden>
+                    <label for="goalOpenAiKey">OpenAI API key</label>
+                    <input id="goalOpenAiKey" type="password" spellcheck="false" placeholder="sk-…" autocomplete="off" />
+                    <p class="hint" id="goalOpenAiKeyState"></p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalOpenAiKeyRemove" type="button">Remove stored key</button>
+                      <button class="btn" type="button" data-link="https://platform.openai.com/api-keys"><i class="ico ph ph-arrow-square-out" aria-hidden="true"></i>OpenAI API keys</button>
+                    </div>
+                  </div>
+                  <!-- The catalogue is several hundred models long and changes weekly, so it is not fetched until somebody actually asks to change the one in use - and then twenty at a time, newest release first. -->
+                  <div class="setting" id="goalPickerRow">
+                    <span class="setting-text">
+                      <b>Model</b>
+                      <em id="goalModelName"></em>
+                    </span>
+                    <button class="btn" id="goalPick" type="button">Select model</button>
+                  </div>
+
+                  <div class="field" id="goalModels" hidden>
+                    <label class="settings-search goal-model-search">
+                      <i class="ico ph ph-magnifying-glass" aria-hidden="true"></i>
+                      <input id="goalModelSearch" type="search" placeholder="Search models" aria-label="Search models" />
+                    </label>
+                    <div id="goalModelList" class="goal-models"></div>
+                    <p class="hint" id="goalModelsState"></p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalMore" type="button">Load 20 more</button>
+                    </div>
+                  </div>
+
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b id="goalReasoningTitle">Reasoning</b>
+                      <em>Choose a reasoning level supported by the selected API model. Default uses the provider's setting.</em>
+                    </span>
+                    <select id="goalReasoning" aria-labelledby="goalReasoningTitle">
+                      <option value="default">Default</option>
+                    </select>
+                  </div>
+
+                  </div>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Continuation prompts</h2><p>Shape what Compact &amp; Resume keeps and how Goal and Loop write their next instruction.</p></div></header>
+                <div class="settings-surface pane">
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b>Handoff prompt</b>
+                      <em>Controls what Compact &amp; Resume preserves in the brief. Continuation identity and recovery rules stay fixed.</em>
+                    </span>
+                    <button class="btn" id="handoffPromptEdit" type="button">Edit prompt</button>
+                  </div>
+
+                  <div class="field goal-prompt" id="handoffPromptPanel" hidden>
+                    <label for="handoffPrompt">Handoff prompt</label>
+                    <textarea dir="auto" id="handoffPrompt" rows="14" spellcheck="false"></textarea>
+                    <p class="hint">Saved when you leave the editor. This changes brief content only; Compact &amp; Resume protocol framing remains fixed.</p>
+                    <div class="step-actions">
+                      <button class="btn" id="handoffPromptReset" type="button">Restore default</button>
+                    </div>
+                  </div>
+
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b>Goal prompt, no task</b>
+                      <em>Reads the goal from your messages and stops when it is complete.</em>
+                    </span>
+                    <button class="btn" id="goalPromptEdit" type="button">Edit prompt</button>
+                  </div>
+
+                  <div class="field goal-prompt" id="goalPromptPanel" hidden>
+                    <label for="goalPrompt">Goal prompt, no task</label>
+                    <textarea dir="auto" id="goalPrompt" rows="14" spellcheck="false"></textarea>
+                    <p class="hint">Saved when you leave the editor. Keep <code>NO_REPLY</code> as the exact stop response.</p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalPromptReset" type="button">Restore default</button>
+                    </div>
+                  </div>
+
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b>Goal prompt, with a task</b>
+                      <em>Uses the objective saved in the chat controls. Stops when every requirement is met.</em>
+                    </span>
+                    <button class="btn" id="goalObjectivePromptEdit" type="button">Edit prompt</button>
+                  </div>
+
+                  <div class="field goal-prompt" id="goalObjectivePromptPanel" hidden>
+                    <label for="goalObjectivePrompt">Goal prompt, with a task</label>
+                    <textarea dir="auto" id="goalObjectivePrompt" rows="14" spellcheck="false"></textarea>
+                    <p class="hint">Saved when you leave the editor. Keep <code>NO_REPLY</code> as the exact stop response.</p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalObjectivePromptReset" type="button">Restore default</button>
+                    </div>
+                  </div>
+
+                  <div class="setting">
+                    <span class="setting-text">
+                      <b>Loop prompt</b>
+                      <em>Writes the next instruction after each answer, until you turn Loop off.</em>
+                    </span>
+                    <button class="btn" id="goalLoopPromptEdit" type="button">Edit prompt</button>
+                  </div>
+
+                  <div class="field goal-prompt" id="goalLoopPromptPanel" hidden>
+                    <label for="goalLoopPrompt">Loop prompt</label>
+                    <textarea dir="auto" id="goalLoopPrompt" rows="14" spellcheck="false"></textarea>
+                    <p class="hint">Saved when you leave the editor. There is no stop response here - the app refuses one and asks again.</p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalLoopPromptReset" type="button">Restore default</button>
+                    </div>
+                  </div>
+
+                  </div>
+
+              </div>
+            </div>
+            <div class="composer-dock" id="composerDock"><div class="composer-dock-body"><div class="background-exec-status" id="backgroundExecStatus" role="status" hidden><i class="ico ph ph-terminal-window" aria-hidden="true"></i><span class="queue-label"></span><span class="background-exec-time"></span><svg class="disclosure-chevron background-exec-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false" hidden><path d="M6 3.5 10.5 8 6 12.5"></path></svg><button class="background-exec-stop" type="button"><i class="ico ph ph-power" aria-hidden="true"></i><span></span></button></div><div class="sr-only" id="backgroundExecLiveStatus" role="status" aria-live="polite" hidden></div><div class="background-exec-list" id="backgroundExecList" role="list" hidden></div><section class="agent-plan" id="agentPlan" aria-label="Agent task plan" hidden></section><div id="recoveryStatus" role="status" hidden></div><div id="taskPlanPreview" aria-label="Plan stages" hidden></div><div id="finishQueue" aria-label="Queued tasks" hidden></div><div id="activeGoalRow" hidden></div></div></div>
+            <form class="composer" id="composer">
+              <div id="skillPicker" class="skill-autocomplete" aria-label="Skills" hidden></div>
+              <div id="composerSelectedSkills" class="composer-selected-skills" aria-label="Selected skills" hidden></div>
+              <label class="sr-only" for="chatInput">Send a message</label>
+              <div id="composerImages" class="composer-images" hidden></div><textarea dir="auto" id="chatInput" rows="1" placeholder="Describe your goal and define measurable outcomes for better results"></textarea>
+              <div class="composer-toolbar">
+                <div class="composer-primary-controls">
+                <details class="composer-menu" id="attachmentMenu">
+                  <summary aria-label="Add attachments" title="Add attachments"><i class="ico ph ph-plus" aria-hidden="true"></i></summary>
+                  <div class="composer-popover">
+                    <button id="attachImages" type="button"><i class="ico ph ph-image" aria-hidden="true"></i>Add photos &amp; files</button>
+                    <button id="composerFolder" type="button"><i class="ico ph ph-folder" aria-hidden="true"></i>Share a folder</button>
+                    <div class="composer-skills-row">
+                      <button id="composerSkills" type="button"><i class="ico ph ph-cube" aria-hidden="true"></i>Skills</button>
+                      <button id="composerAddSkill" type="button" aria-label="Add Skills" title="Add Skills"><i class="ico ph ph-plus" aria-hidden="true"></i></button>
+                    </div>
+                  </div>
+                </details>
+                <details class="composer-menu composer-access-picker" id="composerAccess">
+                  <summary id="composerAccessTrigger" aria-label="Access" title="Access">
+                    <i class="ico ph ph-shield-check composer-access-shield" aria-hidden="true"></i>
+                    <span id="composerAccessLabel" class="sr-only">Full access</span>
+                  </summary>
+                  <div class="composer-popover composer-access-popover">
+                    <div class="composer-access-options" id="composerAccessChoice" role="radiogroup" aria-label="Access">
+                      <button class="composer-access-option" type="button" role="radio" aria-checked="false" tabindex="-1" data-access="full" aria-describedby="composerAccessFullDescription">
+                        <i class="ico ph ph-monitor" aria-hidden="true"></i>
+                        <span class="composer-access-copy"><b>Full access</b><small id="composerAccessFullDescription">Edit files, run commands, and control the workspace.</small></span>
+                        <i class="ico ph ph-check composer-access-check" aria-hidden="true"></i>
+                      </button>
+                      <button class="composer-access-option" type="button" role="radio" aria-checked="false" tabindex="-1" data-access="files" aria-describedby="composerAccessFilesDescription">
+                        <i class="ico ph ph-terminal-window" aria-hidden="true"></i>
+                        <span class="composer-access-copy"><b>Files y terminal</b><small id="composerAccessFilesDescription">Edit files and run commands. No browser.</small></span>
+                        <i class="ico ph ph-check composer-access-check" aria-hidden="true"></i>
+                      </button>
+                      <button class="composer-access-option" type="button" role="radio" aria-checked="false" tabindex="-1" data-access="read" aria-describedby="composerAccessReadDescription">
+                        <i class="ico ph ph-eye" aria-hidden="true"></i>
+                        <span class="composer-access-copy"><b>Read only</b><small id="composerAccessReadDescription">The model cannot change files or run commands.</small></span>
+                        <i class="ico ph ph-check composer-access-check" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                    <p class="composer-access-status" id="composerAccessStatus" role="status" hidden>Custom permissions, set in Workspace.</p>
+                    <button class="composer-access-manage" id="manageComposerAccess" type="button"><i class="ico ph ph-sliders-horizontal" aria-hidden="true"></i><span>Change access</span></button>
+                  </div>
+                </details>
+                <button class="composer-goal-pill" id="composerGoalBtn" type="button" title="Goal" aria-label="Goal">
+                  <i class="ico ph ph-target" aria-hidden="true"></i>
+                  <span>Goal</span>
+                </button>
+                <details class="composer-menu" id="composerSettings" hidden>
+                    <summary aria-label="Chat mode" title="Chat mode"><i id="composerModeIcon" class="ico ph ph-chat-circle" aria-hidden="true"></i><span id="composerModeLabel">Normal</span><svg class="disclosure-chevron dropdown-chevron picker-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg></summary>
+                    <div class="composer-popover">
+                      <div class="automation-switch" id="automationSwitch" role="radiogroup" aria-label="Chat mode">
+                        <button type="button" role="radio" aria-checked="true" data-mode="off"><i class="ico ph ph-chat-circle" aria-hidden="true"></i><span class="mode-copy"><span>Normal</span><small>One request, without automatic continuation.</small></span><i class="ico ph ph-check mode-check" aria-hidden="true"></i></button>
+                        <div class="mode-option"><button type="button" role="radio" aria-checked="false" data-mode="goal"><i class="ico ph ph-target" aria-hidden="true"></i><span class="mode-copy"><span>Goal</span><small>Continue until this objective is satisfied.</small></span><i class="ico ph ph-check mode-check" aria-hidden="true"></i></button><button type="button" class="mode-edit" data-edit-mode="goal" data-keep-menu="true" aria-label="Edit task" title="Edit task"><i class="ico ph ph-pencil-simple" aria-hidden="true"></i></button></div>
+                        <div class="mode-option"><button type="button" role="radio" aria-checked="false" data-mode="loop"><i class="ico ph ph-arrows-clockwise" aria-hidden="true"></i><span class="mode-copy"><span>Loop</span><small>Keep working within the brief until paused.</small></span><i class="ico ph ph-check mode-check" aria-hidden="true"></i></button><button type="button" class="mode-edit" data-edit-mode="loop" data-keep-menu="true" aria-label="Edit task" title="Edit task"><i class="ico ph ph-pencil-simple" aria-hidden="true"></i></button></div>
+                        </div><select hidden id="chatAutomation" aria-label="Chat automation"><option value="off">Off</option><option value="goal">Goal</option><option value="loop">Loop</option></select>
+                      <label id="loopDeliveryRow" hidden>When to continue<select id="loopDelivery"><option value="finish">Session Finish only</option><option value="after-turn">Also after the turn</option></select></label>
+              <div id="sessionControls" hidden>
+                <div class="session-controls-menu">
+                  <label for="sessionObjective">This chat's goal</label>
+                  <textarea dir="auto" id="sessionObjective" rows="3" maxlength="16000" placeholder="Optional. Leave empty to work toward what you asked in this chat."></textarea>
+                  <button id="saveSessionObjective" data-keep-menu="true" type="button"><i class="ico ph ph-check" aria-hidden="true"></i><span>Save task</span></button>
+                  <select hidden id="sessionObjectiveMode" aria-label="Goal behavior"><option value="goal">Goal · stop when complete</option><option value="loop">Loop · keep going</option></select>
+                  <button id="queueAtFinish" type="button" hidden><i class="ico ph ph-clock" aria-hidden="true"></i><span>Queue at Session finish</span></button>
+                </div>
+              </div>
+                    </div>
+                  </details>
+                  <button class="btn" id="createPlan" type="button" hidden><i class="ico ph ph-list-checks" aria-hidden="true"></i><span>Plan</span></button>
+                </div>
+                <div class="context-meter" id="contextMeter">
+                  <button type="button" id="contextMeterButton" aria-label="Estimated session context" aria-expanded="false" aria-controls="contextMeterInfo">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle class="context-track" cx="8" cy="8" r="6"/><circle id="contextMeterArc" cx="8" cy="8" r="6" stroke-dasharray="0 37.7"/></svg><span id="contextMeterCompact" aria-hidden="true"></span>
+                  </button>
+                  <div id="contextMeterInfo" role="dialog" aria-label="Session context · estimated">
+                    <dl class="context-data"><dt>This chat (estimate)</dt><dd id="contextTokens"></dd><dt>Context limit</dt><dd id="contextLimit"></dd><dt>Filled</dt><dd id="contextPercent"></dd><dt>Compacts automatically at</dt><dd id="contextThreshold"></dd></dl>
+                    <div class="context-progress" role="progressbar" aria-label="Estimated session context" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+                    <button type="button" class="context-action" id="contextDisplay"><i class="ico ph ph-arrows-clockwise" aria-hidden="true"></i><span>Show token values</span></button>
+                    <button id="compactSession" class="context-action" type="button" hidden><i class="ico ph ph-copy" aria-hidden="true"></i><span>Compact &amp; resume</span></button>
+                    <button id="cancelCompaction" class="context-action" type="button" hidden><i class="ico ph ph-x" aria-hidden="true"></i><span>Cancel compaction</span></button>
+                    <p id="sessionControlStatus" role="status"></p>
+                  </div>
+                </div>
+                <div class="composer-model-controls" id="composerModelControls">
+                <details class="composer-menu chat-model-picker" id="chatModelPicker">
+                  <summary id="chatModelPickerTrigger" aria-label="Choose model" title="Choose model">
+                    <span id="chatModelPickerDot" class="model-picker-dot" aria-hidden="true"></span>
+                    <span id="chatModelPickerMark" aria-hidden="true"></span>
+                    <span id="chatModelPickerName" class="model-picker-name" translate="no">DeepSeek Web</span>
+                    <i class="ico ph ph-caret-down" aria-hidden="true"></i>
+                  </summary>
+                  <div class="composer-popover model-picker-popover">
+                    <section class="model-picker-section" aria-labelledby="webModelsHeading">
+                      <div class="model-picker-heading"><span id="webModelsHeading">Web models</span><span class="model-picker-tag" id="webModelsTag">Browser session</span></div>
+                      <div id="webModelOptions" class="model-picker-options"></div>
+                    </section>
+                    <div class="model-picker-divider" aria-hidden="true"></div>
+                    <section class="model-picker-section" aria-labelledby="apiModelsHeading">
+                      <div class="model-picker-heading"><span id="apiModelsHeading">Your models</span></div>
+                      <div id="apiModelOptions" class="model-picker-options"></div>
+                    </section>
+                    <button class="model-picker-manage" id="manageModelsOpen" type="button"><i class="ico ph ph-sliders-horizontal" aria-hidden="true"></i><span id="manageModelsLabel">Manage models</span></button>
+                  </div>
+                </details>
+                <button class="btn" id="generateFinishGoal" type="button" hidden>Generate Goal</button>
+                </div>
+                <div class="send-control">
+                  <div class="send-options" id="sendOptions" hidden>
+                    <div class="delivery-choices" role="radiogroup" aria-label="Message delivery">
+                      <button type="button" role="radio" aria-checked="true" data-delivery="auto"><span id="immediateDeliveryLabel">Send</span><i class="ico ph ph-check" aria-hidden="true"></i></button>
+                      <button type="button" role="radio" aria-checked="false" data-delivery="tool"><span>Inject now</span><i class="ico ph ph-check" aria-hidden="true"></i></button>
+                      <button type="button" role="radio" aria-checked="false" data-delivery="after-turn"><span id="afterTurnLabel">After this turn</span><i class="ico ph ph-check" aria-hidden="true"></i></button>
+                    </div>
+                    <select id="sendMode" aria-label="Message delivery" hidden><option value="auto">Send</option><option value="tool">Inject now</option><option value="after-turn">After this turn</option></select>
+                  </div>
+                  <button class="send-button" id="chatSend" type="submit" aria-label="Send message"><i class="ph ph-arrow-up send-icon" aria-hidden="true"></i></button>
+                </div>
+              </div>
+              <p id="composerStatus" role="status" aria-live="polite"></p>
+              <div class="composer-workspace-tools">
+                <button class="composer-tool-pill" id="composerProjectPill" type="button">
+                  <i class="ico ph ph-folder" aria-hidden="true"></i>
+                  <span id="chatProjectName">NEURAFLOK</span>
+                </button>
+                <button class="composer-tool-pill" id="composerFiles" type="button"><i class="ico ph ph-files" aria-hidden="true"></i><span>Files</span></button>
+                <button class="composer-tool-pill" id="composerSkillsPill" type="button" data-workspace-page="skills"><i class="ico ph ph-at" aria-hidden="true"></i><span>Skills</span></button>
+                <button class="composer-tool-pill composer-screen-tool" id="toggleTerminal" type="button" title="Terminal and screen" aria-label="Terminal and screen" aria-controls="workspaceTerminal" aria-expanded="false"><i class="ico ph ph-laptop" aria-hidden="true"></i></button>
+              </div>
+            </form>
+            <p class="foot" id="chatFoot" hidden></p>
+          </section>
+        </section>
+

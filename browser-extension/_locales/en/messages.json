@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "NEURAFLOK Companion"
+  },
+  "extension_description": {
+    "message": "Connects NEURAFLOK to signed-in browser sessions for DeepSeek, Kimi, Qwen and Z AI."
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

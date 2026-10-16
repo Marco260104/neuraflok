@@ -1,0 +1,110 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 NEURAFLOK contributors -->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>NEURAFLOK</title>
+    <link rel="stylesheet" href="./icons.css" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./settings.css" />
+    <link rel="stylesheet" href="./neuraflok.css" />
+  </head>
+  <body>
+    <div class="boot-splash" id="bootSplash" aria-hidden="true">
+      <div class="boot-splash-mark"><img data-brand-mark alt="" /></div>
+    </div>
+    <!-- Interface icons use Phosphor glyphs and preserve the icon view box. -->
+    <svg class="sprite" aria-hidden="true">
+      <defs>
+        <!-- The workspace icon stays on the same 24 pixel grid as the other glyphs. -->
+        <g id="i-mark">
+          <path d="M3.5 8.5V5.5a1 1 0 0 1 1-1h3.1L9 6.4h6.5" />
+          <path
+            d="M5.5 8.5h13a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8L7 20v-3.5H5.5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"
+          />
+        </g>
+      </defs>
+    </svg>
+
+    <div class="app" data-screen="chat">
+      <div class="app-topbar">
+        <button class="btn" id="sidebarToggle" type="button" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="true" title="Toggle sidebar"><i class="ico ph ph-sidebar-simple" aria-hidden="true"></i></button>
+        <button class="btn" id="viewMenu" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="View" title="View"><i class="ico ph ph-list" aria-hidden="true"></i></button>
+        <div class="app-topbar-identity" aria-label="NEURAFLOK workspace" hidden>
+          <span class="app-topbar-product">NEURAFLOK</span>
+          <span class="app-topbar-divider" aria-hidden="true">/</span>
+          <span class="app-topbar-page" id="appPageTitle">Workspace</span>
+        </div>
+        <div class="connection-anchor app-topbar-connection">
+          <button
+            class="sidebar-connection"
+            id="sidebarConnection"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="connectionPopover"
+            aria-label="Not connected"
+            title="Not connected"
+          >
+            <span class="sidebar-connection-dot" aria-hidden="true"></span>
+            <span class="sidebar-connection-label" aria-hidden="true"><span id="sidebarConnectionLabel">Connect</span></span>
+          </button>
+          <span class="sr-only" id="connectionAnnounce" role="status" aria-live="polite"></span>
+          <section class="connection-popover scroll" id="connectionPopover" role="dialog" aria-label="Connection" hidden>
+            <div class="connection-popover-head">
+              <strong id="connectionPopoverTitle">Not connected</strong>
+              <span class="connection-popover-status-dot" aria-hidden="true"></span>
+            </div>
+            <div class="connection-popover-card">
+              <div class="connection-popover-row">
+                <span class="provider-label"><span data-provider-logo="deepseek"></span>DeepSeek</span>
+                <span id="connectionPopoverDeepseekStatus" class="sr-only">Not connected</span>
+                <i aria-hidden="true"></i>
+              </div>
+              <div class="connection-popover-row">
+                <span class="provider-label"><span data-provider-logo="kimi"></span>Kimi</span>
+                <span id="connectionPopoverKimiStatus" class="sr-only">Not connected</span>
+                <i aria-hidden="true"></i>
+              </div>
+              <div class="connection-popover-row">
+                <span class="provider-label"><span data-provider-logo="qwen"></span>Qwen</span>
+                <span id="connectionPopoverQwenStatus" class="sr-only">Not connected</span>
+                <i aria-hidden="true"></i>
+              </div>
+              <div class="connection-popover-row">
+                <span class="provider-label"><span data-provider-logo="glm"></span>Z AI</span>
+                <span id="connectionPopoverGlmStatus" class="sr-only">Not connected</span>
+                <i aria-hidden="true"></i>
+              </div>
+              <div class="connection-popover-row">
+                <span>Extension</span>
+                <span id="connectionPopoverBrowser" class="sr-only">Not seen</span>
+                <i aria-hidden="true"></i>
+              </div>
+            </div>
+            <div class="connection-popover-actions">
+              <button class="btn btn-solid" id="connectionPopoverDeepseek" type="button"><i class="ico ph ph-sign-in" aria-hidden="true"></i><span id="connectionPopoverProviderAction">Open DeepSeek</span></button>
+            </div>
+          </section>
+        </div>
+      </div>
+      <!-- @include: shell/layout/sidebar.html -->
+
+      <!-- @include: shell/layout/notices.html -->
+      <main>
+
+        <!-- @include: shell/views/preferences.html -->
+        <!-- @include: shell/views/setup.html -->
+        <!-- @include: shell/views/chat.html -->
+        <!-- @include: shell/views/activity.html -->
+      </main>
+
+      <!-- Navigation section. -->
+
+    </div>
+
+    <!-- @include: shell/dialogs/index.html -->
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

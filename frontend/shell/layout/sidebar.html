@@ -1,0 +1,74 @@
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-resize" id="sidebarResize" role="separator" tabindex="0" aria-label="Chat list width" aria-orientation="vertical" aria-controls="sidebar" title="Drag to resize · Double-click to reset"></div>
+        <button class="btn" id="backToChat" type="button" hidden><i class="ico ph ph-arrow-left" aria-hidden="true"></i><span>Back to chat</span></button>
+        <div class="sidebar-brand">
+          <div class="sidebar-brand-heading">
+            <button class="sidebar-wordmark-frame" id="railWorkspace" type="button" data-workspace-page="chat" title="Workspace" aria-label="Workspace">
+              <img class="sidebar-wordmark" data-brand-wordmark alt="NEURAFLOK" />
+            </button>
+            <div class="sidebar-brand-actions">
+              <button class="btn sidebar-brand-action" id="searchChatsButton" type="button" aria-haspopup="dialog" aria-controls="searchDialog" title="Search chats" aria-label="Search chats"><i class="ico ph ph-magnifying-glass" aria-hidden="true"></i></button>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar-primary" id="sidebarPrimary">
+          <button class="btn new-chat" id="newChat" type="button"><i class="ico ph ph-pencil-simple" aria-hidden="true"></i><span>New chat</span></button>
+          <button class="btn sidebar-primary-link" id="sidebarSkills" data-sidebar-page="skills" type="button"><i class="ico ph ph-cube" aria-hidden="true"></i>Skills</button>
+        </div>
+      <!-- Settings search: while it holds a query, its results take the page list's place. -->
+      <div class="settings-find" id="settingsFindBox" hidden>
+        <i class="ico ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input id="settingsFind" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false" />
+        <button class="btn settings-find-clear" id="settingsFindClear" type="button" title="Clear search" aria-label="Clear search" hidden></button>
+      </div>
+      <div class="settings-find-results" id="settingsFindResults" aria-live="polite" hidden></div>
+      <nav id="tabs" aria-label="Settings navigation" hidden>
+        <button class="is-sel" data-tab="home" type="button">
+          <i class="ico ph ph-house" aria-hidden="true"></i>Workspace
+        </button>
+        <button data-tab="general" type="button"><i class="ico ph ph-sliders-horizontal" aria-hidden="true"></i>General</button>
+        <button data-tab="usage" type="button" hidden><i class="ico ph ph-chart-line" aria-hidden="true"></i>Usage</button>
+<button data-tab="setup" type="button">
+          <i class="ico ph ph-list-checks" aria-hidden="true"></i>Setup
+          <span class="badge" id="setupBadge" hidden></span>
+        </button>
+        <button data-tab="settings" type="button">
+          <i class="ico ph ph-robot" aria-hidden="true"></i>Agents &amp; automation
+        </button>
+        <button data-tab="appearance" type="button"><i class="ico ph ph-sun" aria-hidden="true"></i>Appearance</button>
+        <button data-tab="activity" type="button">
+          <i class="ico ph ph-activity" aria-hidden="true"></i>Activity
+        </button>
+      </nav>
+        <section class="sidebar-sessions">
+          <div class="scroll">
+            <div id="sessionList">
+              <details class="sidebar-session-section" id="projectsSection" open>
+                <summary class="sidebar-session-heading">
+                  <span class="sidebar-session-label"><svg class="disclosure-chevron sidebar-section-chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg>Projects</span>
+                  <span class="acts"><button class="btn" id="addProject" type="button" title="Add a project folder" aria-label="Add a project folder"><i class="ico ph ph-plus" aria-hidden="true"></i></button></span>
+                </summary>
+                <div id="projectList"><p class="empty" role="status">Loading projects…</p></div>
+                <p class="empty sidebar-section-empty" id="projectsEmpty" hidden>No projects yet.</p>
+              </details>
+              <details class="sidebar-session-section" id="chatsSection" open>
+                <summary class="sidebar-session-heading">
+                  <span class="sidebar-session-label"><svg class="disclosure-chevron sidebar-section-chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg>Chats</span>
+                  <span class="acts">
+                    <button class="btn" id="newChatInChats" type="button" title="New chat" aria-label="New chat"><i class="ico ph ph-plus" aria-hidden="true"></i></button>
+                    <button class="btn" id="chatRefresh" type="button" title="Refresh chats" aria-label="Refresh chats"><i class="ico ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+                  </span>
+                </summary>
+                <div id="chatList"><p class="empty" role="status">Loading chats…</p></div>
+                <p class="empty sidebar-section-empty" id="sessionsEmpty" hidden>No chats outside projects yet.</p>
+              </details>
+            </div>
+          </div>
+        </section>
+
+        <div class="sidebar-bottom">
+          <button class="sidebar-settings" id="workspaceSettings" type="button" aria-haspopup="dialog" aria-controls="quickSettingsDialog" aria-expanded="false" title="Settings" aria-label="Settings">
+            <i class="ico ph ph-gear-six" aria-hidden="true"></i><span>Settings</span>
+          </button>
+        </div>
+      </aside>

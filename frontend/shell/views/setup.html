@@ -1,0 +1,131 @@
+        <!-- Setup section. -->
+        <section class="panel setup-panel scroll" data-panel="setup">
+          <div class="sheet settings-page-content setup-board">
+            <div class="setup-heading settings-page-head">
+              <div><h1 id="setupTitle">Setup</h1><p>Connect a browser session and choose workspace permissions.</p></div>
+            </div>
+            <!-- The steps side by side: where the user is, what is done, and a way to any step. Only the open step shows below it, so the page never reads as one long manual. -->
+            <div class="setup-track">
+              <nav class="setup-rail" aria-label="Setup steps">
+                <ol>
+                  <li><button type="button" data-rail-step="browser"><span class="setup-rail-mark" aria-hidden="true"><i class="ico ph ph-check"></i></span><span class="setup-rail-label">Extension</span></button></li>
+                  <li><button type="button" data-rail-step="folder"><span class="setup-rail-mark" aria-hidden="true"><i class="ico ph ph-check"></i></span><span class="setup-rail-label">Folder</span></button></li>
+                  <li><button type="button" data-rail-step="access"><span class="setup-rail-mark" aria-hidden="true"><i class="ico ph ph-check"></i></span><span class="setup-rail-label">Permissions</span></button></li>
+                  <li class="setup-rail-ready"><button type="button" data-rail-step="ready"><span class="setup-rail-mark" aria-hidden="true"><i class="ico ph ph-check"></i></span><span class="setup-rail-label">Ready</span></button></li>
+                </ol>
+              </nav>
+              <div class="setup-progress" id="setupProgress" role="progressbar" aria-labelledby="setupTitle" aria-valuemin="0" aria-valuenow="0" aria-valuemax="7">
+                <span class="setup-progress-text" id="setupProgressText"></span>
+              </div>
+            </div>
+
+            <ol class="wizard" id="wizard">
+              <!-- The integrated browser loads the companion automatically. -->
+              <li class="step" data-step="browser">
+                <div class="step-mark"><i class="ico tick ph ph-check" aria-hidden="true"></i></div>
+                <div class="step-body browser-setup">
+                  <section id="browserLocationStage" class="browser-stage" aria-labelledby="browserLocationTitle" hidden>
+                    <div class="browser-stage-copy">
+                      <h3 id="browserLocationTitle" tabindex="-1">Connect a model provider</h3>
+                      <p class="step-lead">Open a provider in NEURAFLOK’s private browser. Its companion is installed automatically; after sign-in, the page can remain hidden while you work.</p>
+                      <div class="browser-provider-select">
+                        <label for="browserWebProvider">Provider to open</label>
+                        <select id="browserWebProvider" aria-label="Provider to open"><option value="deepseek">DeepSeek</option><option value="kimi">Kimi</option><option value="qwen">Qwen</option><option value="glm">Z AI</option></select>
+                        <button class="btn btn-solid" id="openBrowserProvider" type="button"><i class="ico ph ph-arrow-square-out" aria-hidden="true"></i><span id="browserProviderAction">Open DeepSeek</span></button>
+                      </div>
+                      <div class="browser-provider-list" aria-label="Provider sessions">
+                        <div class="browser-provider-row" data-browser-provider="deepseek"><i class="provider-state-dot" aria-hidden="true"></i><span>DeepSeek</span><span id="browserProviderStatusDeepseek">Not detected</span><button class="btn" type="button" data-setup-open-provider="deepseek">Open</button></div>
+                        <div class="browser-provider-row" data-browser-provider="kimi"><i class="provider-state-dot" aria-hidden="true"></i><span>Kimi</span><span id="browserProviderStatusKimi">Not detected</span><button class="btn" type="button" data-setup-open-provider="kimi">Open</button></div>
+                        <div class="browser-provider-row" data-browser-provider="qwen"><i class="provider-state-dot" aria-hidden="true"></i><span>Qwen</span><span id="browserProviderStatusQwen">Not detected</span><button class="btn" type="button" data-setup-open-provider="qwen">Open</button></div>
+                        <div class="browser-provider-row" data-browser-provider="glm"><i class="provider-state-dot" aria-hidden="true"></i><span>Z AI</span><span id="browserProviderStatusGlm">Not detected</span><button class="btn" type="button" data-setup-open-provider="glm">Open</button></div>
+                      </div>
+                      <div class="provider-notes">
+                        <p class="provider-account-warning"><i class="ico ph ph-warning-circle" aria-hidden="true"></i><span><strong>Separate account recommended.</strong> Sessions stay in the browser where you sign in; NEURAFLOK never copies cookies between profiles.</span></p>
+                        <p class="provider-resource-note">Pages used by active provider sessions can stay open in the background. More sessions may use more memory and CPU.</p>
+                      </div>
+                      <div id="browserConnectionLost" class="browser-connection-lost" role="status" hidden><p>The internal browser is ready.</p><button id="browserReviewExtension" class="btn btn-quiet" type="button">Open the internal browser</button></div>
+                    </div>
+                  </section>
+                </div>
+              </li>
+              <!-- 2 -->
+              <li class="step" data-step="folder">
+                <div class="step-mark">
+                  <i class="ico tick ph ph-check" aria-hidden="true"></i>
+                </div>
+                <div class="step-body">
+                  <h3>Pick a folder to share</h3>
+                  <p class="step-lead">The connected provider can only work inside the folders you share.</p>
+                  <ul class="folder-list" id="wizFolders"></ul>
+                  <div class="step-actions">
+                    <button class="btn step-link" id="wizManageFolders" type="button">Manage folders</button>
+                  </div>
+                  <div class="step-art connect-art">
+                    <button class="connect-toggle" id="wizAddFolder" type="button" data-tone="off">
+                      <span class="connect-ring" aria-hidden="true"><svg class="setup-folder-icon" viewBox="0 0 48 48" fill="none"><path d="M6 15V11a3 3 0 0 1 3-3h10l5 6h15a3 3 0 0 1 3 3v20a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V15Z"/><path d="M6 18h36M24 24v10m-5-5h10"/></svg></span>
+                      <span class="connect-label">Add</span>
+                    </button>
+                  </div>
+                </div>
+              </li>
+              <!-- Provider permissions control which capabilities the local workspace exposes. -->
+              <li class="step" data-step="access">
+                <div class="step-mark">
+                  <i class="ico tick ph ph-check" aria-hidden="true"></i>
+                </div>
+                <div class="step-body">
+                  <h3 id="accessTitle">Choose what the provider can do</h3>
+                  <p class="step-lead">Only inside the folders you share. You can change it later in Workspace.</p>
+                  <p class="hint is-warn" id="accessRecovered" hidden>The settings file could not be read, so the app started in read-only mode. Choose access again.</p>
+                  <div class="browser-choice access-choice" role="radiogroup" aria-labelledby="accessTitle">
+                    <button class="browser-option" type="button" role="radio" data-access="full"><i class="ico ph ph-monitor" aria-hidden="true"></i><b>Full access</b><em>Edit files, run commands, and use your browser and desktop apps.</em></button>
+                    <button class="browser-option" type="button" role="radio" data-access="files"><i class="ico ph ph-terminal-window" aria-hidden="true"></i><b>Files and terminal</b><em>Edit files and run commands. No browser or desktop control.</em></button>
+                    <button class="browser-option" type="button" role="radio" data-access="read"><i class="ico ph ph-eye" aria-hidden="true"></i><b>Read only</b><em>Read and search files. The provider can't change anything or run commands.</em></button>
+                  </div>
+                  <p class="hint" id="accessNote" hidden></p>
+                  <!-- Workspace's own permission switches, not a copy: the app moves that one surface here while Setup is on screen, so there is a single place permissions live. -->
+                  <details class="setup-optional access-fine" id="accessFine">
+                    <summary><svg class="disclosure-chevron details-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg>Fine-tune permissions</summary>
+                    <div id="accessFineSlot"></div>
+                  </details>
+                </div>
+              </li>
+              <!-- Ready summarizes setup and points to any remaining action. -->
+              <li class="step step-ready" data-step="ready">
+                <div class="step-mark">
+                  <i class="ico tick ph ph-check" aria-hidden="true"></i>
+                </div>
+                <div class="step-body">
+                  <div class="ready-hero">
+                    <span class="ready-badge" aria-hidden="true"><i class="ph ph-check"></i></span>
+                    <div>
+                      <h3 id="readyTitle">You’re all set!</h3>
+                      <p class="step-lead" id="readyLead">NEURAFLOK is ready. Select a connected provider and start a new chat.</p>
+                    </div>
+                  </div>
+                  <ul class="ready-checks" id="readyChecks"></ul>
+                  <div class="ready-limited" id="readyLimited" role="status" hidden>
+                    <i class="ico ph ph-warning" aria-hidden="true"></i>
+                    <p>Access is limited, so the selected provider can't edit files or run commands. Change access in Setup or Workspace when you are ready.</p>
+                    <button class="btn" id="readyChangeAccess" type="button">Change access</button>
+                  </div>
+                  <div class="step-actions">
+                    <button class="btn btn-solid" id="readyStart" type="button"><i class="ico ph ph-chat-circle" aria-hidden="true"></i>Start a chat</button>
+                  </div>
+                </div>
+              </li>
+            </ol>
+
+            <details class="advanced">
+              <summary>
+                <svg class="disclosure-chevron sum-chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg>
+                Startup behavior
+              </summary>
+              <div class="field">
+                <label class="inline" id="startAtLoginRow" hidden><input type="checkbox" id="startAtLogin" /> Start NEURAFLOK when I sign in</label>
+                <label class="inline"><input type="checkbox" id="minimizeToTray" /> <span id="minimizeToTrayCopy">Keep running when closed</span></label>
+              </div>
+            </details>
+          </div>
+        </section>
+

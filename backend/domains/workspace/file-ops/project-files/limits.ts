@@ -1,0 +1,4 @@
+export const MAX_DIRECTORY_ENTRIES = 500;
+export const MAX_PREVIEW_BYTES = 256 * 1024;
+export const MAX_IMAGE_PREVIEW_BYTES = 5 * 1024 * 1024;
+export const MAX_PDF_PREVIEW_BYTES = 20 * 1024 * 1024;

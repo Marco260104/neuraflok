@@ -1,0 +1,46 @@
+/* Setup panel and provider connection styles. */
+.setup-panel {
+  padding: 46px 36px 64px;
+  scrollbar-gutter: stable;
+}
+[data-panel='setup'].is-active {
+  display: block;
+  overflow: hidden auto;
+}
+.connector-chevron { color: var(--soft); }
+.connectors {
+  display: grid;
+  gap: 0;
+  margin-top: 16px;
+}
+
+.connector {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+.connector:first-child { border-top: 0; }
+
+.connector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connector-head h4 {
+  margin: 0;
+  font-size: calc(13.5px * var(--text-scale, 1));
+}
+.connector-badges { display: inline-flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.connector .field > .row-inline input {
+  font-size: calc(11.5px * var(--text-scale, 1));
+}
+
+.setup-panel :is(button, input, select, summary):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 1100px) {
+  .setup-panel { padding: 36px 24px 52px; }
+}
+@media (max-width: 520px) {
+  .setup-panel { padding: 24px 18px 40px; }
+}
+

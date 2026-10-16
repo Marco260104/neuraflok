@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "NEURAFLOK 浏览器助手"
+  },
+  "extension_description": {
+    "message": "将 NEURAFLOK 连接到 DeepSeek、Kimi、Qwen 和 Z AI 的已登录浏览器会话。"
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

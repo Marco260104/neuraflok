@@ -1,0 +1,11 @@
+{
+  "extension_name": {
+    "message": "Compañero de NEURAFLOK"
+  },
+  "extension_description": {
+    "message": "Conecta NEURAFLOK con sesiones iniciadas de DeepSeek, Kimi, Qwen y Z AI en el navegador."
+  },
+  "extension_action_title": {
+    "message": "NEURAFLOK"
+  }
+}

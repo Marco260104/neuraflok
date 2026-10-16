@@ -1,0 +1,238 @@
+/* One recorded tool call, closed. Expanding shows exactly what crossed the wire. `display: block` is stated rather than left to the default: a `<details>` whose display is changed lays its summary and its body out as siblings instead of stacking them, which is how the arguments/result panel ended up beside the row and off the right edge. Say it here so a stray rule elsewhere cannot take it away again. */
+.tool {
+  display: block;
+  border: 0;
+  border-radius: var(--r-md);
+  color: var(--soft);
+}
+
+/* An open call is a surface of its own, so the arguments and the result read as belonging to the row that was clicked rather than to the timeline around it. */
+.tool[open] {
+  background: var(--sunk);
+}
+
+/* Native details hides content through content-visibility, leaving nested scroll boxes laid out. Remove collapsed activity bodies from layout as well, so their old scroll layers cannot remain across a disclosure/reconciliation update. */
+.tool:not([open]) > .raw,
+.tool-group:not([open]) > .tool-group-body {
+  display: none;
+}
+
+.tool > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--activity-row);
+  padding: 0;
+  border-radius: var(--r-md);
+  font-size: var(--activity-size);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool > summary:hover {
+  background: var(--hover);
+}
+.tool > summary:focus-visible, .tool-group > summary:focus-visible, .routine-activity > summary:focus-visible {
+  outline: none; background: var(--hover); box-shadow: inset 2px 0 var(--accent);
+}
+/* Commands and edits read as rows like every other call. A bordered capsule per command turned a run of shell calls into a wall of boxes; the kind icon already says what the row is, so the tag is a quiet label rather than a coloured chip. */
+.tool-tag { flex: 0 0 auto; display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px; background: color-mix(in srgb, var(--soft) 12%, transparent); color: var(--soft); font: 600 calc(10px * var(--text-scale, 1)) / 1 var(--mono); letter-spacing: .02em; }
+.tool-tag.is-shell { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.tool-tag.is-diff { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.tool-change-count { flex: 0 0 auto; color: var(--green); font: 600 calc(10px * var(--text-scale, 1)) var(--mono); }
+/* Let the hover surface breathe beyond the text column without moving its content. */
+.ev-tool_call .tool { margin-inline: -10px; }
+.ev-tool_call .tool > summary { padding-inline: 10px; }
+
+.tool summary b {
+  font-weight: 450;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool summary em {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-style: normal;
+  font-size: var(--activity-meta);
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-ico {
+  --ico: 14px;
+  color: var(--faint);
+}
+
+.metric {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: var(--activity-meta);
+  color: var(--soft);
+}
+
+.tool.tone-good .metric {
+  color: var(--faint);
+}
+
+/* Success is the norm and stays quiet; a failure marks its icon and outcome, not the whole row. It keeps the open surface every other call gets (a transparent override here dropped it, and the result wells vanished into the page). */
+.tool.tone-bad .tool-ico,
+.tool.tone-bad .metric {
+  color: var(--red);
+}
+
+.tool .metric .metric-added,
+.tool-change-count .metric-added {
+  color: var(--green);
+}
+
+.tool .metric .metric-removed,
+.tool-change-count .metric-removed {
+  color: var(--red);
+}
+
+.tool-open-diff { display: grid; place-items: center; flex: 0 0 24px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--soft); cursor: pointer; }
+.tool-open-diff:hover { background: var(--hover); color: var(--ink); }
+.tool-open-diff:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.tool-open-diff.is-unavailable { opacity: .45; cursor: default; }
+.tool-open-diff.is-unavailable:hover { background: transparent; color: var(--soft); }
+.tool-open-diff .ico { --ico: 14px; --glyph: 14px; }
+/* One Compact & Resume as one row: the name, then one sentence saying where it is or where it died, coloured like the tool rows — green landed, red will not, grey in flight. Reuses the tool row's open/closed surface so it reads as one more foldable thing in the timeline. */
+.compaction > summary {
+  flex-wrap: wrap;
+}
+
+.compaction.tone-wait {
+  color: var(--soft);
+}
+
+.compaction > summary .state {
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.compaction.tone-good > summary .state {
+  color: var(--green);
+}
+
+.compaction.tone-bad > summary .state {
+  color: var(--red);
+}
+
+.raw {
+  border-top: 1px solid var(--line);
+  padding: 9px 11px 11px;
+  display: grid;
+  gap: 4px;
+  overflow: clip;
+}
+
+.raw h4 {
+  font-size: calc(10px * var(--text-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.tool-output { min-width: 0; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
+.tool-output-header { display: flex; align-items: center; gap: 7px; min-height: 29px; padding: 3px 8px; border-bottom: 1px solid var(--line); background: var(--card); color: var(--faint); font: calc(10px * var(--text-scale, 1)) var(--mono); }
+.tool-output-header .ico { --ico: 13px; }
+.tool-output-header strong { font-weight: 550; }
+.tool-copy { margin-left: auto; padding: 2px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--soft); font: inherit; cursor: pointer; }
+.tool-copy:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.tool-copy:disabled { display: none; }
+.tool-output > .pre { margin: 0; border-radius: 0; }
+/* Inside an open call: one surface. Arguments and result are labelled wells, not bordered cards with header bars; Copy shows when the pointer or focus is on the well. Scoped to .tool so message code blocks, which share .tool-output, keep their own frame. */
+.tool .raw { border-top: 0; padding: 2px 10px 10px; gap: 8px; }
+.tool .tool-output { border: 0; border-radius: var(--r-sm); background: var(--page); }
+.tool .tool-output-header { min-height: 24px; padding: 4px 8px 0; border-bottom: 0; background: transparent; }
+.tool .tool-output > .pre { background: transparent; padding: 4px 10px 9px; }
+.tool .tool-copy { opacity: 0; transition: opacity 120ms ease; }
+.tool .tool-output:is(:hover, :focus-within) .tool-copy { opacity: 1; }
+
+.raw-facts {
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--text-scale, 1));
+  color: var(--faint);
+}
+
+.changes {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: calc(11.5px * var(--text-scale, 1));
+}
+
+.changes li {
+  display: flex;
+  gap: 10px;
+}
+
+.changes code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pre {
+  font-family: var(--mono);
+  font-size: calc(11px * var(--text-scale, 1));
+  color: var(--soft);
+  background: var(--sunk);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  max-height: 260px;
+  overflow: hidden auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overscroll-behavior-y: contain;
+}
+
+.pre.is-quiet {
+  color: var(--faint);
+}
+
+/* Expanded transcript details share the chat's vertical scrolling. Separate result/request scrollers trap the wheel and reset on streamed revisions. Text is already bounded by the session renderer; code keeps horizontal scroll. */
+.tool > .raw .pre {
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior-y: auto;
+}
+
+.chip {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: var(--pill);
+  background: var(--sunk);
+  color: var(--faint);
+  font-size: calc(10px * var(--text-scale, 1));
+  font-weight: 600;
+}
+
+.chip.is-active {
+  background: var(--wash);
+  color: var(--blue);
+}
+
+.chip.is-finished {
+  background: var(--green-wash);
+  color: var(--green);
+}
+
+.chip.is-failed {
+  background: var(--red-wash);
+  color: var(--red);
+}
+
