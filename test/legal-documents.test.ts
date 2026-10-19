@@ -55,6 +55,7 @@ it('opens Privacy policy from General settings and shows that NEURAFLOK collects
   privacy.click();
   const dialog = document.getElementById('legalDialog') as HTMLDialogElement;
   expect(dialog.open || dialog.hasAttribute('open')).toBe(true);
+  expect((document.getElementById('legalDialogBack') as HTMLButtonElement).hidden).toBe(true);
   expect(document.getElementById('legalDialogTitle')?.textContent).toBe('Privacy policy');
   expect(document.getElementById('legalDialogBody')?.textContent).toContain('does not collect, sell, share, or receive your personal data');
   openLegalDocument('terms');
@@ -71,6 +72,13 @@ it('shows Privacy policy and Terms of use in the Settings overlay General pane',
   expect(pane.querySelector('[data-settings-go="general"]')?.textContent).toBe('All general settings');
   (pane.querySelector('[data-legal="terms"]') as HTMLButtonElement).click();
   expect(overlay.open || overlay.hasAttribute('open')).toBe(false);
+  const back = document.getElementById('legalDialogBack') as HTMLButtonElement;
+  expect(back.hidden).toBe(false);
   expect(document.getElementById('legalDialogTitle')?.textContent).toBe('Terms of use');
   expect(document.getElementById('legalDialogBody')?.textContent).toContain('NEURAFLOK does not collect your personal data');
+  back.click();
+  const dialog = document.getElementById('legalDialog') as HTMLDialogElement;
+  expect(dialog.open || dialog.hasAttribute('open')).toBe(false);
+  expect(overlay.open || overlay.hasAttribute('open')).toBe(true);
+  expect(back.hidden).toBe(true);
 });
