@@ -37,17 +37,16 @@ beforeAll(() => {
   document = new JSDOM(readRendererMarkup(root)).window.document;
   globalThis.document = document;
   globalThis.HTMLDialogElement = document.defaultView!.HTMLDialogElement;
-});
-
-it('opens Privacy policy from General settings and shows that NEURAFLOK collects no user data', () => {
   const proto = document.defaultView!.HTMLDialogElement.prototype as HTMLDialogElement & {
     showModal?: () => void;
     close?: () => void;
   };
   if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute('open', ''); };
   if (!proto.close) proto.close = function close() { this.removeAttribute('open'); };
-
   initLegalSettings();
+});
+
+it('opens Privacy policy from General settings and shows that NEURAFLOK collects no user data', () => {
   const general = document.querySelector('[data-panel="general"]')!;
   expect(general.querySelector('#legalSection h2')?.textContent).toBe('Legal');
   const privacy = document.getElementById('openPrivacyPolicy') as HTMLButtonElement;
@@ -60,4 +59,18 @@ it('opens Privacy policy from General settings and shows that NEURAFLOK collects
   expect(document.getElementById('legalDialogBody')?.textContent).toContain('does not collect, sell, share, or receive your personal data');
   openLegalDocument('terms');
   expect(document.getElementById('legalDialogTitle')?.textContent).toBe('Terms of use');
+});
+
+it('shows Privacy policy and Terms of use in the Settings overlay General pane', () => {
+  const overlay = document.getElementById('quickSettingsDialog') as HTMLDialogElement;
+  overlay.setAttribute('open', '');
+  const pane = overlay.querySelector('[data-quick-view="general"]')!;
+  expect(pane.querySelector('[data-legal="privacy"]')?.textContent).toBe('View');
+  expect(pane.querySelector('[data-legal="terms"]')?.textContent).toBe('View');
+  expect(pane.querySelector('[data-legal="license"]')?.textContent).toBe('View');
+  expect(pane.querySelector('[data-settings-go="general"]')?.textContent).toBe('All general settings');
+  (pane.querySelector('[data-legal="terms"]') as HTMLButtonElement).click();
+  expect(overlay.open || overlay.hasAttribute('open')).toBe(false);
+  expect(document.getElementById('legalDialogTitle')?.textContent).toBe('Terms of use');
+  expect(document.getElementById('legalDialogBody')?.textContent).toContain('NEURAFLOK does not collect your personal data');
 });
