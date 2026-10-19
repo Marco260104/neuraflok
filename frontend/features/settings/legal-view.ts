@@ -41,12 +41,30 @@ export function renderLegalMarkdown(markdown: string, documentRef: Document = do
   return fragment;
 }
 
+let openedFromOverlay = false;
+let returnToSettings: (() => void) | null = null;
+
+export function setLegalReturnToSettings(handler: () => void): void {
+  returnToSettings = handler;
+}
+
+function restoreSettingsOverlay(): void {
+  if (returnToSettings) {
+    returnToSettings();
+    return;
+  }
+  const overlay = document.getElementById('quickSettingsDialog') as HTMLDialogElement | null;
+  if (overlay && !overlay.open) overlay.showModal();
+}
+
 export function openLegalDocument(id: LegalDocumentId): void {
   const documentCopy = LEGAL_DOCUMENTS[id];
   const dialog = $<HTMLDialogElement>('legalDialog');
   const overlay = document.getElementById('quickSettingsDialog') as HTMLDialogElement | null;
+  openedFromOverlay = Boolean(overlay?.open || overlay?.hasAttribute('open'));
   if (overlay?.open) overlay.close();
   else overlay?.removeAttribute('open');
+  $('legalDialogBack').hidden = !openedFromOverlay;
   ui($('legalDialogTitle'), 'textContent', () => t(documentCopy.title));
   const body = documentCopy.markdown.replace(/^# .+\n+/, '');
   $('legalDialogBody').replaceChildren(renderLegalMarkdown(body));
@@ -55,7 +73,14 @@ export function openLegalDocument(id: LegalDocumentId): void {
 
 export function initLegalSettings(): void {
   const dialog = $<HTMLDialogElement>('legalDialog');
-  const close = (): void => { if (dialog.open) dialog.close(); };
+  const close = (): void => {
+    const fromOverlay = openedFromOverlay;
+    openedFromOverlay = false;
+    if (dialog.open) dialog.close();
+    $('legalDialogBack').hidden = true;
+    if (fromOverlay) restoreSettingsOverlay();
+  };
+  $('legalDialogBack').addEventListener('click', close);
   $('legalDialogClose').addEventListener('click', close);
   dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
   dialog.addEventListener('click', event => { if (event.target === dialog) close(); });

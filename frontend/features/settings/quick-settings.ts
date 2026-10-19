@@ -1,4 +1,5 @@
 import { $ } from '../../shared/dom.js';
+import { setLegalReturnToSettings } from './legal-view.js';
 
 interface QuickSettingsDependencies {
   showTab: (name: string) => void;
@@ -58,6 +59,8 @@ export function initQuickSettings(dependencies: QuickSettingsDependencies): { op
     if (!dialog.open) dialog.showModal();
     paintGear(true, true);
   }
+
+  setLegalReturnToSettings(open);
 
   $('workspaceSettings').addEventListener('click', () => {
     if (dialog.open) close();
