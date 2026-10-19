@@ -192,7 +192,7 @@
 @keyframes boot-mark-in { from { opacity: 0; transform: scale(.96); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
 
 .quick-settings-dialog {
-  width: min(720px, calc(100vw - 32px)); height: min(520px, calc(100dvh - 48px));
+  width: min(720px, calc(100vw - 32px)); height: min(640px, calc(100dvh - 48px));
   max-width: calc(100vw - 32px); max-height: calc(100vh - 48px);
   margin: auto; padding: 0; border: 0; background: transparent; color: var(--ink);
   position: fixed; inset: 0; overflow: hidden; -webkit-app-region: no-drag;
@@ -241,6 +241,7 @@
   padding: 8px 10px; border-radius: var(--r-md); min-width: 0; flex-wrap: wrap;
 }
 .quick-setting-label { color: var(--ink); font-size: calc(13px * var(--text-scale, 1)); font-weight: 550; }
+.quick-setting > .btn { flex: 0 0 auto; min-height: 30px; padding: 5px 10px; font-size: calc(12px * var(--text-scale, 1)); }
 .quick-theme { display: flex; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--sunk); }
 .quick-theme button {
   min-width: 68px; min-height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent;
