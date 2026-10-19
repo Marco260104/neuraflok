@@ -62,8 +62,10 @@ it('finds settings on every settings page by name, description and section, neve
   expect(recovery!.target.contains(document.getElementById('autoContinue'))).toBe(true);
   expect(searchSettings(entries, 'session finish', 'en')).toEqual([]);
   // Names come before descriptions; words match in any order, across a name and its section.
-  expect(searchSettings(entries, 'privacy', 'en').map(entry => entry.title).slice(0, 2)).toEqual(['Privacy', 'Privacy screenshots']);
+  expect(searchSettings(entries, 'privacy', 'en').map(entry => entry.title).slice(0, 3)).toEqual(['Privacy', 'Privacy screenshots', 'Privacy policy']);
   expect(searchSettings(entries, 'mit license', 'en')[0]?.title).toBe('MIT License');
+  expect(searchSettings(entries, 'terms of use', 'en')[0]?.title).toBe('Terms of use');
+  expect(searchSettings(entries, 'legal', 'en')[0]?.title).toBe('Legal');
   expect(searchSettings(entries, 'typography font', 'en').map(entry => entry.title)).toEqual(['Font']);
   // A Setup step is found by its name, although only the open step shows.
   expect(searchSettings(entries, 'folder', 'en').some(entry => entry.target.dataset.railStep === 'folder')).toBe(true);

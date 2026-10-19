@@ -1,0 +1,56 @@
+.legal-dialog {
+  width: min(720px, calc(100vw - 40px));
+  max-height: min(820px, calc(100dvh - 40px));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid transparent;
+  border-radius: calc(var(--r-md) + 8px);
+  box-shadow: var(--shadow-border), var(--lift);
+}
+.legal-dialog[open] { display: flex; flex-direction: column; }
+.legal-dialog::backdrop { background: color-mix(in srgb, var(--page) 58%, transparent); }
+.legal-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: none;
+  min-height: 0;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.legal-dialog-head h2 {
+  margin: 0;
+  font-size: calc(18px * var(--text-scale, 1));
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.legal-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 22px 28px;
+  overscroll-behavior: contain;
+}
+.legal-dialog-body h1 {
+  margin: 18px 0 10px;
+  font-size: calc(22px * var(--text-scale, 1));
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+.legal-dialog-body h2 {
+  margin: 22px 0 8px;
+  font-size: calc(15px * var(--text-scale, 1));
+  font-weight: 650;
+}
+.legal-dialog-body p, .legal-dialog-body li {
+  margin: 0 0 10px;
+  color: var(--soft);
+  font-size: calc(13.5px * var(--text-scale, 1));
+  line-height: 1.6;
+}
+.legal-dialog-body ul { margin: 0 0 12px; padding-left: 1.2em; }
+.legal-dialog-body li { margin-bottom: 6px; }
+.appearance-panel .setting > .btn { flex: 0 0 auto; min-height: 34px; padding: 7px 12px; }

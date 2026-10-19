@@ -25,10 +25,21 @@
                 <label class="setting"><span class="setting-text"><b>Allow actions</b><em>Let those agents also send and cancel messages. Needs the local control API.</em></span><input id="controlApiAllowActions" type="checkbox" disabled /></label>
               </div>
             </section>
-            <section class="appearance-section">
-              <header class="settings-section-head"><div><h2>License</h2><p>How NEURAFLOK and bundled components are licensed.</p></div></header>
+            <section class="appearance-section" id="legalSection">
+              <header class="settings-section-head"><div><h2>Legal</h2><p>Privacy, terms, and how the app is licensed. NEURAFLOK does not collect your data.</p></div></header>
               <div class="settings-surface pane appearance-settings-card">
-                <div class="setting"><span class="setting-text"><b>MIT License</b><em>NEURAFLOK application source. Copyright © 2026 NEURAFLOK contributors. Third-party components keep their own terms in NOTICE and THIRD-PARTY-NOTICES.txt.</em></span></div>
+                <div class="setting">
+                  <span class="setting-text"><b>Privacy policy</b><em>NEURAFLOK does not collect, sell, or receive your personal data. Conversations stay on this computer.</em></span>
+                  <button class="btn" id="openPrivacyPolicy" type="button" data-legal="privacy">View</button>
+                </div>
+                <div class="setting">
+                  <span class="setting-text"><b>Terms of use</b><em>How you may use NEURAFLOK and what remains your responsibility.</em></span>
+                  <button class="btn" id="openTermsOfUse" type="button" data-legal="terms">View</button>
+                </div>
+                <div class="setting">
+                  <span class="setting-text"><b>MIT License</b><em>NEURAFLOK application source. Copyright © 2026 NEURAFLOK contributors. Third-party components keep their own terms in NOTICE and THIRD-PARTY-NOTICES.txt.</em></span>
+                  <button class="btn" id="openLicense" type="button" data-legal="license">View</button>
+                </div>
               </div>
             </section>
           </div>

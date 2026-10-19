@@ -50,6 +50,8 @@ Run the project checks with `npm test` and `npm run verify:ui`.
 
 ## Permissions and privacy
 
+NEURAFLOK does not collect your personal data. Chats, settings, and credentials stay on this computer. Review [PRIVACY.md](PRIVACY.md) and [TERMS.md](TERMS.md), also available in Settings → General → Legal.
+
 Review approved folders and tool capabilities before using local tools. Conversation history and provider session metadata may be stored locally to support recovery. API request data is sent only to the endpoint configured for that conversation. Browser providers control their own accounts, model availability, limits, and terms.
 
 ## License
