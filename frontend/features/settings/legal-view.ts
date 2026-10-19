@@ -44,6 +44,9 @@ export function renderLegalMarkdown(markdown: string, documentRef: Document = do
 export function openLegalDocument(id: LegalDocumentId): void {
   const documentCopy = LEGAL_DOCUMENTS[id];
   const dialog = $<HTMLDialogElement>('legalDialog');
+  const overlay = document.getElementById('quickSettingsDialog') as HTMLDialogElement | null;
+  if (overlay?.open) overlay.close();
+  else overlay?.removeAttribute('open');
   ui($('legalDialogTitle'), 'textContent', () => t(documentCopy.title));
   const body = documentCopy.markdown.replace(/^# .+\n+/, '');
   $('legalDialogBody').replaceChildren(renderLegalMarkdown(body));
