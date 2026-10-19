@@ -25,7 +25,10 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
     let lastText = typeof initial === 'string' ? initial : '';
     let reportedText = '';
     let emptyIdle = 0;
-    const deadline = Date.now() + DEEPSEEK_WATCH_MS;
+    let stableText = '';
+    let stableIdle = 0;
+    let lastProgressAt = 0;
+    let deadline = Date.now() + DEEPSEEK_WATCH_MS;
     while (Date.now() < deadline) {
       if (stoppedProviderOffers.has(offer.id)) {
         stoppedProviderOffers.delete(offer.id);
@@ -43,12 +46,29 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         const posted = await postDeepseekPage(offer, { text: lastText });
         if (posted) return;
       }
-      if (lastText && lastText !== reportedText && snap && snap.generating === true) {
-        reportedText = lastText;
-        void call('/provider/page/progress', {
-          method: 'POST',
-          body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true })
-        }).catch(() => undefined);
+      if (snap && snap.generating === true) {
+        deadline = Date.now() + DEEPSEEK_WATCH_MS;
+        if (lastText !== reportedText || Date.now() - lastProgressAt > 15_000) {
+          reportedText = lastText;
+          lastProgressAt = Date.now();
+          void call('/provider/page/progress', {
+            method: 'POST',
+            body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true })
+          }).catch(() => undefined);
+        }
+        if (lastText && lastText === stableText) {
+          stableIdle += 1;
+          if (stableIdle >= 15) {
+            const posted = await postDeepseekPage(offer, { text: lastText });
+            if (posted) return;
+          }
+        } else {
+          stableText = lastText;
+          stableIdle = 0;
+        }
+      } else {
+        stableText = lastText;
+        stableIdle = 0;
       }
       if (snap && snap.generating !== true && !lastText) {
         emptyIdle += 1;

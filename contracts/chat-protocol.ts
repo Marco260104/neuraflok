@@ -1,4 +1,5 @@
 // Shared chat execution types and the bounded local-tool wire format.
+import { replyLanguageInstruction } from './ui-language.js';
 
 export const CHAT_EXECUTORS = ['web', 'api'] as const;
 export type ChatExecutor = (typeof CHAT_EXECUTORS)[number];
@@ -226,6 +227,7 @@ export function formatWebChatResult(name: string, content: string): string {
 export interface WebChatGuideContext {
   roots?: string[];
   project?: string;
+  language?: import('./ui-language.js').UiLanguage;
 }
 
 export function webChatWriteRoot(ctx?: WebChatGuideContext): string {
@@ -237,14 +239,17 @@ export function webChatWriteRoot(ctx?: WebChatGuideContext): string {
 export function webChatRoundReminder(ctx?: WebChatGuideContext): string {
   const root = webChatWriteRoot(ctx);
   const listed = ctx?.roots?.length ? ctx.roots.join(', ') : root;
+  const language = replyLanguageInstruction(ctx?.language);
   return [
+    language,
+    ctx?.project ? `Selected project directory: ${ctx.project}. Keep task work there.` : '',
     `Approved roots: ${listed}. Create files under ${root} with apply_patch.`,
     'To create or edit files you must emit a complete neuraflok-tool fence calling apply_patch.',
     'Pasting source in the chat does not write files.',
     `read takes {"paths":["${root}/file"]}. exec_command takes {"cmd":"..."}.`,
     'After listing a folder, the next reply must be apply_patch.',
     'When apply_patch has succeeded, answer the user with no fence.'
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 export function incompleteToolNotice(ctx?: WebChatGuideContext): string {

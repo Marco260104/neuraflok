@@ -5,7 +5,7 @@ import { defaultConfig, initConfigPath, saveConfig } from '../backend/infrastruc
 import { initDurableStore, resetDurableForTests } from '../backend/persistence/durable.js';
 import { addProject, assignSessionProject } from '../backend/domains/workspace/projects.js';
 import { createSession, initSessionStore, rebindSession, resetSessionStoreForTests } from '../backend/domains/sessions/history/store.js';
-import { fitSessionPrompt, prepareProviderSessionPrompt, prepareSessionPrompt } from '../backend/domains/sessions/input/prompt.js';
+import { fitSessionPrompt, prepareProviderSessionPrompt, prepareProviderSkillFollowup, prepareSessionPrompt } from '../backend/domains/sessions/input/prompt.js';
 import { MAX_PROVIDER_MESSAGE_CHARS, prependUserPrompt, userPromptText } from '../contracts/messaging/provider-message-envelope.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
@@ -193,4 +193,30 @@ it('bounds a large file and refuses invalid file types and revoked access withou
   expect(noRead).toContain('Selected project directory: /work');
   await saveConfig(defaultConfig());
   await expect(prepareSessionPrompt('Revoked', { projectId: project.id })).rejects.toThrow();
+});
+
+it('tells the provider to reply in the configured interface language', async () => {
+  await fs.mkdir(path.join(directory, 'language-project'), { recursive: true });
+  const project = await addProject(path.join(directory, 'language-project'));
+  await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }], ui: { ...defaultConfig().ui, language: 'es' } });
+  const prompt = await prepareProviderSessionPrompt('Explica el siguiente cambio.', { projectId: project.id });
+  expect(prompt).toContain('Reply in Spanish');
+  expect(prompt).toContain('Explica el siguiente cambio.');
+  expect(prompt).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
+});
+
+it('keeps language and project directory on later provider turns without repeating AGENTS.md', async () => {
+  await fs.mkdir(path.join(directory, 'follow-project'), { recursive: true });
+  await fs.writeFile(path.join(directory, 'follow-project', 'AGENTS.md'), 'DO_NOT_REPEAT_ON_FOLLOWUP');
+  const project = await addProject(path.join(directory, 'follow-project'));
+  await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }], ui: { ...defaultConfig().ui, language: 'es' } });
+  const opening = await prepareProviderSessionPrompt('Escribe un README', { projectId: project.id });
+  expect(opening).toContain('Reply in Spanish');
+  expect(opening).toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
+  const followup = await prepareProviderSkillFollowup('Continúa con el README', 'Continúa con el README', undefined, { projectId: project.id });
+  expect(followup).toContain('Reply in Spanish');
+  expect(followup).toContain('Selected project directory: /work/follow-project');
+  expect(followup).not.toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
+  expect(followup).toContain('Continúa con el README');
+  expect(followup).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
 });

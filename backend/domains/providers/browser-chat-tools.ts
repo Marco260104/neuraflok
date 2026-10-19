@@ -44,11 +44,12 @@ export function advertisedBrowserChatTools(registrar: ReturnType<typeof createBr
 export async function getBrowserChatGuideContext(sessionId: string): Promise<WebChatGuideContext> {
   const roots = getConfig().roots.map(root => `/${root.name}`);
   if (!roots.includes('/skills')) roots.push('/skills');
+  const language = getConfig().ui.language;
   try {
     const project = await getSessionProject(sessionId);
-    return { roots, project: project?.virtual };
+    return { roots, project: project?.virtual, language };
   } catch {
-    return { roots };
+    return { roots, language };
   }
 }
 

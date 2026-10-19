@@ -25,6 +25,7 @@ import { getSessionProject } from '../workspace/projects.js';
 import { prepareLocalProviderPrompt } from '../sessions/input/provider-context.js';
 import { normalizeInputAttachments } from '../sessions/input/attachments/index.js';
 import type { InputImage } from '../../../contracts/input.js';
+import { replyLanguageInstruction } from '../../../contracts/ui-language.js';
 import { logInfo, logWarn } from '../../infrastructure/settings/logger.js';
 import { noteLocalAgentTurnStarted } from '../automation/local-agent-observations.js';
 
@@ -106,6 +107,7 @@ function guide(declarations: ReturnType<ReturnType<typeof registrar>['declaratio
     'You are the assistant inside NEURAFLOK, a local workspace for coding and research.',
     'Use only the listed tools when you need to inspect or change approved files. A tool result is the evidence that an action happened; never claim a change before a successful result.',
     'Tool calls run on this computer under the user’s current permissions. Do not ask for or infer access outside the approved folders.',
+    replyLanguageInstruction(getConfig().ui.language),
     `Approved roots: ${roots.length ? roots.join(', ') : 'none'}.`,
     project ? `Selected project directory: ${project}. Keep project work there.` : '',
     `Available local tools: ${toolNames.join(', ') || 'none'}.`
@@ -196,8 +198,13 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
   const abort = new AbortController();
   const onAbort = () => abort.abort(signal?.reason);
   if (signal?.aborted) onAbort(); else signal?.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(() => abort.abort(new Error('API request timed out after 3 minutes.')), 180_000);
-  timer.unref?.();
+  const API_ROUND_WAIT_MS = 600_000;
+  const armRoundWait = () => {
+    const next = setTimeout(() => abort.abort(new Error('API request timed out after 10 minutes without a completed round.')), API_ROUND_WAIT_MS);
+    next.unref?.();
+    return next;
+  };
+  let timer = armRoundWait();
   flights.set(sessionId, { turnId, controller: abort });
   const now = () => Date.now();
   try {
@@ -217,6 +224,8 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
     let assistantText = '';
     for (let round = 0; round < MAX_ROUNDS; round++) {
       abort.signal.throwIfAborted();
+      clearTimeout(timer);
+      timer = armRoundWait();
       const current = await getSession(sessionId);
       if (!current || current.conversationId !== conversationId) throw new Error('This API response belongs to a session that is no longer active.');
       const requestMessages = [...thread.messages];

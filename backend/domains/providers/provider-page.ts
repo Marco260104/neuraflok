@@ -6,6 +6,7 @@ import { isWebProviderId, isWebProviderConversationId, type WebProviderId } from
 
 const MAX_PAGE_TEXT = 96_000;
 const PAGE_WAIT_MS = 600_000;
+const PAGE_WAIT_ERROR = 'The provider did not finish this reply in time. Check its browser tab and try again.';
 
 export interface ProviderPageOffer {
   id: string;
@@ -44,6 +45,13 @@ function expirePending(error: Error): void {
   pending = null;
   clearTimeout(current.timer);
   current.reject(error);
+}
+
+function armPageWait(id: string): ReturnType<typeof setTimeout> {
+  return setTimeout(() => {
+    if (pending?.id !== id) return;
+    expirePending(new Error(PAGE_WAIT_ERROR));
+  }, PAGE_WAIT_MS);
 }
 
 export function configureProviderPageForTests(options: { complete?: Complete }): void {
@@ -91,12 +99,18 @@ export function reportProviderPageProgress(body: Record<string, unknown>): boole
   if (!pending || typeof body.id !== 'string' || body.id !== pending.id) return false;
   if (body.provider !== pending.provider || body.conversationId !== pending.conversationId) return false;
   const text = typeof body.text === 'string' ? body.text : '';
+  const generating = body.generating !== false;
+  if (generating) {
+    clearTimeout(pending.timer);
+    pending.at = Date.now();
+    pending.timer = armPageWait(pending.id);
+  }
   const progress: ProviderPageProgress = {
     id: pending.id,
     provider: pending.provider,
     conversationId: pending.conversationId,
     text,
-    generating: body.generating !== false
+    generating
   };
   for (const listener of progressListeners) {
     try { listener(progress); } catch {}
@@ -146,17 +160,14 @@ export async function requestProviderPageComplete(
   }
   if (testComplete) return testComplete(provider, conversationId, text, signal, options);
   if (pending && (pending.stop === true || options?.fresh === true || Date.now() - pending.at > PAGE_WAIT_MS)) {
-    expirePending(new Error('The provider did not finish this reply in time. Check its browser tab and try again.'));
+    expirePending(new Error(PAGE_WAIT_ERROR));
   }
   if (pending) throw new Error('A web provider turn is already in flight.');
   if (text.length > MAX_PAGE_TEXT) throw new Error('This message is too long for the provider web chat.');
 
   return new Promise((resolve, reject) => {
     const id = randomUUID();
-    const timer = setTimeout(() => {
-      if (pending?.id !== id) return;
-      expirePending(new Error('The provider did not finish this reply in time. Check its browser tab and try again.'));
-    }, PAGE_WAIT_MS);
+    const timer = armPageWait(id);
     const finish = (fn: () => void) => {
       signal?.removeEventListener('abort', onAbort);
       fn();

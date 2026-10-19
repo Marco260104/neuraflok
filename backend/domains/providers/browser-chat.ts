@@ -129,7 +129,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
   let messages = withWebProviderSystem(prior?.messages ?? [], system);
   const opening = isOpening(messages);
-  const preparedText = await prepareLocalProviderPrompt(entry, sessionId, false);
+  const preparedText = await prepareLocalProviderPrompt(entry, sessionId, opening);
   const bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
   const userMessageId = randomUUID();
   const turnId = randomUUID();

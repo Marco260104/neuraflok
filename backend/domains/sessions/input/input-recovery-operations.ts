@@ -25,7 +25,7 @@ type InputRecoveryRuntime = {
   workSequence(event: SessionEvent): number;
   turnHasMcpCall(sessionId: string, conversationId: string, turnId: string): Promise<boolean>;
   recoveryBusyMs(pro: boolean): number;
-  recoveryMessage(): string;
+  recoveryMessage(question?: string | null): string;
   isProModel(model: string, reasoningEffort?: string | null): boolean;
   logInfo(message: string): void;
 };
@@ -71,9 +71,10 @@ export function createInputRecoveryOperations(runtime: InputRecoveryRuntime) {
       if (current.some(row => row.sessionId === sessionId && row.recovery?.ended && row.silenceBoundary?.turnId === turnId &&
           row.silenceBoundary.workSeq === runtime.workSequence(work))) return refused('pages refused this restart and nothing has changed since');
       const now = Date.now();
+      const questionText = question.authoredText?.trim() || question.message.text;
       const row: InputEntry = { id: randomUUID(), sessionId, conversationId, owner: null, state: 'queued',
         mode: 'after-turn', dueAt: now, createdAt: now, model: null, reasoningEffort: null,
-        text: runtime.recoveryMessage(),
+        text: runtime.recoveryMessage(questionText),
         recovery: { questionId: question.messageId, episode, pro, busyUntil, phase: 'ready' },
         silenceBoundary: { turnId, conversationId, workSeq: runtime.workSequence(work), acceptedAt: now } };
       if (!await runtime.recoveryCurrent(row)) {

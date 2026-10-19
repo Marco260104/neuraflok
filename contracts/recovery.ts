@@ -43,10 +43,21 @@ const RECOVERY_NOTES = [
   'Check the implementation and its verification state before deciding what to do next.'
 ] as const;
 
+const RECOVERY_QUESTION_CHARS = 2_000;
+
+function clipRecoveryQuestion(question?: string | null): string {
+  const value = (question ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!value) return '';
+  if (value.length <= RECOVERY_QUESTION_CHARS) return value;
+  return `${value.slice(0, RECOVERY_QUESTION_CHARS)}\n…`;
+}
+
 // Build a recovery prompt that resumes the original task without unrelated asides.
-export function recoveryMessage(): string {
+export function recoveryMessage(question?: string | null): string {
   const pick = (values: readonly string[]) => values[Math.floor(Math.random() * values.length)]!;
-  return `${pick(CONTINUE_TEXTS)} ${pick(RECOVERY_NOTES)}`;
+  const recap = clipRecoveryQuestion(question);
+  const body = `${pick(CONTINUE_TEXTS)} ${pick(RECOVERY_NOTES)}`;
+  return recap ? `Original user request still in progress:\n${recap}\n\n${body}` : body;
 }
 
 // Give a busy native page one half-window on the existing silence clock.

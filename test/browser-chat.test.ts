@@ -31,6 +31,7 @@ import {
 } from '../backend/domains/providers/browser-chat.js';
 import {
   pendingProviderPage,
+  reportProviderPageProgress,
   resetProviderPageForTests,
   requestProviderPageComplete,
   settleProviderPage
@@ -123,7 +124,13 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   );
   expect(rooted).toContain('Approved roots: /c, /skills');
   expect(rooted).toContain('/c/hello.txt');
+  expect(rooted).toContain('Selected project directory: /c');
   expect(rooted).not.toContain('/workspace/hello.txt');
+  const spanish = webToolGuide(
+    [{ name: 'read', description: 'Read files', inputSchema: { $schema: 'x', type: 'object', properties: {} } }],
+    { roots: ['/c'], project: '/c', language: 'es' }
+  );
+  expect(spanish).toContain('Reply in Spanish');
   const text = 'Working.\n```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```\n';
   expect(parseWebChatTools(text)).toEqual([{
     id: 'call_1',
@@ -160,6 +167,28 @@ it('releases a page offer that outlived its wait so a later send can run', async
     expect(offer?.text).toBe('again');
     expect(settleProviderPage({ id: offer!.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'ok' })).toBe(true);
     await expect(second).resolves.toEqual({ text: 'ok' });
+  } finally {
+    vi.useRealTimers();
+    resetProviderPageForTests();
+  }
+});
+
+it('refreshes the page wait while the provider is still generating', async () => {
+  resetProviderPageForTests();
+  vi.useFakeTimers();
+  try {
+    const pending = requestProviderPageComplete('deepseek', TEST_PROVIDER_CONVERSATION, 'hello');
+    await vi.advanceTimersByTimeAsync(500_000);
+    const offer = pendingProviderPage();
+    expect(reportProviderPageProgress({
+      id: offer!.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'still working', generating: true
+    })).toBe(true);
+    await vi.advanceTimersByTimeAsync(500_000);
+    expect(pendingProviderPage()?.id).toBe(offer!.id);
+    expect(settleProviderPage({
+      id: offer!.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'done'
+    })).toBe(true);
+    await expect(pending).resolves.toEqual({ text: 'done' });
   } finally {
     vi.useRealTimers();
     resetProviderPageForTests();
@@ -355,6 +384,7 @@ it('sends setup once, waits for its acknowledgement, then sends authored message
   acknowledge({ text: 'NEURAFLOK_READY' });
   await running;
   expect(pages[1]).toMatchObject({ fresh: false, text: expect.stringContaining('MY_ACTUAL_REQUEST') });
+  expect(pages[1]!.text).toContain('WORKSPACE_CONTEXT');
   const second = await enqueueInput({ id: randomUUID(), sessionId: first.id, text: 'MY_FOLLOWUP', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null });
   await runDeepseekInput(second);
   expect(pages).toHaveLength(3);
