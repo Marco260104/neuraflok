@@ -16,6 +16,7 @@ import { initSkillsLibrary } from './features/settings/skill-library/composition
 import { initWhatsNew } from './features/settings/whats-new.js';
 import { initSettingsSearch } from './features/settings/search/controller.js';
 import { createGeneralPreferencesView } from './features/settings/general-preferences-view.js';
+import { initLegalSettings } from './features/settings/legal-view.js';
 import type { AppearanceSettings } from '../contracts/appearance-settings.js';
 // Renderer. No Node, no filesystem, no network — everything goes through window.api. The DOM skeleton lives in index.html; this fills it in and never rebuilds a control the user might be typing into. The permission rows are the one exception: they are generated from CAPABILITIES so a new capability appears without touching markup. Two rules the layout depends on. The window is a fixed frame, so nothing here may change the height of anything outside its own scroll pane — that is why only one permission group is expanded at a time. And the two live numbers tick locally every second, so "verified 8s ago" keeps counting between the 15s reports from the main process instead of freezing at a number that is quietly going stale.
 
@@ -58,6 +59,7 @@ dismissBootSplash();
 // First: main announces a Keychain read before it starts and may not get through again until it ends.
 initKeychainNotice(api);
 initLanguage();
+initLegalSettings();
 publishStopNoticeTexts(texts => api.setStopNoticeTexts(texts));
 // The tray menu and desktop notices come from the main process, which has no catalogs.
 publishMainTexts(texts => api.setMainTexts?.(texts));
