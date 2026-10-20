@@ -27,8 +27,25 @@ export const preparable = (row: InputEntry): boolean => row.state === 'queued' |
 export const needsHistory = (row: InputEntry): boolean => row.purpose !== 'decision' && !row.warmup && !row.historyRecorded &&
   ((row.state === 'tool' && Number.isFinite(row.offeredAt)) || ((row.state === 'sent' || row.state === 'cancelled') && !!row.messageId));
 export const pendingStages = (row: InputEntry): boolean => row.state === 'sent' && !!row.stages?.length && !row.stagesApplied;
-export const ordered = (rows: InputEntry[]): InputEntry[] => [...rows].sort((a, b) =>
-  (a.queueOrder ?? a.dueAt) - (b.queueOrder ?? b.dueAt) || a.createdAt - b.createdAt);
+export const ordered = (rows: InputEntry[]): InputEntry[] => {
+  const result = [...rows].sort((a, b) =>
+    (a.queueOrder ?? a.dueAt) - (b.queueOrder ?? b.dueAt) || a.createdAt - b.createdAt);
+  const warmupSessions = new Set(result.filter(row => row.warmup && row.state === 'queued' && row.sessionId)
+    .map(row => row.sessionId!));
+  for (const sessionId of warmupSessions) {
+    const warmups = result.filter(row => row.sessionId === sessionId && row.warmup && row.state === 'queued');
+    const firstMessage = result.findIndex(row => row.sessionId === sessionId && row.state === 'queued' && !row.warmup);
+    const lastWarmup = result.reduce((last, row, index) =>
+      row.sessionId === sessionId && row.state === 'queued' && row.warmup ? index : last, -1);
+    if (firstMessage < 0 || lastWarmup < firstMessage) continue;
+    const warmupIds = new Set(warmups.map(row => row.id));
+    const remaining = result.filter(row => !warmupIds.has(row.id));
+    const firstSessionInput = remaining.findIndex(row => row.sessionId === sessionId && row.state === 'queued');
+    remaining.splice(firstSessionInput < 0 ? remaining.length : firstSessionInput, 0, ...warmups);
+    result.splice(0, result.length, ...remaining);
+  }
+  return result;
+};
 export const companionOf = (rows: InputEntry[], row: InputEntry): InputEntry | undefined => rows.find(root => root.companionInputId === row.id);
 export const sameDelivery = (root: InputEntry, row: InputEntry): boolean => row.id === root.id || row.id === root.companionInputId;
 

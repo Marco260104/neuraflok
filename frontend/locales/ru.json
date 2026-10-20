@@ -2165,6 +2165,7 @@
   "The web model is ready.": "Веб-модель готова.",
   "Preparing chat…": "Подготовка чата…",
   "Reading the project and connecting the model…": "Чтение проекта и подключение модели…",
+  "Reading project…": "Чтение проекта…",
   "Your message will be queued until the model is ready.": "Ваше сообщение будет поставлено в очередь, пока модель не будет готова.",
   "The model could not confirm this chat context. Retry to release queued messages.": "Модель не смогла подтвердить контекст чата. Повторите попытку, чтобы отправить сообщения из очереди.",
   "Chat context not verified": "Контекст чата не подтверждён",

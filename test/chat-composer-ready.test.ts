@@ -1,13 +1,15 @@
 import { expect, it } from 'vitest';
 import {
   adoptOpeningSession,
-  composerReadyPhase,
-  composerSendBlocked,
+  composerWarmupKey,
+  composerWarmupState,
+  markComposerWarmupFailed,
+  markComposerWarmupOpening,
   hasHandshakeAck,
   hasPublicAssistantReply,
   isHandshakeAck,
   openingInputInFlight,
-  resetComposerReadyGateForTests,
+  resetComposerWarmupForTests,
   trackedOpening
 } from '../frontend/features/chat/chat-composer-ready.js';
 import type { SessionEvent } from '../contracts/session.js';
@@ -22,22 +24,14 @@ it('treats handshake acknowledgements as setup, not as a public reply', () => {
   expect(hasPublicAssistantReply([ack, reply])).toBe(true);
 });
 
-it('blocks sending until the web model is signed in', () => {
-  expect(composerReadyPhase({ apiExecutor: false, signedIn: null })).toBe('models');
-  expect(composerReadyPhase({ apiExecutor: false, signedIn: false })).toBe('signin');
-  expect(composerSendBlocked('models', false)).toBe(true);
-  expect(composerSendBlocked('signin', false)).toBe(true);
-});
-
-it('unlocks a signed-in web chat without waiting for the handshake', () => {
-  expect(composerReadyPhase({ apiExecutor: false, signedIn: true })).toBe('ready');
-  expect(composerSendBlocked('ready', false)).toBe(false);
-  expect(composerSendBlocked('opening', false)).toBe(false);
-  expect(composerSendBlocked('opening', true)).toBe(false);
-});
-
-it('leaves API chats ready before the first send', () => {
-  expect(composerReadyPhase({ apiExecutor: true, signedIn: null })).toBe('ready');
+it('tracks project preparation separately from the composer input', () => {
+  resetComposerWarmupForTests();
+  const key = composerWarmupKey('chat-1', 3);
+  markComposerWarmupOpening(key, 3);
+  expect(composerWarmupState(key)).toEqual({ phase: 'opening', generation: 3 });
+  markComposerWarmupFailed(key, 'provider timed out', 3);
+  expect(composerWarmupState(key)).toEqual({ phase: 'failed', error: 'provider timed out', generation: 3 });
+  resetComposerWarmupForTests();
 });
 
 it('detects handshake acknowledgements without treating them as a public reply', () => {
@@ -60,8 +54,7 @@ it('treats an opening outbox row as in-flight until the session has a public rep
 });
 
 it('keeps tracking an adopted opening without locking the composer', () => {
-  resetComposerReadyGateForTests();
+  resetComposerWarmupForTests();
   adoptOpeningSession('chat-2');
   expect(trackedOpening('chat-2')).toBe(true);
-  expect(composerReadyPhase({ apiExecutor: false, signedIn: true })).toBe('ready');
 });

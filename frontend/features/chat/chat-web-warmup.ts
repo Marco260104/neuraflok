@@ -17,7 +17,6 @@ import {
 export const WEB_CHAT_WARMUP_TEXT = 'NEURAFLOK_WARMUP';
 const POLL_INTERVAL_MS = 750;
 export const WEB_CHAT_PREPARATION_TIMEOUT_MS = 75_000;
-const READY_CACHE_MS = 2 * 60_000;
 
 async function beforeDeadline<T>(deadline: number, message: string, work: () => Promise<T>): Promise<T> {
   const remaining = deadline - Date.now();
@@ -46,11 +45,8 @@ export function webChatWarmupNeeded(input: {
   newChatSelected: boolean;
   selectedId: string | null;
   hasConversation: boolean;
-  pending: boolean;
-  turnWorking: boolean;
 }): boolean {
   return !input.apiExecutor && input.signedIn &&
-    !input.pending && !input.turnWorking &&
     (input.newChatSelected || (!!input.selectedId && input.hasConversation));
 }
 
@@ -71,11 +67,12 @@ export interface WebChatWarmupRuntime {
   paintDeliveryControls: () => void;
   refreshInputQueue: () => Promise<void>;
   setPendingNewInput: (value: { id: string; generation: number } | null) => void;
+  paintPreparationStatus: () => void;
 }
 
 export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: () => void; retry: () => void } {
   let inflightKey: string | null = null;
-  const verifiedSessions = new Map<string, { provider: WebProviderId; conversationId: string; at: number }>();
+  const verifiedSessions = new Map<string, { provider: WebProviderId; conversationId: string; generation: number }>();
 
   function currentSelectionKey(): string {
     return composerWarmupKey(runtime.selectedId, runtime.selectionGeneration);
@@ -85,19 +82,9 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     return isWebProviderId(app.config.ui.webProvider) ? app.config.ui.webProvider : 'deepseek';
   }
 
-  function hasPendingInput(sessionId: string | null): boolean {
-    if (sessionId === null && runtime.pendingNewInput?.generation === runtime.selectionGeneration) return true;
-    return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs].some(entry => {
-      if (isWarmupInput(entry) || !['queued', 'browser', 'tool'].includes(entry.state)) return false;
-      const owner = entry.sessionId ?? entry.deliveredSessionId ?? null;
-      return sessionId ? owner === sessionId : owner === null;
-    });
-  }
-
-  function cachedReady(sessionId: string, provider: WebProviderId, conversationId: string): boolean {
+  function cachedReady(sessionId: string, provider: WebProviderId, conversationId: string, generation: number): boolean {
     const cached = verifiedSessions.get(sessionId);
-    return !!cached && cached.provider === provider && cached.conversationId === conversationId &&
-      Date.now() - cached.at < READY_CACHE_MS;
+    return !!cached && cached.provider === provider && cached.conversationId === conversationId && cached.generation === generation;
   }
 
   async function findExistingWarmup(sessionId: string | null, deadline: number): Promise<InputEntry | undefined> {
@@ -155,7 +142,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
   async function bindWarmupSession(entry: InputEntry, generation: number, priorKey: string): Promise<string> {
     const boundId = entry.sessionId ?? entry.deliveredSessionId ?? entry.id;
     if (!entry.opening) return boundId;
-    markComposerWarmupOpening(boundId);
+    markComposerWarmupOpening(boundId, runtime.selectionGeneration);
     clearComposerWarmup(priorKey);
     const adopted = await runtime.adoptAcceptedOpening(entry);
     if (!adopted && boundId && runtime.selectionGeneration === generation && runtime.newChatSelected && runtime.selectedId === null) {
@@ -170,14 +157,16 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const deadline = Date.now() + WEB_CHAT_PREPARATION_TIMEOUT_MS;
     const id = crypto.randomUUID();
     const dueAt = Date.now();
+    const mode = runtime.turnWorking() ? 'after-turn' as const : 'auto' as const;
     const seed: InputEntry = {
       id, sessionId, projectId, text: WEB_CHAT_WARMUP_TEXT, warmup: true, authoredSource: 'none',
-      mode: 'auto', dueAt, model: null, reasoningEffort: null, state: 'queued', owner: null, createdAt: dueAt,
+      mode, dueAt, model: null, reasoningEffort: null, state: 'queued', owner: null, createdAt: dueAt,
       conversationId: null
     };
     runtime.startingInputs.set(id, seed);
     if (sessionId === null) runtime.setPendingNewInput({ id, generation });
     runtime.paintDeliveryControls();
+    runtime.paintPreparationStatus();
 
     let boundId: string | null = sessionId;
     let boundConversation: string | null = null;
@@ -188,7 +177,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
           accepted = (await beforeDeadline(deadline, 'The model took too long to queue chat preparation. Retry to try again.',
             () => run(runtime.api.sendInput({
               id, sessionId, projectId, text: WEB_CHAT_WARMUP_TEXT, warmup: true, authoredSource: 'none',
-              mode: 'auto', dueAt, model: null, reasoningEffort: null, webProvider: provider
+              mode, dueAt, model: null, reasoningEffort: null, webProvider: provider
             })))) ?? undefined;
         } catch (error) {
           accepted = (await beforeDeadline(deadline, 'The model took too long to queue chat preparation. Retry to try again.',
@@ -206,31 +195,42 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       ];
       if (sessionId === null) runtime.setPendingNewInput({ id: accepted.id, generation });
       boundId = await bindWarmupSession(accepted, generation, key);
-      if (boundId !== key) markComposerWarmupOpening(boundId);
+      if (boundId !== key) markComposerWarmupOpening(boundId, runtime.selectionGeneration);
       runtime.paintDeliveryControls();
+      runtime.paintPreparationStatus();
 
       const ready = await waitForAcknowledgement(accepted, boundId, deadline);
       boundConversation = ready.conversationId;
-      verifiedSessions.set(boundId, { provider, conversationId: ready.conversationId, at: Date.now() });
+      verifiedSessions.clear();
+      verifiedSessions.set(boundId, {
+        provider,
+        conversationId: ready.conversationId,
+        generation: runtime.selectedId === boundId ? runtime.selectionGeneration : generation
+      });
       clearComposerWarmup(key);
       clearComposerWarmup(boundId);
+      runtime.paintPreparationStatus();
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
-      markComposerWarmupFailed(key, message);
-      if (boundId) markComposerWarmupFailed(boundId, message);
+      const failedKey = boundId ?? key;
+      if (failedKey !== key) clearComposerWarmup(key);
+      markComposerWarmupFailed(failedKey, message,
+        runtime.selectedId === boundId ? runtime.selectionGeneration : generation);
       if (runtime.pendingNewInput?.id === id && runtime.pendingNewInput.generation === generation)
         runtime.setPendingNewInput(null);
+      runtime.paintPreparationStatus();
     } finally {
       runtime.startingInputs.delete(id);
       if (inflightKey === key) inflightKey = null;
       runtime.paintDeliveryControls();
+      runtime.paintPreparationStatus();
       void runtime.refreshInputQueue();
       if (boundConversation) void runtime.refreshInputQueue();
       if (currentSelectionKey() !== key) ensure();
     }
   }
 
-  function ensure(retryFailed = false): void {
+  function ensure(): void {
     const app = runtime.state();
     if (!app || runtime.selectionGeneration === 0) return;
     const provider = currentProvider(app);
@@ -240,11 +240,13 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const key = currentSelectionKey();
     const status = composerWarmupState(key);
     const conversationId = session?.conversationId ?? null;
-    if (status?.phase === 'failed') return;
+    if (status?.phase === 'failed' && status.generation === runtime.selectionGeneration) return;
+    if (status?.phase === 'failed') clearComposerWarmup(key);
     if (status?.phase === 'opening' && inflightKey !== null) return;
     if (inflightKey === key) return;
-    if (runtime.selectedId && conversationId && cachedReady(runtime.selectedId, provider, conversationId)) {
+    if (runtime.selectedId && conversationId && cachedReady(runtime.selectedId, provider, conversationId, runtime.selectionGeneration)) {
       clearComposerWarmup(key);
+      runtime.paintPreparationStatus();
       return;
     }
     if (runtime.selectedId && !matchingSession) return;
@@ -255,21 +257,23 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       webProvider: provider,
       newChatSelected: runtime.newChatSelected,
       selectedId: runtime.selectedId,
-      hasConversation: !!conversationId,
-      pending: !retryFailed && hasPendingInput(runtime.selectedId),
-      turnWorking: runtime.turnWorking()
+      hasConversation: !!conversationId
     });
     if (!needed) return;
 
     if (status?.phase !== 'opening') {
-      markComposerWarmupOpening(key);
+      markComposerWarmupOpening(key, runtime.selectionGeneration);
       if (inflightKey !== null) {
         runtime.paintDeliveryControls();
+        runtime.paintPreparationStatus();
         return;
       }
     } else if (inflightKey !== null) return;
     inflightKey = key;
-    if (status?.phase !== 'opening') runtime.paintDeliveryControls();
+    if (status?.phase !== 'opening') {
+      runtime.paintDeliveryControls();
+      runtime.paintPreparationStatus();
+    }
     void start(key, provider, runtime.selectedId, session?.projectId ?? runtime.selectedProjectId, runtime.selectionGeneration);
   }
 
@@ -277,7 +281,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const key = currentSelectionKey();
     clearComposerWarmup(key);
     if (runtime.selectedId) verifiedSessions.delete(runtime.selectedId);
-    ensure(true);
+    ensure();
   }
 
   setComposerWarmupHandlers({ ensure, retry });

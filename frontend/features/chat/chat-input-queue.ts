@@ -10,7 +10,7 @@ import { $ } from '../../shared/dom.js';
 import { t } from '../../shared/i18n.js';
 import { createQueuedTaskList } from './queued-task-list.js';
 import { createChatInputRows } from './chat-input-rows.js';
-import { adoptOpeningSession } from './chat-composer-ready.js';
+import { adoptOpeningSession, markComposerWarmupOpening } from './chat-composer-ready.js';
 import { isWarmupInput } from './chat-web-warmup.js';
 
 export interface ChatInputQueueRuntime {
@@ -96,6 +96,7 @@ export function createChatInputQueue(runtime: Runtime) {
       runtime.selectedId !== null
     )
       return false;
+    if (entry.warmup) markComposerWarmupOpening(id, runtime.selectionGeneration);
     runtime.pendingNewInput = null;
     runtime.mergeSessionRows([summary]);
     const from = runtime.draftKey();

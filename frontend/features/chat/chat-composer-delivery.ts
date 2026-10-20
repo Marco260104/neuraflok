@@ -5,7 +5,7 @@ import type { InputEntry } from '../../../backend/domains/sessions/input/input.j
 import { $, run } from '../../shared/dom.js';
 import type { ComposerAttachment } from './chat-composer-attachments.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
-import { markUnboundOpening, noteOpeningSession } from './chat-composer-ready.js';
+import { composerWarmupKey, composerWarmupState, markUnboundOpening, noteOpeningSession } from './chat-composer-ready.js';
 
 export interface ChatComposerDeliveryRuntime {
   api: Pick<typeof window.api, 'cancelInput' | 'listInputs' | 'sendInput' | 'setInputAutomation'>;
@@ -47,6 +47,13 @@ export interface ChatComposerDeliveryRuntime {
 }
 
 type Runtime = ChatComposerDeliveryRuntime;
+
+export function composerInputMode(chosenMode: string, preparationPending: boolean, queueAtFinish: boolean): string {
+  if (preparationPending) return 'after-turn';
+  if (chosenMode === 'tool') return 'auto';
+  if (chosenMode === 'after-turn' && queueAtFinish) return 'finish';
+  return chosenMode;
+}
 
 export async function waitForPendingOpeningSession(
   runtime: Pick<Runtime, 'api' | 'pendingNewInput' | 'selectionGeneration' | 'selectedId' | 'adoptAcceptedOpening'>
@@ -118,7 +125,10 @@ export function createChatComposerDelivery(runtime: Runtime) {
     const sessionId = runtime.selectedId;
     const generation = runtime.selectionGeneration;
     const chosenMode = delivery ?? $<HTMLSelectElement>('sendMode').value;
-    const mode = chosenMode === 'tool' ? 'auto' : chosenMode === 'after-turn' && runtime.controlledSessionId === runtime.selectedId && runtime.controlledSelection === runtime.selectionGeneration && runtime.controlledQueueAtFinish ? 'finish' : chosenMode;
+    const preparationPending = composerWarmupState(composerWarmupKey(sessionId, generation)) !== null;
+    const queueAtFinish = runtime.controlledSessionId === runtime.selectedId &&
+      runtime.controlledSelection === runtime.selectionGeneration && runtime.controlledQueueAtFinish;
+    const mode = composerInputMode(chosenMode, preparationPending, queueAtFinish);
     const dueAt = Date.now();
     const id = crypto.randomUUID();
     const authoredDraft = runtime.authoredComposerText();

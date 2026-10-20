@@ -2165,6 +2165,7 @@
   "The web model is ready.": "웹 모델이 준비되었습니다.",
   "Preparing chat…": "채팅 준비 중…",
   "Reading the project and connecting the model…": "프로젝트를 읽고 모델을 연결하는 중…",
+  "Reading project…": "프로젝트 읽는 중…",
   "Your message will be queued until the model is ready.": "모델이 준비될 때까지 메시지가 대기열에 추가됩니다.",
   "The model could not confirm this chat context. Retry to release queued messages.": "모델이 채팅 컨텍스트를 확인하지 못했습니다. 다시 시도하면 대기 중인 메시지가 전송됩니다.",
   "Chat context not verified": "채팅 컨텍스트를 확인하지 못했습니다",

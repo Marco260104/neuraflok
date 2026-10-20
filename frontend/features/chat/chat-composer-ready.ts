@@ -1,18 +1,9 @@
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { SessionEvent } from '../../../contracts/session.js';
-import { t, ui } from '../../shared/i18n.js';
 
 const HANDSHAKE_ACK = /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/;
 
-export type ComposerReadyPhase = 'models' | 'signin' | 'opening' | 'failed' | 'ready';
-export type ComposerWarmupState = { phase: 'opening' } | { phase: 'failed'; error: string };
-
-export interface ComposerReadyInput {
-  apiExecutor: boolean;
-  signedIn: boolean | null | undefined;
-  opening?: boolean;
-  failed?: boolean;
-}
+export type ComposerWarmupState = { phase: 'opening'; generation?: number } | { phase: 'failed'; error: string; generation?: number };
 
 const openingSessions = new Set<string>();
 const composerWarmups = new Map<string, ComposerWarmupState>();
@@ -28,12 +19,12 @@ export function composerWarmupState(key: string): ComposerWarmupState | null {
   return composerWarmups.get(key) ?? null;
 }
 
-export function markComposerWarmupOpening(key: string): void {
-  composerWarmups.set(key, { phase: 'opening' });
+export function markComposerWarmupOpening(key: string, generation?: number): void {
+  composerWarmups.set(key, { phase: 'opening', ...(generation === undefined ? {} : { generation }) });
 }
 
-export function markComposerWarmupFailed(key: string, error: string): void {
-  composerWarmups.set(key, { phase: 'failed', error });
+export function markComposerWarmupFailed(key: string, error: string, generation?: number): void {
+  composerWarmups.set(key, { phase: 'failed', error, ...(generation === undefined ? {} : { generation }) });
 }
 
 export function clearComposerWarmup(key: string): void {
@@ -47,6 +38,10 @@ export function setComposerWarmupHandlers(handlers: { ensure: () => void; retry:
 
 export function ensureSelectedChatWarmup(): void {
   ensureWarmup?.();
+}
+
+export function retrySelectedChatWarmup(): void {
+  retryWarmup?.();
 }
 
 export function markUnboundOpening(): void {
@@ -99,98 +94,7 @@ export function openingInputInFlight(
   });
 }
 
-export function composerReadyPhase(input: ComposerReadyInput): ComposerReadyPhase {
-  if (input.apiExecutor) return 'ready';
-  if (input.signedIn !== true) return input.signedIn === false ? 'signin' : 'models';
-  if (input.failed) return 'failed';
-  return input.opening ? 'opening' : 'ready';
-}
-
-export function composerSendBlocked(phase: ComposerReadyPhase, stopAction: boolean): boolean {
-  return phase === 'failed' || (phase !== 'ready' && phase !== 'opening' && !stopAction);
-}
-
-export function composerReadyLabel(phase: ComposerReadyPhase): string {
-  if (phase === 'models') return t('Loading web models');
-  if (phase === 'signin') return t('Sign in required');
-  if (phase === 'opening') return t('Reading the project and connecting the model…');
-  if (phase === 'failed') return t('Chat context not verified');
-  return t('Ready');
-}
-
-export function composerReadyDetail(phase: ComposerReadyPhase, error?: string): string {
-  if (phase === 'opening') return t('Your message will be queued until the model is ready.');
-  if (phase === 'failed') {
-    const reason = error?.trim().slice(0, 300);
-    return reason
-      ? `${t('The model could not confirm this chat context. Retry to release queued messages.')} ${reason}`
-      : t('The model could not confirm this chat context. Retry to release queued messages.');
-  }
-  if (phase === 'ready') return t('Chat is ready.');
-  return '';
-}
-
-let readyFlash: number | null = null;
-let lastPhase: ComposerReadyPhase | null = null;
-
-export function paintComposerReadyGate(phase: ComposerReadyPhase, error?: string): void {
-  const gate = document.getElementById('composerReadyGate');
-  const label = document.getElementById('composerReadyLabel');
-  const detail = document.getElementById('composerReadyDetail');
-  const retry = document.getElementById('composerReadyRetry') as HTMLButtonElement | null;
-  const composer = document.getElementById('composer');
-  if (!gate || !label) return;
-  if (retry && retry.dataset.wired !== 'true') {
-    retry.addEventListener('click', () => retryWarmup?.());
-    retry.dataset.wired = 'true';
-  }
-  if (phase === 'opening') {
-    if (readyFlash !== null) {
-      window.clearTimeout(readyFlash);
-      readyFlash = null;
-    }
-    gate.hidden = false;
-    gate.dataset.tone = 'wait';
-    composer?.classList.add('is-waiting');
-  } else if (phase === 'failed') {
-    if (readyFlash !== null) {
-      window.clearTimeout(readyFlash);
-      readyFlash = null;
-    }
-    gate.hidden = false;
-    gate.dataset.tone = 'error';
-    composer?.classList.add('is-waiting');
-  } else if (phase === 'ready' && lastPhase === 'opening') {
-    gate.hidden = false;
-    gate.dataset.tone = 'ready';
-    composer?.classList.remove('is-waiting');
-    if (readyFlash !== null) window.clearTimeout(readyFlash);
-    readyFlash = window.setTimeout(() => {
-      readyFlash = null;
-      gate.hidden = true;
-    }, 900);
-  } else if (readyFlash === null) {
-    gate.hidden = true;
-    composer?.classList.remove('is-waiting');
-  }
-  const display: ComposerReadyPhase = gate.dataset.tone === 'ready' && !gate.hidden ? 'ready'
-    : gate.dataset.tone === 'error' && !gate.hidden ? 'failed'
-    : phase === 'opening' ? 'opening' : phase;
-  ui(label, 'textContent', () => composerReadyLabel(display));
-  if (detail) ui(detail, 'textContent', () => composerReadyDetail(display, error));
-  if (retry) {
-    retry.hidden = display !== 'failed';
-    ui(retry, 'textContent', () => t('Retry'));
-  }
-  const input = document.getElementById('chatInput') as HTMLTextAreaElement | null;
-  if (input) input.readOnly = phase === 'models' || phase === 'signin' || phase === 'failed';
-  lastPhase = phase;
-}
-
-export function resetComposerReadyGateForTests(): void {
-  if (readyFlash !== null) window.clearTimeout(readyFlash);
-  readyFlash = null;
-  lastPhase = null;
+export function resetComposerWarmupForTests(): void {
   openingSessions.clear();
   unboundOpening = false;
   composerWarmups.clear();

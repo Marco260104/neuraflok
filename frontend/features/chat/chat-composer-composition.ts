@@ -90,7 +90,8 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     selectSession: bindings.selectSession,
     paintDeliveryControls: bindings.paintDeliveryControls,
     refreshInputQueue: () => bindings.refreshInputQueue(),
-    setPendingNewInput: value => { bindings.pendingNewInput = value; }
+    setPendingNewInput: value => { bindings.pendingNewInput = value; },
+    paintPreparationStatus: () => dependencies.parkTurnStatus(dependencies.turnWorking())
   });
 
   const chatComposerDeliveryRuntime = {
@@ -205,8 +206,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     currentPreparedPlan: bindings.currentPreparedPlan,
     authoredComposerText: bindings.authoredComposerText,
     pendingComposerInput: () => chatInputQueue.pendingComposerInput(),
-    taskPlans: taskPlanController,
-    state: () => bindings.deps.state()
+    taskPlans: taskPlanController
   });
 
   const chatComposerInputRuntime = {

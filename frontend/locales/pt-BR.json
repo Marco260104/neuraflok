@@ -2165,6 +2165,7 @@
   "The web model is ready.": "O modelo web está pronto.",
   "Preparing chat…": "Preparando o chat…",
   "Reading the project and connecting the model…": "Lendo o projeto e conectando o modelo…",
+  "Reading project…": "Lendo o projeto…",
   "Your message will be queued until the model is ready.": "Sua mensagem ficará na fila até que o modelo esteja pronto.",
   "The model could not confirm this chat context. Retry to release queued messages.": "O modelo não conseguiu confirmar o contexto deste chat. Tente novamente para liberar as mensagens na fila.",
   "Chat context not verified": "Contexto do chat não verificado",

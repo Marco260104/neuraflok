@@ -1,6 +1,25 @@
+import { readFile } from 'node:fs/promises';
 import { expect, it, vi } from 'vitest';
 import type { InputEntry } from '../backend/domains/sessions/input/input.js';
-import { waitForPendingOpeningSession } from '../frontend/features/chat/chat-composer-delivery.js';
+import { composerInputMode, waitForPendingOpeningSession } from '../frontend/features/chat/chat-composer-delivery.js';
+
+it('queues every user delivery behind the required project preparation', () => {
+  expect(composerInputMode('auto', true, false)).toBe('after-turn');
+  expect(composerInputMode('tool', true, false)).toBe('after-turn');
+  expect(composerInputMode('finish', true, true)).toBe('after-turn');
+  expect(composerInputMode('auto', false, false)).toBe('auto');
+  expect(composerInputMode('after-turn', false, true)).toBe('finish');
+});
+
+it('keeps the composer usable and shows preparation outside its input surface', async () => {
+  const html = await readFile(new URL('../frontend/shell/views/chat.html', import.meta.url), 'utf8');
+  const controls = await readFile(new URL('../frontend/features/chat/chat-delivery-controls.ts', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('../frontend/styles/chat/shell-and-composer.css', import.meta.url), 'utf8');
+
+  expect(html).not.toContain('composerReadyGate');
+  expect(styles).not.toContain('composer-ready-gate');
+  expect(controls).toContain('send.disabled = planDisabled;');
+});
 
 it('waits for a new chat session to be adopted before delivering a second message', async () => {
   const openingId = 'opening-session';
