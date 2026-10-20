@@ -1,7 +1,7 @@
 // Owns bounded durable history for browser-backed provider conversations.
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import type { WebChatMessage, WebChatThread } from '../../../contracts/chat-protocol.js';
+import { parseWebChatTools, stripWebChatTools, type WebChatMessage, type WebChatThread } from '../../../contracts/chat-protocol.js';
 import type { WebProviderId } from '../../../contracts/web-providers.js';
 import { LEGACY_WEB_BOOTSTRAP_ACK, WEB_BOOTSTRAP_ACK } from '../sessions/input/provider-context.js';
 import { sessionWebProviderThreadPath, withSessionMutationFence } from '../sessions/history/store.js';
@@ -32,7 +32,12 @@ export function withWebProviderSystem(messages: WebChatMessage[], system: string
 }
 
 /** Rebuild the recent conversation in a new provider page when its remote chat history is unavailable. */
-export function replayWebProviderTranscript(messages: WebChatMessage[], currentPrompt: string, maxChars = 96_000): string | null {
+export function replayWebProviderTranscript(
+  messages: WebChatMessage[],
+  currentPrompt: string,
+  maxChars = 96_000,
+  currentUserText?: string
+): string | null {
   const header = 'The original provider page for this same NEURAFLOK chat is unavailable. Continue from this saved transcript and answer the current request. Do not redo completed work unless the current request asks for it.';
   const current = `CURRENT REQUEST:\n${currentPrompt}`;
   const budget = maxChars - header.length - current.length - 8;
@@ -46,13 +51,27 @@ export function replayWebProviderTranscript(messages: WebChatMessage[], currentP
       (content === WEB_BOOTSTRAP_ACK || content === LEGACY_WEB_BOOTSTRAP_ACK);
   });
   const historyStart = setupAck >= 0 ? setupAck + 1 : setupMessage >= 0 ? setupMessage + 1 : 0;
+  const repeatedRequest = currentUserText?.replace(/\s+/g, ' ').trim();
   const history = messages.slice(historyStart)
     .filter(row => row.role !== 'system')
-    .map(row => {
+    .filter(row => !(row.role === 'user' && repeatedRequest &&
+      typeof row.content === 'string' && row.content.replace(/\s+/g, ' ').trim() === repeatedRequest))
+    .map((row, index, rows) => {
       const role = row.role === 'tool' ? 'TOOL RESULT' : row.role.toUpperCase();
-      const content = typeof row.content === 'string' ? row.content : '';
-      const calls = row.tool_calls?.length ? `\nTOOL CALLS:\n${JSON.stringify(row.tool_calls)}` : '';
-      const body = `${content}${calls}`.trim();
+      const original = typeof row.content === 'string' ? row.content : '';
+      const parsed = row.role === 'assistant' ? parseWebChatTools(original) : [];
+      const calls = row.tool_calls?.length ? row.tool_calls : parsed;
+      const content = parsed.length ? stripWebChatTools(original) : original;
+      const resultIds = new Set<string>();
+      for (const next of rows.slice(index + 1)) {
+        if (next.role === 'assistant' || next.role === 'user') break;
+        if (next.role === 'tool' && next.tool_call_id) resultIds.add(next.tool_call_id);
+      }
+      const results = calls.filter(call => resultIds.has(call.id)).length;
+      const callLabel = results === 0 ? 'UNEXECUTED TOOL CALL REQUESTS'
+        : results === calls.length ? 'TOOL CALLS WITH RESULTS' : 'PARTIAL TOOL CALL RESULTS';
+      const callSummary = calls.length ? `\n${callLabel}: ${calls.map(call => call.function.name).join(', ')}` : '';
+      const body = `${content}${callSummary}`.trim();
       return body ? `${role}:\n${body}` : '';
     })
     .filter(Boolean);

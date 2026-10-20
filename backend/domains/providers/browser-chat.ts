@@ -225,7 +225,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
           completion = await requestProviderPageComplete(provider, ownedConversation, pageText, abort.signal);
         } catch (error) {
           if (provider !== 'deepseek' || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
-          const replay = replayWebProviderTranscript(prior?.messages ?? [], pageText);
+          const replay = replayWebProviderTranscript(prior?.messages ?? [], pageText, 96_000, entry.text);
           if (!replay) {
             throw new Error('DeepSeek perdió el historial remoto y NeuraFlok no tiene suficiente transcripción local para reconstruir el contexto. No se envió el mensaje.');
           }
@@ -240,7 +240,10 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         }
         const raw = completion.text ?? '';
         const calls = parseWebChatTools(raw);
-        thread.messages = trimWebProviderThread([...thread.messages, { role: 'assistant', content: raw }]);
+        const assistantContent = stripWebChatTools(raw);
+        thread.messages = trimWebProviderThread([...thread.messages, calls.length
+          ? { role: 'assistant', ...(assistantContent ? { content: assistantContent } : {}), tool_calls: calls }
+          : { role: 'assistant', content: raw }]);
         await persistWebProviderThread(thread, provider);
         if (!calls.length) {
           if (incompleteWebChatTool(raw) && incompleteTries < MAX_INCOMPLETE_TOOL) {
@@ -256,7 +259,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
             kind: 'assistant_message',
             time: now(),
             messageId: assistantMessageId,
-            text: lastObservedClean,
+            text: assistantContent,
             turnId,
             final: true,
             state: 'final',

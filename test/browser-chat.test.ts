@@ -29,6 +29,7 @@ import {
   runWebProviderInput,
   webProviderFlightTurnId
 } from '../backend/domains/providers/browser-chat.js';
+import { replayWebProviderTranscript } from '../backend/domains/providers/browser-chat-thread.js';
 import {
   pendingProviderPage,
   reportProviderPageProgress,
@@ -161,6 +162,35 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
     type: 'function',
     function: { name: 'exec_command', arguments: '{"cmd":"rg --files","workdir":"/commander"}' }
   }]);
+  const deepseekDsml = [
+    '<｜｜DSML｜｜ calls>',
+    '<｜｜DSML｜｜ invoke name="exec_command">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="false">{"cmd":"Get-ChildItem -Name","workdir":"/commander"}</｜｜DSML｜｜ parameter>',
+    '<｜｜DSML｜｜ parameter name="name" string="true">exec_command</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '<｜｜DSML｜｜ invoke name="apply_patch">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="true">{"patch":"*** Begin Patch\\n*** Add File: /commander/hello.txt\\n+hola\\n*** End Patch"}</｜｜DSML｜｜ parameter>',
+    '<｜｜DSML｜｜ parameter name="name" string="true">apply_patch</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '</｜｜DSML｜｜ calls>'
+  ].join('\n');
+  expect(parseWebChatTools(deepseekDsml)).toEqual([
+    {
+      id: 'call_1',
+      type: 'function',
+      function: { name: 'exec_command', arguments: '{"cmd":"Get-ChildItem -Name","workdir":"/commander"}' }
+    },
+    {
+      id: 'call_2',
+      type: 'function',
+      function: { name: 'apply_patch', arguments: JSON.stringify({ patch: '*** Begin Patch\n*** Add File: /commander/hello.txt\n+hola\n*** End Patch' }) }
+    }
+  ]);
+  expect(stripWebChatTools(deepseekDsml)).toBe('');
+  expect(incompleteWebChatTool(deepseekDsml)).toBe(false);
+  const incompleteDsml = '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="apply_patch">\n<｜｜DSML｜｜ parameter name="arguments" string="true">{"patch":';
+  expect(incompleteWebChatTool(incompleteDsml)).toBe(true);
+  expect(stripWebChatTools(incompleteDsml)).toBe('');
   expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files"\n')).toBe(true);
   expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toBe(false);
   expect(stripWebChatTools(text)).toBe('Working.');
@@ -172,6 +202,33 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(usesApiProvider('api')).toBe(true);
   expect(usesBrowserProvider(undefined)).toBe(false);
   expect(usesBrowserProvider(null)).toBe(false);
+});
+
+it('replays useful DeepSeek history without duplicating the current request or raw DSML patch payloads', () => {
+  const repeatedRequest = 'Build a learning site for the project files';
+  const dsmlPatch = [
+    '<｜｜DSML｜｜ calls>',
+    '<｜｜DSML｜｜ invoke name="apply_patch">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="true">{"patch":"*** Begin Patch\\n*** Add File: /commander/hello.txt\\n+hola\\n*** End Patch"}</｜｜DSML｜｜ parameter>',
+    '<｜｜DSML｜｜ parameter name="name" string="true">apply_patch</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '</｜｜DSML｜｜ calls>'
+  ].join('\n');
+  const replay = replayWebProviderTranscript([
+    { role: 'system', content: 'system setup' },
+    { role: 'user', content: 'We are reviewing a JavaScript project.' },
+    { role: 'assistant', content: 'The command parser has the most complex flow.' },
+    { role: 'user', content: repeatedRequest },
+    { role: 'assistant', content: dsmlPatch },
+    { role: 'user', content: repeatedRequest }
+  ], 'The prepared task and project context.', 96_000, repeatedRequest);
+
+  expect(replay).not.toBeNull();
+  expect(replay).toContain('The command parser has the most complex flow.');
+  expect(replay).toContain('UNEXECUTED TOOL CALL REQUESTS: apply_patch');
+  expect(replay).not.toContain('hello.txt');
+  expect(replay).not.toContain(repeatedRequest);
+  expect(replay).toContain('CURRENT REQUEST:\nThe prepared task and project context.');
 });
 
 it('releases a page offer that outlived its wait so a later send can run', async () => {

@@ -96,6 +96,7 @@ export interface WebChatCompletion {
 }
 
 const MAX_TOOL_JSON = 80_000;
+const DSML_MARK = '[|｜]{2}DSML[|｜]{2}';
 
 function readJsonObject(source: string, from: number): { json: string; end: number } | null {
   const start = source.indexOf('{', from);
@@ -210,6 +211,62 @@ function xmlToolOpens(source: string): number {
   return count;
 }
 
+function dsmlToolBlocks(source: string): Array<{ start: number; end: number; body: string | null }> {
+  const out: Array<{ start: number; end: number; body: string | null }> = [];
+  const open = new RegExp(`<${DSML_MARK}\\s*invoke\\s+name=(?:"([^"]+)"|'([^']+)')\\s*>`, 'gi');
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(source))) {
+    const name = match[1] ?? match[2] ?? '';
+    if (!WEB_CHAT_CORE_TOOLS.includes(name as WebChatCoreTool)) continue;
+    const close = new RegExp(`</${DSML_MARK}\\s*invoke\\s*>`, 'gi');
+    close.lastIndex = open.lastIndex;
+    const endMatch = close.exec(source);
+    const end = endMatch ? close.lastIndex : source.length;
+    const bodyText = source.slice(open.lastIndex, endMatch?.index ?? source.length);
+    const parameter = new RegExp(
+      `<${DSML_MARK}\\s*parameter\\s+name=(?:"([^"]+)"|'([^']+)')(?:\\s+string=(?:"(true|false)"|'(true|false)'))?\\s*>([\\s\\S]*?)</${DSML_MARK}\\s*parameter\\s*>`,
+      'gi'
+    );
+    let argumentText: string | null = null;
+    let declaredName: string | null = null;
+    let argumentCount = 0;
+    let parameterMatch: RegExpExecArray | null;
+    while ((parameterMatch = parameter.exec(bodyText))) {
+      const parameterName = parameterMatch[1] ?? parameterMatch[2];
+      const value = parameterMatch[5] ?? '';
+      if (parameterName === 'arguments') {
+        argumentCount++;
+        argumentText = value.trim();
+      } else if (parameterName === 'name') {
+        declaredName = value.trim();
+      }
+    }
+
+    let body: string | null = null;
+    if (endMatch && argumentCount === 1 && (!declaredName || declaredName === name) &&
+        argumentText && argumentText.length <= MAX_TOOL_JSON) {
+      try {
+        let args: unknown = JSON.parse(argumentText);
+        if (typeof args === 'string') args = JSON.parse(args);
+        if (args && typeof args === 'object' && !Array.isArray(args)) {
+          body = JSON.stringify({ name, arguments: args });
+        }
+      } catch {}
+    }
+    out.push({ start: match.index, end, body });
+    open.lastIndex = end;
+  }
+  return out;
+}
+
+function dsmlToolOpens(source: string): number {
+  const tools = WEB_CHAT_CORE_TOOLS.join('|');
+  const open = new RegExp(`<${DSML_MARK}\\s*invoke\\s+name=(?:"(?:${tools})"|'(?:${tools})')\\s*>`, 'gi');
+  let count = 0;
+  while (open.exec(source)) count++;
+  return count;
+}
+
 function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder: string } {
   const source = text ?? '';
   const calls: WebChatToolCall[] = [];
@@ -220,6 +277,10 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
     if (!acceptToolJson(body, calls, seen)) return;
     consumed.push([start, end]);
   };
+  for (const block of dsmlToolBlocks(source)) {
+    if (block.body) take(block.start, block.end, block.body);
+    else if (!overlaps(consumed, block.start, block.end)) consumed.push([block.start, block.end]);
+  }
   for (const block of taggedToolBlocks(source, 'neuraflok-tool')) take(block.start, block.end, block.body);
   for (const block of taggedToolBlocks(source, 'json')) take(block.start, block.end, block.body);
   for (const block of xmlToolBlocks(source)) take(block.start, block.end, block.body);
@@ -240,7 +301,11 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
     cursor = end;
   }
   parts.push(source.slice(cursor));
-  return { calls, remainder: parts.join('').trim() };
+  const remainder = parts.join('')
+    .replace(new RegExp(`<${DSML_MARK}\\s*calls\\s*>\\s*</${DSML_MARK}\\s*calls\\s*>`, 'gi'), '')
+    .replace(new RegExp(`<${DSML_MARK}\\s*calls\\s*>(?![\\s\\S]*?</${DSML_MARK}\\s*calls\\s*>)[\\s\\S]*$`, 'gi'), '')
+    .trim();
+  return { calls, remainder };
 }
 
 export function parseWebChatTools(text: string): WebChatToolCall[] {
@@ -260,6 +325,7 @@ export function incompleteWebChatTool(text: string): boolean {
   const banner = /(?:^|\n)neuraflok-tool[ \t]*\r?\n/gi;
   while (banner.exec(source)) opens++;
   opens += xmlToolOpens(source);
+  opens += dsmlToolOpens(source);
   if (!opens) return false;
   return parseWebChatTools(source).length < opens;
 }

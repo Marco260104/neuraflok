@@ -265,6 +265,21 @@ it('sets the native textarea value and reports Stop while generating', () => {
   expect(api.generating()).toBe(true);
 });
 
+it('keeps a DeepSeek DSML tool call when it follows a planning sentence', () => {
+  const response = [
+    'We need to inspect the project first.',
+    '<｜｜DSML｜｜ calls>',
+    '<｜｜DSML｜｜ invoke name="read">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="false">{"paths":["/commander"]}</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '</｜｜DSML｜｜ calls>'
+  ].join('\n');
+  const { listeners } = load([node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: response })]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', sent: 'Inspect the project', before: '', beforeThink: '' }, {}, value => { reply = value; });
+  expect(reply).toMatchObject({ answer: response });
+});
+
 it('finds a role=button send control by its SVG path', () => {
   const { api, send } = load([], { sendRole: true });
   expect(api.sendButton()).toBe(send);

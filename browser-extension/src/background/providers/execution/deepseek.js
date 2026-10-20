@@ -34,7 +34,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
   }
 
   function hasToolCall(text) {
-    return /```(?:neuraflok-tool|json)\b/i.test(text) || /<(?:exec_command|read|apply_patch)\b/i.test(text);
+    return /```(?:neuraflok-tool|json)\b/i.test(text) || /<(?:exec_command|read|apply_patch)\b/i.test(text) || /<[|｜]{2}DSML[|｜]{2}\s*invoke\s+name=/i.test(text);
   }
 
   function looksLikeThink(text) {
