@@ -75,10 +75,5 @@
     animation: none !important;
     stroke-dashoffset: 0 !important;
     fill: #ffffff !important;
-    stroke-width: 0 !important;
-  }
-  .nf-loader-bar-fill {
-    animation: none !important;
-    width: 100% !important;
   }
 }

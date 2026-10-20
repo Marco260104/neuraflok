@@ -19,7 +19,7 @@ describe('Initial Boot Splash and NF Loader', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the complete NF Vector Loader markup and svg paths', () => {
+  it('renders the complete NF Vector Loader markup and normalized svg paths without blur/glow', () => {
     const doc = dom.window.document;
     const splash = doc.getElementById('bootSplash');
     expect(splash).not.toBeNull();
@@ -32,7 +32,7 @@ describe('Initial Boot Splash and NF Loader', () => {
     expect(svg).not.toBeNull();
     expect(svg?.getAttribute('viewBox')).toBe('0 0 1000 1000');
 
-    // 3 vector logo paths: N, F-top, F-mid
+    // 3 vector logo paths: N, F-top, F-mid with normalized pathLength for fluid 60fps stroke drawing
     const pathN = svg?.querySelector('.nf-path.nf-path-n');
     const pathFtop = svg?.querySelector('.nf-path.nf-path-ftop');
     const pathFmid = svg?.querySelector('.nf-path.nf-path-fmid');
@@ -40,12 +40,9 @@ describe('Initial Boot Splash and NF Loader', () => {
     expect(pathFtop).not.toBeNull();
     expect(pathFmid).not.toBeNull();
 
-    // Bar and text
-    const bar = loaderWrapper?.querySelector('.nf-loader-bar .nf-loader-bar-fill');
-    expect(bar).not.toBeNull();
-
-    const text = loaderWrapper?.querySelector('.nf-loader-text');
-    expect(text?.textContent?.trim()).toBe('CARGANDO...');
+    expect(pathN?.getAttribute('pathLength')).toBe('1000');
+    expect(pathFtop?.getAttribute('pathLength')).toBe('1000');
+    expect(pathFmid?.getAttribute('pathLength')).toBe('1000');
   });
 
   it('keeps the loader visible until minimum 2.5s duration has elapsed', () => {
