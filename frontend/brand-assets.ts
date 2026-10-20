@@ -22,6 +22,16 @@ export function _resetSplashDismissForTesting(newStartTime?: number): void {
   }
 }
 
+export function updateBootSplashStatus(text: string): void {
+  const el = document.getElementById('bootSplashStatusText');
+  if (!el || el.textContent === text) return;
+  el.classList.add('is-switching');
+  window.setTimeout(() => {
+    el.textContent = text;
+    el.classList.remove('is-switching');
+  }, 180);
+}
+
 export function dismissBootSplash(): void {
   const splash = document.getElementById('bootSplash');
   if (!splash) return;

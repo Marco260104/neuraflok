@@ -1,7 +1,7 @@
 import { initBrowserSetup } from './features/browser/setup-browser.js';
-import { initWebModelLoading } from './features/browser/web-model-loading.js';
+import { initWebModelLoading, markInitialBootComplete, webModelLoadingPhase } from './features/browser/web-model-loading.js';
 import { createConnectionCapsule } from './features/browser/connection-capsule.js';
-import { dismissBootSplash, mountBrandAssets } from './brand-assets.js';
+import { dismissBootSplash, mountBrandAssets, updateBootSplashStatus } from './brand-assets.js';
 import { mountProviderMarks } from './features/browser/provider-marks.js';
 import { currentLanguage, ui, t, initLanguage, onLanguageChange } from './shared/i18n.js';
 import { createProviderStatusView } from './features/settings/provider-status-view.js';
@@ -389,6 +389,11 @@ initChat({ save: () => save(), state: () => state });
 
 void (async () => {
   try {
+    updateBootSplashStatus('Cargando componentes...');
+    // Micro-yield so initial splash frame renders without jank
+    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 60)));
+
+    updateBootSplashStatus('Cargando sistema...');
     await refresh();
     // A first run has nothing set up, so open on the wizard rather than an empty Home.
     showTab(state && missingStep(state)?.step === 'folder' ? 'setup' : 'chat');
@@ -398,7 +403,33 @@ void (async () => {
     await activityLogHydration.loadStartupSnapshot();
     const swarm = await run(api.getSwarm());
     if (swarm) paintAgentFilter(swarm);
+
+    // If using web models, wait for the web model to be ready or sign-in needed
+    const currentAppState = state as AppState | null;
+    if (currentAppState && !usesApiProvider(currentAppState.config.ui.chatExecutor)) {
+      updateBootSplashStatus('Cargando modelos...');
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 3500);
+        let done = false;
+        const check = (currentState: AppState | null) => {
+          if (!currentState || done) return;
+          const phase = webModelLoadingPhase(currentState);
+          if (phase === 'ready' || phase === 'signin' || phase === 'hidden') {
+            done = true;
+            clearTimeout(timeout);
+            unsubscribe();
+            resolve();
+          }
+        };
+        const unsubscribe = api.onStateChanged((next) => check(next));
+        check(currentAppState);
+      });
+    }
+
+    updateBootSplashStatus('Todo listo');
+    await new Promise(r => setTimeout(r, 260));
   } finally {
+    markInitialBootComplete();
     dismissBootSplash();
   }
 })();

@@ -1,7 +1,7 @@
 ﻿import { readRendererMarkup } from '../scripts/read-renderer-markup.cjs';
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { dismissBootSplash, _resetSplashDismissForTesting } from '../frontend/brand-assets.js';
+import { dismissBootSplash, updateBootSplashStatus, _resetSplashDismissForTesting } from '../frontend/brand-assets.js';
 
 describe('Initial Boot Splash and NF Loader', () => {
   let dom: JSDOM;
@@ -43,6 +43,20 @@ describe('Initial Boot Splash and NF Loader', () => {
     expect(pathN?.getAttribute('pathLength')).toBe('1000');
     expect(pathFtop?.getAttribute('pathLength')).toBe('1000');
     expect(pathFmid?.getAttribute('pathLength')).toBe('1000');
+  });
+
+  it('updates the status text with transition class', () => {
+    const doc = dom.window.document;
+    const textEl = doc.getElementById('bootSplashStatusText')!;
+    expect(textEl).not.toBeNull();
+    expect(textEl.textContent).toBe('Cargando componentes...');
+
+    updateBootSplashStatus('Cargando sistema...');
+    expect(textEl.classList.contains('is-switching')).toBe(true);
+
+    vi.advanceTimersByTime(200);
+    expect(textEl.textContent).toBe('Cargando sistema...');
+    expect(textEl.classList.contains('is-switching')).toBe(false);
   });
 
   it('keeps the loader visible until minimum 2.5s duration has elapsed', () => {

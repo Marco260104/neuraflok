@@ -211,11 +211,18 @@
   padding: 0;
 }
 .nf-loader-svg {
-  width: min(280px, 60vw);
-  height: min(280px, 60vw);
-  max-width: 280px;
-  max-height: 280px;
+  width: min(220px, 45vw);
+  height: min(220px, 45vw);
+  max-width: 220px;
+  max-height: 220px;
+  display: block;
   filter: none !important;
+  animation: nfSvgBreathe 2.5s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes nfSvgBreathe {
+  0%, 100% { transform: scale(0.97); }
+  50% { transform: scale(1.03); }
 }
 .nf-path {
   fill: transparent;
@@ -225,9 +232,6 @@
   stroke-linejoin: round;
   stroke-dasharray: 1000;
   stroke-dashoffset: 1000;
-  transform-box: fill-box;
-  transform-origin: center;
-  will-change: stroke-dashoffset, fill, opacity;
   animation: nfStrokeDraw 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
@@ -259,6 +263,33 @@
     fill: rgba(255, 255, 255, 0);
     opacity: 0;
   }
+}
+
+.nf-loader-status {
+  margin-top: 28px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nf-loader-status-text {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: #71717a;
+  text-transform: uppercase;
+  animation: nfStatusPulse 2s ease-in-out infinite;
+  transition: opacity 200ms ease, transform 200ms ease;
+  user-select: none;
+}
+.nf-loader-status-text.is-switching {
+  opacity: 0;
+  transform: translateY(3px);
+}
+@keyframes nfStatusPulse {
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
 }
 
 
