@@ -388,10 +388,14 @@ initBrowserPreferences();
 initChat({ save: () => save(), state: () => state });
 
 void (async () => {
+  const isTestEnv = typeof window !== 'undefined' && (window.location?.hostname === 'local.test' || Boolean((window as any).__VITEST__));
   try {
     updateBootSplashStatus('Cargando componentes...');
     // Micro-yield so initial splash frame renders without jank
-    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 60)));
+    if (!isTestEnv) {
+      const rAF = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (cb: FrameRequestCallback) => setTimeout(cb, 0);
+      await new Promise(r => rAF(() => setTimeout(r, 60)));
+    }
 
     updateBootSplashStatus('Cargando sistema...');
     await refresh();
@@ -406,7 +410,7 @@ void (async () => {
 
     // If using web models, wait for the web model to be ready or sign-in needed
     const currentAppState = state as AppState | null;
-    if (currentAppState && !usesApiProvider(currentAppState.config.ui.chatExecutor)) {
+    if (currentAppState && !isTestEnv && !usesApiProvider(currentAppState.config.ui.chatExecutor)) {
       updateBootSplashStatus('Cargando modelos...');
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(resolve, 3500);

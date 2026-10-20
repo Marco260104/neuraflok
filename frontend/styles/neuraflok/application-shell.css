@@ -373,8 +373,8 @@
 .quick-settings-lead { margin: 0; max-width: 52ch; color: var(--soft); font-size: calc(12.5px * var(--text-scale, 1)); line-height: 1.5; }
 .quick-settings-body { display: grid; gap: 4px; }
 .quick-setting {
-  display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 8px 10px; border-radius: var(--r-md); min-width: 0; flex-wrap: wrap;
+  display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 8px 10px; border-radius: var(--r-md); min-width: 0; flex-wrap: nowrap;
 }
 .quick-setting-label { color: var(--ink); font-size: calc(13px * var(--text-scale, 1)); font-weight: 550; }
 .quick-setting > .btn { flex: 0 0 auto; min-height: 30px; padding: 5px 10px; font-size: calc(12px * var(--text-scale, 1)); }
@@ -389,8 +389,17 @@
   .quick-theme button:hover { color: var(--ink); }
 }
 .quick-settings .language-select {
-  min-width: 0; width: min(14em, 100%); max-width: 100%; flex: 1 1 10em; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; flex: 0 0 auto; width: 152px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
   background: var(--sunk); color: var(--ink); font: inherit; font-size: calc(12.5px * var(--text-scale, 1));
+  line-height: 30px;
+  cursor: pointer; outline: none; transition-property: border-color, box-shadow; transition-duration: 150ms; transition-timing-function: var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .quick-settings .language-select:hover { border-color: var(--edge); }
+}
+.quick-settings .language-select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-wash);
 }
 .quick-settings-cards { display: grid; gap: 10px; }
 .quick-settings-card {

@@ -10,6 +10,7 @@ export interface SettingsPatch {
   sessions: Config["sessions"];
   compaction: Config["compaction"];
   multiAgent: Config["multiAgent"];
+  providers: Config["providers"];
   goal: Config["goal"];
   providerTools: Config["providerTools"];
   controlApi?: Config["controlApi"];

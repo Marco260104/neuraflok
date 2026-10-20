@@ -55,21 +55,26 @@ export function initWebProviderActions(dependencies: WebProviderActionsDependenc
     }
     const executorSetting = $<HTMLSelectElement>('chatExecutor');
     const executorChanged = executorSetting.value !== 'web';
-    chooseWebProvider(value, true);
+    chooseWebProvider(value, false);
     if (executorChanged) {
       executorSetting.value = 'web';
       executorSetting.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      void save();
     }
-    void save();
     $<HTMLDetailsElement>('chatModelPicker').open = false;
   });
   $('apiModelOptions').addEventListener('click', (event) => {
     const target = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-model-pick-api]');
     if (!target || target.disabled) return;
     const setting = $<HTMLSelectElement>('chatExecutor');
+    const changed = setting.value !== 'api';
     setting.value = 'api';
-    setting.dispatchEvent(new Event('change', { bubbles: true }));
-    void save();
+    if (changed) {
+      setting.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      void save();
+    }
     $<HTMLDetailsElement>('chatModelPicker').open = false;
   });
   $('manageModelsOpen').addEventListener('click', () => {
