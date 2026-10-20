@@ -37,7 +37,7 @@ async function attachedText(attachments: readonly InputAttachment[] | undefined,
   return `\n\n<USER_ATTACHED_FILES>\n${sections.join('\n\n')}\n</USER_ATTACHED_FILES>`;
 }
 
-/** Prepare the exact text that a local executor sends. Opening turns use NEURAFLOK's provider tool guide plus the selected project's AGENTS.md and frozen Skills; later turns add only explicitly selected Skills. File bytes are read from the validated attachment store and bounded first. */
+/** Prepare the exact text that a local executor sends. Opening turns use the provider tool guide plus the selected project's AGENTS.md and frozen Skills; later turns keep language and project directory and add only explicitly selected Skills. File bytes are read from the validated attachment store and bounded first. */
 export async function prepareLocalProviderPrompt(
   entry: InputEntry, sessionId: string, opening: boolean, options: { allowImageAttachments?: boolean } = {}
 ): Promise<string> {

@@ -8,9 +8,10 @@ import type { BrowserControl } from './chrome-api/index.js';
 import type { IntegratedBrowserFrame } from './browser-control.js';
 import { WINDOW_ID_NONE } from './tabs/model-contracts.js';
 import type { TabModel } from './tabs/model.js';
+import { INTEGRATED_BROWSER_FALLBACK_SIZE, INTEGRATED_BROWSER_TOOLBAR_HEIGHT, paintedTabBounds } from './tab-paint.js';
 
 const UI_PARTITION = 'integrated-browser-ui';
-const TOOLBAR_HEIGHT = 40;
+const TOOLBAR_HEIGHT = INTEGRATED_BROWSER_TOOLBAR_HEIGHT;
 const WINDOW_CONTROLS = process.platform === 'darwin' ? { left: 78, right: 8 } : { left: 8, right: 138 };
 
 interface Assets {
@@ -86,7 +87,7 @@ export function createIntegratedBrowserWindowHost(runtime: Runtime) {
   function createFrame(id: number): IntegratedBrowserFrame {
     const tokens = themeTokens('sidebar');
     const base = new BaseWindow({
-      width: 1180, height: 820, minWidth: 480, minHeight: 360, show: false, title: 'NEURAFLOK browser',
+      width: INTEGRATED_BROWSER_FALLBACK_SIZE.width, height: INTEGRATED_BROWSER_FALLBACK_SIZE.height, minWidth: 480, minHeight: 360, show: false, title: 'NEURAFLOK browser',
       backgroundColor: tokens['--page'], titleBarStyle: 'hidden',
       ...(process.platform === 'darwin'
         ? { trafficLightPosition: { x: 14, y: 13 } }
@@ -168,14 +169,17 @@ export function createIntegratedBrowserWindowHost(runtime: Runtime) {
     const frame = frames.get(id);
     if (!frame || frame.base.isDestroyed()) return;
     const { width, height } = frame.base.getContentBounds();
-    frame.toolbar.setBounds({ x: 0, y: 0, width, height: TOOLBAR_HEIGHT });
+    const page = paintedTabBounds(width, height);
+    frame.toolbar.setBounds({ x: 0, y: 0, width: page.width, height: TOOLBAR_HEIGHT });
     const active = model.activeTab(id);
+    const activeView = active !== null ? views.get(active) : undefined;
     for (const tabId of model.tabsOf(id)) {
       const view = views.get(tabId);
       if (!view) continue;
-      view.setBounds({ x: 0, y: TOOLBAR_HEIGHT, width, height: Math.max(0, height - TOOLBAR_HEIGHT) });
-      view.setVisible(tabId === active);
+      view.setBounds(page);
+      view.setVisible(true);
     }
+    if (activeView) frame.base.contentView.addChildView(activeView);
   }
 
   function toolbarAction(sender: WebContents, action: string, tabId: unknown): void {

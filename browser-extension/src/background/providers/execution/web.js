@@ -21,7 +21,10 @@ export function createWebProviderPageExecutor({ chrome, activeTabs, call, tabRep
     let lastText = typeof initial === 'string' ? initial : '';
     let reportedText = '';
     let emptyIdle = 0;
-    const deadline = Date.now() + 540_000;
+    let stableText = '';
+    let stableIdle = 0;
+    let lastProgressAt = 0;
+    let deadline = Date.now() + 540_000;
     while (Date.now() < deadline) {
       if (stoppedProviderOffers.has(offer.id)) {
         stoppedProviderOffers.delete(offer.id);
@@ -41,12 +44,29 @@ export function createWebProviderPageExecutor({ chrome, activeTabs, call, tabRep
         await settleOtherProviderPage(offer, { text: lastText });
         return;
       }
-      if (lastText && lastText !== reportedText && snap && snap.generating === true) {
-        reportedText = lastText;
-        void call('/provider/page/progress', {
-          method: 'POST',
-          body: JSON.stringify({ id: offer.id, provider: offer.provider, conversationId: offer.conversationId, text: lastText, generating: true })
-        }).catch(() => undefined);
+      if (snap && snap.generating === true) {
+        deadline = Date.now() + 540_000;
+        if (lastText !== reportedText || Date.now() - lastProgressAt > 15_000) {
+          reportedText = lastText;
+          lastProgressAt = Date.now();
+          void call('/provider/page/progress', {
+            method: 'POST',
+            body: JSON.stringify({ id: offer.id, provider: offer.provider, conversationId: offer.conversationId, text: lastText, generating: true })
+          }).catch(() => undefined);
+        }
+        if (lastText && lastText === stableText) {
+          stableIdle += 1;
+          if (stableIdle >= 15) {
+            await settleOtherProviderPage(offer, { text: lastText });
+            return;
+          }
+        } else {
+          stableText = lastText;
+          stableIdle = 0;
+        }
+      } else {
+        stableText = lastText;
+        stableIdle = 0;
       }
       if (snap && snap.generating !== true && !lastText) {
         if (++emptyIdle >= 180) {

@@ -31,6 +31,7 @@ import {
 } from '../backend/domains/providers/browser-chat.js';
 import {
   pendingProviderPage,
+  reportProviderPageProgress,
   resetProviderPageForTests,
   requestProviderPageComplete,
   settleProviderPage
@@ -113,7 +114,18 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(guide).toContain('"paths":["/workspace/example.txt"]');
   expect(guide).toContain('*** Begin Patch');
   expect(guide).toContain('read(');
-  expect(parseWebChatTools(guide).map(call => call.function.name)).toEqual(['read', 'apply_patch']);
+  expect(guide).toContain('"name":"exec_command"');
+  expect(guide).toContain('"cmd":"Get-ChildItem -Name"');
+  expect(guide).toContain('"workdir":"/workspace"');
+  expect(guide).toContain('Never put /workspace inside cmd');
+  expect(guide).toContain('Do not pipe to head, wc, cat, or ls');
+  expect(guide).toContain('Do not write PowerShell with $ in cmd');
+  expect(guide).toContain('Do not run rg');
+  expect(guide).toContain('On the user task, first output must be a complete neuraflok-tool fence');
+  expect(guide).toContain('The handshake reply NEURAFLOK_READY is exempt');
+  expect(guide).toContain('If the user asked a question, answer after tools with no fence');
+  expect(guide).not.toContain('After listing a folder, the next reply must be apply_patch');
+  expect(parseWebChatTools(guide).map(call => call.function.name)).toEqual(['read', 'exec_command', 'apply_patch']);
   expect(incompleteWebChatTool('```neuraflok-tool\n{"name":"read","arguments":{"paths":\n```')).toBe(true);
   expect(incompleteWebChatTool('```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```')).toBe(false);
   expect(incompleteWebChatTool('```unbranded-tool\n{"name":"read","arguments":{"paths":\n```')).toBe(false);
@@ -123,7 +135,15 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   );
   expect(rooted).toContain('Approved roots: /c, /skills');
   expect(rooted).toContain('/c/hello.txt');
+  expect(rooted).toContain('Selected project directory: /c');
+  expect(rooted).toContain('"workdir":"/c"');
+  expect(rooted).toContain('Never put /c inside cmd');
   expect(rooted).not.toContain('/workspace/hello.txt');
+  const spanish = webToolGuide(
+    [{ name: 'read', description: 'Read files', inputSchema: { $schema: 'x', type: 'object', properties: {} } }],
+    { roots: ['/c'], project: '/c', language: 'es' }
+  );
+  expect(spanish).toContain('Reply in Spanish');
   const text = 'Working.\n```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```\n';
   expect(parseWebChatTools(text)).toEqual([{
     id: 'call_1',
@@ -136,6 +156,13 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
     type: 'function',
     function: { name: 'apply_patch', arguments: '{"patch":"x"}' }
   }]);
+  expect(parseWebChatTools('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toEqual([{
+    id: 'call_1',
+    type: 'function',
+    function: { name: 'exec_command', arguments: '{"cmd":"rg --files","workdir":"/commander"}' }
+  }]);
+  expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files"\n')).toBe(true);
+  expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toBe(false);
   expect(stripWebChatTools(text)).toBe('Working.');
   expect(formatWebChatResult('read', 'ok')).toContain('neuraflok-result');
   expect(formatWebChatResult('read', 'ok')).toContain('neuraflok-result');
@@ -160,6 +187,28 @@ it('releases a page offer that outlived its wait so a later send can run', async
     expect(offer?.text).toBe('again');
     expect(settleProviderPage({ id: offer!.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'ok' })).toBe(true);
     await expect(second).resolves.toEqual({ text: 'ok' });
+  } finally {
+    vi.useRealTimers();
+    resetProviderPageForTests();
+  }
+});
+
+it('refreshes the page wait while the provider is still generating', async () => {
+  resetProviderPageForTests();
+  vi.useFakeTimers();
+  try {
+    const pending = requestProviderPageComplete('deepseek', TEST_PROVIDER_CONVERSATION, 'hello');
+    await vi.advanceTimersByTimeAsync(500_000);
+    const offer = pendingProviderPage();
+    expect(reportProviderPageProgress({
+      id: offer!.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'still working', generating: true
+    })).toBe(true);
+    await vi.advanceTimersByTimeAsync(500_000);
+    expect(pendingProviderPage()?.id).toBe(offer!.id);
+    expect(settleProviderPage({
+      id: offer!.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'done'
+    })).toBe(true);
+    await expect(pending).resolves.toEqual({ text: 'done' });
   } finally {
     vi.useRealTimers();
     resetProviderPageForTests();
@@ -355,6 +404,7 @@ it('sends setup once, waits for its acknowledgement, then sends authored message
   acknowledge({ text: 'NEURAFLOK_READY' });
   await running;
   expect(pages[1]).toMatchObject({ fresh: false, text: expect.stringContaining('MY_ACTUAL_REQUEST') });
+  expect(pages[1]!.text).toContain('WORKSPACE_CONTEXT');
   const second = await enqueueInput({ id: randomUUID(), sessionId: first.id, text: 'MY_FOLLOWUP', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null });
   await runDeepseekInput(second);
   expect(pages).toHaveLength(3);

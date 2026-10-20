@@ -121,6 +121,9 @@ describe('exec_command and write_stdin', () => {
     expect(textOf(reply)).toContain('INVALID_COMMAND_PATH');
     expect(textOf(reply)).toContain('/workspace/notes.txt');
     expect(textOf(reply)).toMatch(/relative path|native filesystem path/i);
+    expect(textOf(reply)).toContain('"cmd":"rg --files"');
+    expect(textOf(reply)).toContain('"workdir":"/workspace"');
+    expect(textOf(reply)).toContain('Do not put /workspace/notes.txt inside cmd');
     expect(textOf(reply)).toContain('No command was run');
   });
 

@@ -5,6 +5,7 @@ import { currentCoreInstructions } from '../../../infrastructure/tool-gateway/pr
 import { getSessionProject, projectWorkspace } from '../../workspace/projects.js';
 import { resolvePath } from '../../../infrastructure/settings/sandbox.js';
 import { MAX_PROVIDER_MESSAGE_CHARS, prependUserPrompt, userPromptText } from '../../../../contracts/messaging/provider-message-envelope.js';
+import { replyLanguageInstruction } from '../../../../contracts/ui-language.js';
 import { selectedSkillInstructions, type SelectedSkill } from './skill-prompt.js';
 import { listSkillLibrary } from '../../skills/skill-library.js';
 import type { RoutedSkillSelection } from '../../../../contracts/skill-routing.js';
@@ -20,6 +21,18 @@ const LOCAL_PROVIDER_IESTRUCTIOES = [
   'Use only the capabilities listed in the workspace tool guide for this conversation. A tool result is the evidence for an action: do not claim that a file changed or a command succeeded without a successful result.',
   'If a permission or required piece of context is missing, explain the limit clearly instead of guessing.'
 ].join('\n');
+
+function localProviderInstructions(): string {
+  return [LOCAL_PROVIDER_IESTRUCTIOES, replyLanguageInstruction(getConfig().ui.language)].filter(Boolean).join('\n');
+}
+
+function standingProviderFollowup(directory: string | null): string {
+  const language = replyLanguageInstruction(getConfig().ui.language);
+  const project = directory
+    ? `Selected project directory: ${directory}\nUse this directory as your default working directory and keep task work there unless the user or task requires another approved location.\nFor exec_command, set workdir to ${directory} and use relative paths in cmd. Never put ${directory} inside cmd.`
+    : '';
+  return [language, project].filter(Boolean).join('\n\n');
+}
 
 const promptFolder = (scope: PromptScope) => scope.sessionId ? getSessionProject(scope.sessionId)
   : scope.projectId ? projectWorkspace(scope.projectId) : Promise.resolve(null);
@@ -80,7 +93,7 @@ function frameProviderPrompt(text: string, instructions: string): string {
 function fitPrompt(text: string, core: string, agents: ProjectInstructions | null, budget: PromptLimits, skills: SelectedSkill[], frame: PromptFrame): string {
   const fits = (value: string): boolean => value.length <= Math.min(MAX_PROVIDER_MESSAGE_CHARS, budget.maxChars) &&
     Buffer.byteLength(value, 'utf8') <= budget.maxBytes;
-  const projectHeader = agents ? `Selected project directory: ${agents.directory}\nUse this directory as your default working directory and keep task work there unless the user or task requires another approved location. This project association grants no additional filesystem permissions.` : '';
+  const projectHeader = agents ? `Selected project directory: ${agents.directory}\nUse this directory as your default working directory and keep task work there unless the user or task requires another approved location. For exec_command, set workdir to ${agents.directory} and use relative paths in cmd. Never put ${agents.directory} inside cmd. This project association grants no additional filesystem permissions.` : '';
   const mandatory = [core, projectHeader].filter(Boolean).join('\n\n');
   const base = frame(text, mandatory);
   if (!fits(base)) throw new Error('The message and main instructions exceed the delivery limit (maximum 96,000 characters). Shorten the message or standing instructions.');
@@ -155,10 +168,11 @@ export async function prepareProviderSessionPrompt(text: string, scope: PromptSc
   const skillScope = { projectPath: folder?.real ?? null };
   const library = await listSkillLibrary(scope.autoSkills !== undefined ? { ...skillScope, managedFromCatalog: true } : skillScope);
   const skills = await selectedSkillInstructions(authored, skillScope, library, scope.autoSkills);
-  fitProviderPrompt(text, LOCAL_PROVIDER_IESTRUCTIOES, null, budget); // Required user request and provider contract.
+  const core = localProviderInstructions();
+  fitProviderPrompt(text, core, null, budget); // Required user request and provider contract.
   const agents = await projectInstructions(scope);
   if ((await promptFolder(scope))?.real !== folder?.real) throw new Error('The selected project changed during Skill preparation');
-  return fitProviderPrompt(text, LOCAL_PROVIDER_IESTRUCTIOES, agents, budget, skills);
+  return fitProviderPrompt(text, core, agents, budget, skills);
 }
 
 /** Explicit follow-up selection adds Skills only, never repeats opening setup. */
@@ -169,10 +183,12 @@ export async function prepareSkillFollowup(text: string, authored: string, budge
   return skills.length ? fitSessionPrompt(text, '', null, budget, skills) : text;
 }
 
-/** Later provider turns add only selected Skills and keep the provider-neutral context boundary. */
+/** Later provider turns keep language and project directory, add selected Skills, and skip repeating opening AGENTS/setup. */
 export async function prepareProviderSkillFollowup(text: string, authored: string, budget = limits, scope: PromptScope = {}): Promise<string> {
   const folder = await promptFolder(scope);
   const skills = await selectedSkillInstructions(authored, { projectPath: folder?.real ?? null }, undefined, scope.autoSkills);
   if ((await promptFolder(scope))?.real !== folder?.real) throw new Error('The selected project changed during Skill preparation');
-  return skills.length ? fitProviderPrompt(text, '', null, budget, skills) : text;
+  const standing = standingProviderFollowup(folder?.virtual ?? null);
+  if (!standing && !skills.length) return text;
+  return fitProviderPrompt(text, standing, null, budget, skills);
 }

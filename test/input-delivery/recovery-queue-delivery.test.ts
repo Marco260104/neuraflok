@@ -76,6 +76,8 @@ it('keeps automatic Continue attached to the native question after injected corr
     await post(`/status?repaired=${repair.token}&repairAction=reloaded`, { openConversations: [conversationId] });
     const row = (await input.listInputs()).find(item => item.sessionId === session.id && item.recovery)!;
     expect(row.recovery?.questionId).toBe(questionId);
+    expect(row.text).toContain('Original user request still in progress:');
+    expect(row.text).toContain('Finish the task');
     expect((await input.pendingBrowserInputs()).find(item => item.id === row.id)?.recovery?.questionId).toBe(questionId);
     expect(await input.claimBrowserInput(row.id, 'replacement-document', conversationId, true)).not.toBeNull();
   } finally { clock.mockRestore(); }

@@ -29,7 +29,7 @@ export function localToolGuidance(
     lines.push(
       'Use rg or rg --files for searches; if unavailable, use the next best tool. Prefer rg -g \'*.ts\' backend over shell globs.',
       'exec_command is enabled. Batch checks with exec_command cmds: [...]: one shell, per-command output and exit codes.',
-      'Set workdir to the project; virtual paths work there. Inside cmd use relative or native paths.',
+      'Set workdir to the project virtual path. Inside cmd use relative or native paths only. Never put the virtual project path inside cmd.',
       'write_stdin accepts session_id (running) or completed_session_id (finished). Completed reads replay output without rerunning work. Inspect exit/output; benign_exit marks an expected non-zero result.',
       'If output is truncated, narrow the command or read the relevant region.'
     );
