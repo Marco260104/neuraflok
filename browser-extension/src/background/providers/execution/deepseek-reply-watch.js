@@ -16,13 +16,14 @@ function quietNeed(text) {
   return 3;
 }
 
-export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabReply, postDeepseekPage }) {
-  const DEEPSEEK_READ_MS = 8_000;
-  const DEEPSEEK_WATCH_MS = 540_000;
-  const DEEPSEEK_MAX_WATCH_MS = 1_800_000;
-  const DEEPSEEK_READ_STALE_MS = 30_000;
-  const DEEPSEEK_POLL_MS = 2_000;
-  const DEEPSEEK_MAX_AUTOMATIC_CONTINUES = 6;
+export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabReply, postDeepseekPage, timings = {} }) {
+  const DEEPSEEK_READ_MS = timings.readMs ?? 8_000;
+  const DEEPSEEK_WATCH_MS = timings.watchMs ?? 540_000;
+  const DEEPSEEK_MAX_WATCH_MS = timings.maxWatchMs ?? 1_800_000;
+  const DEEPSEEK_READ_STALE_MS = timings.readStaleMs ?? 30_000;
+  const DEEPSEEK_POLL_MS = timings.pollMs ?? 2_000;
+  const DEEPSEEK_MAX_AUTOMATIC_CONTINUES = timings.maxAutomaticContinues ?? 6;
+  const DEEPSEEK_EMPTY_IDLE_POLLS = timings.emptyIdlePolls ?? 180;
 
   return async function watchDeepseekReply(tabId, offer, before, beforeThink, initial) {
     let lastText = typeof initial === 'string' ? initial : '';
@@ -37,6 +38,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
     let automaticContinues = 0;
     let lastGenerationActive = false;
     let lastSuccessfulReadAt = Date.now();
+    let reportedThink = '';
     let completeText = isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '';
     let deadline = Date.now() + DEEPSEEK_WATCH_MS;
     const hardDeadline = Date.now() + DEEPSEEK_MAX_WATCH_MS;
@@ -81,6 +83,9 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
 
       lastSuccessfulReadAt = Date.now();
       const think = snap && typeof snap.think === 'string' ? snap.think : '';
+      const hasReasoningActivity = Boolean(think.trim());
+      const thinkChanged = hasReasoningActivity && think !== reportedThink;
+      if (thinkChanged) reportedThink = think;
       lastGenerationActive = snap?.generating === true;
       let publicAnswer = snap && typeof snap.answer === 'string' ? snap.answer : '';
       if (isDeepseekAck(publicAnswer) && String(before || '').trim()) publicAnswer = '';
@@ -127,9 +132,10 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         quietIdle = 0;
       }
 
-      if (snap && snap.generating === true) {
+      if (snap && (snap.generating === true || hasReasoningActivity)) {
         deadline = Date.now() + DEEPSEEK_WATCH_MS;
-        if (lastText !== reportedText || Date.now() - lastProgressAt > 15_000) {
+        if (hasReasoningActivity) emptyIdle = 0;
+        if (lastText !== reportedText || thinkChanged || Date.now() - lastProgressAt > 15_000) {
           reportedText = lastText;
           lastProgressAt = Date.now();
           void call('/provider/page/progress', {
@@ -152,7 +158,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         stableIdle = 0;
       }
 
-      if (snap && snap.generating !== true && !lastText) {
+      if (snap && snap.generating !== true && !lastText && !hasReasoningActivity) {
         emptyIdle++;
         if (emptyIdle >= 4) {
           const fallback = await tabReply(tabId, { type: 'neuraflok-deepseek-snapshot' }, undefined, 4_000).catch(() => null);
@@ -162,7 +168,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
             if (await postDeepseekPage(offer, { text: lastText }, tabId)) return;
           }
         }
-        if (emptyIdle >= 180) {
+        if (emptyIdle >= DEEPSEEK_EMPTY_IDLE_POLLS) {
           await postDeepseekPage(offer, { error: 'DeepSeek did not finish this reply in time. Check the same provider session before retrying; if your message is there, do not send it again.' });
           return;
         }

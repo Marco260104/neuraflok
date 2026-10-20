@@ -142,8 +142,9 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
   async function bindWarmupSession(entry: InputEntry, generation: number, priorKey: string): Promise<string> {
     const boundId = entry.sessionId ?? entry.deliveredSessionId ?? entry.id;
     if (!entry.opening) return boundId;
-    markComposerWarmupOpening(boundId, runtime.selectionGeneration);
-    clearComposerWarmup(priorKey);
+    const priorTurnWorking = composerWarmupState(priorKey)?.priorTurnWorking;
+    markComposerWarmupOpening(boundId, generation, priorTurnWorking);
+    if (boundId !== priorKey) clearComposerWarmup(priorKey);
     const adopted = await runtime.adoptAcceptedOpening(entry);
     if (!adopted && boundId && runtime.selectionGeneration === generation && runtime.newChatSelected && runtime.selectedId === null) {
       adoptOpeningSession(boundId);
@@ -157,7 +158,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const deadline = Date.now() + WEB_CHAT_PREPARATION_TIMEOUT_MS;
     const id = crypto.randomUUID();
     const dueAt = Date.now();
-    const mode = runtime.turnWorking() ? 'after-turn' as const : 'auto' as const;
+    const mode = composerWarmupState(key)?.priorTurnWorking ? 'after-turn' as const : 'auto' as const;
     const seed: InputEntry = {
       id, sessionId, projectId, text: WEB_CHAT_WARMUP_TEXT, warmup: true, authoredSource: 'none',
       mode, dueAt, model: null, reasoningEffort: null, state: 'queued', owner: null, createdAt: dueAt,
@@ -195,7 +196,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       ];
       if (sessionId === null) runtime.setPendingNewInput({ id: accepted.id, generation });
       boundId = await bindWarmupSession(accepted, generation, key);
-      if (boundId !== key) markComposerWarmupOpening(boundId, runtime.selectionGeneration);
+      if (boundId !== key) markComposerWarmupOpening(boundId, generation);
       runtime.paintDeliveryControls();
       runtime.paintPreparationStatus();
 
@@ -262,7 +263,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     if (!needed) return;
 
     if (status?.phase !== 'opening') {
-      markComposerWarmupOpening(key, runtime.selectionGeneration);
+      markComposerWarmupOpening(key, runtime.selectionGeneration, runtime.turnWorking());
       if (inflightKey !== null) {
         runtime.paintDeliveryControls();
         runtime.paintPreparationStatus();

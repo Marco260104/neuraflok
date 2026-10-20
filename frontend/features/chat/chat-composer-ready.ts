@@ -3,7 +3,23 @@ import type { SessionEvent } from '../../../contracts/session.js';
 
 const HANDSHAKE_ACK = /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/;
 
-export type ComposerWarmupState = { phase: 'opening'; generation?: number } | { phase: 'failed'; error: string; generation?: number };
+export type ComposerWarmupState =
+  | { phase: 'opening'; generation?: number; priorTurnWorking?: boolean }
+  | { phase: 'failed'; error: string; generation?: number; priorTurnWorking?: boolean };
+
+export function visibleWarmupPhase(
+  phase: 'opening' | 'failed' | null,
+  hasPendingMessage: boolean
+): 'opening' | 'failed' | null {
+  return hasPendingMessage ? phase : null;
+}
+
+export function shouldSuppressWarmupActivity(
+  warmup: { phase: 'opening' | 'failed'; priorTurnWorking?: boolean } | null,
+  hasPendingMessage: boolean
+): boolean {
+  return warmup?.phase === 'opening' && warmup.priorTurnWorking !== true && !hasPendingMessage;
+}
 
 const openingSessions = new Set<string>();
 const composerWarmups = new Map<string, ComposerWarmupState>();
@@ -19,12 +35,25 @@ export function composerWarmupState(key: string): ComposerWarmupState | null {
   return composerWarmups.get(key) ?? null;
 }
 
-export function markComposerWarmupOpening(key: string, generation?: number): void {
-  composerWarmups.set(key, { phase: 'opening', ...(generation === undefined ? {} : { generation }) });
+export function markComposerWarmupOpening(key: string, generation?: number, priorTurnWorking?: boolean): void {
+  const existing = composerWarmups.get(key);
+  const previousActivity = existing?.priorTurnWorking;
+  composerWarmups.set(key, {
+    phase: 'opening',
+    ...(generation === undefined ? existing?.generation === undefined ? {} : { generation: existing.generation } : { generation }),
+    ...(priorTurnWorking === undefined
+      ? previousActivity === undefined ? {} : { priorTurnWorking: previousActivity }
+      : { priorTurnWorking })
+  });
 }
 
 export function markComposerWarmupFailed(key: string, error: string, generation?: number): void {
-  composerWarmups.set(key, { phase: 'failed', error, ...(generation === undefined ? {} : { generation }) });
+  const existing = composerWarmups.get(key);
+  composerWarmups.set(key, {
+    phase: 'failed', error,
+    ...(generation === undefined ? existing?.generation === undefined ? {} : { generation: existing.generation } : { generation }),
+    ...(existing?.priorTurnWorking === undefined ? {} : { priorTurnWorking: existing.priorTurnWorking })
+  });
 }
 
 export function clearComposerWarmup(key: string): void {

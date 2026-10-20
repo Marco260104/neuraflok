@@ -1,6 +1,8 @@
 import { expect, it, vi } from 'vitest';
 // @ts-expect-error Browser extension scripts are plain JavaScript and are exercised directly here.
 import { createDeepseekPageExecutor } from '../browser-extension/src/background/providers/execution/deepseek.js';
+// @ts-expect-error Browser extension scripts are plain JavaScript and are exercised directly here.
+import { createDeepseekReplyWatcher } from '../browser-extension/src/background/providers/execution/deepseek-reply-watch.js';
 
 const conversationId = 'ds-00000000-0000-4000-8000-000000000001';
 const requestId = '00000000-0000-4000-8000-000000000002';
@@ -99,4 +101,38 @@ it('retries a transient DeepSeek tab read failure without failing an already-sen
   } finally {
     vi.useRealTimers();
   }
+}, 15_000);
+
+it('keeps waiting when DeepSeek is reasoning without showing a public answer', async () => {
+  const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
+  let snapshot = { answer: '', text: '', think: 'I am inspecting the project files before editing.', generating: false };
+  const progress: Array<Record<string, unknown>> = [];
+  const call = vi.fn(async (_path: string, init: { body?: string }) => {
+    progress.push(JSON.parse(init.body ?? '{}'));
+    return { ok: true, data: { ok: true } };
+  });
+  const settle = vi.fn(async () => true);
+  const watch = createDeepseekReplyWatcher({
+    stoppedProviderOffers: new Set<string>(),
+    call,
+    tabReply: async (_tabId: number, message: { type: string }) =>
+      message.type === 'neuraflok-deepseek-read' ? snapshot : null,
+    postDeepseekPage: settle,
+    timings: { readMs: 50, watchMs: 500, maxWatchMs: 5_000, readStaleMs: 5_000, pollMs: 2, emptyIdlePolls: 3 }
+  });
+
+  const watching = watch(7, offer, '', '', '');
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(settle).not.toHaveBeenCalled();
+  expect(progress.length).toBeGreaterThan(0);
+  expect(progress.every(item => item.text === '')).toBe(true);
+
+  snapshot = {
+    answer: 'The requested changes are complete.',
+    text: 'The requested changes are complete.',
+    think: 'I am inspecting the project files before editing.',
+    generating: false
+  };
+  await watching;
+  expect(settle).toHaveBeenCalledWith(offer, { text: 'The requested changes are complete.' }, 7);
 }, 15_000);
