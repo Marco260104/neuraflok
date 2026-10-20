@@ -37,6 +37,7 @@ export function createChatRenderingRuntime(bindings: ChatRuntimeBindings, turnWo
     state: () => bindings.deps.state(),
     get sessions() { return bindings.sessions; },
     get selectedId() { return bindings.selectedId; },
+    get startingInputs() { return bindings.startingInputs; },
     get pendingComposerInputs() { return bindings.pendingComposerInputs; },
     get events() { return bindings.events; },
     get historyBefore() { return bindings.historyBefore; },

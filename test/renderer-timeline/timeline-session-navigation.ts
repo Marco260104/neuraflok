@@ -375,6 +375,69 @@ it('keeps the welcome screen visible while an empty chat has only internal warmu
   expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
 });
 
+it('shows an early composer send as a chat message and changes Reading project to Thinking after dispatch', async () => {
+  const { w, live } = await boot([]);
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const sessionId = chatRuntimeBindings.selectedId!;
+  const generation = chatRuntimeBindings.selectionGeneration;
+  markComposerWarmupOpening(composerWarmupKey(sessionId, generation), generation);
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  input.value = 'Continue the task from yesterday.';
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  await settle();
+  const entry = live.inputs.find(row => row.text === input.value || row.text === 'Continue the task from yesterday.') as InputEntry;
+  expect(live.sent[0]).toMatchObject({ sessionId, warmupDeferred: { selectionGeneration: generation }, mode: 'after-turn' });
+
+  expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(entry.text);
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Reading project…');
+
+  entry.state = 'sent';
+  clearComposerWarmup(composerWarmupKey(sessionId, generation));
+  chatRuntimeBindings.pendingComposerInputs = [entry];
+  chatRuntimeBindings.paintDetail(true);
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+});
+
+it('shows a new-chat send immediately while its opening session is still being adopted', async () => {
+  const { w, live } = await boot([], false);
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  const openingId = 'warmup-opening-session';
+  const opening: InputEntry = {
+    id: openingId, sessionId: openingId, projectId: null, text: 'NEURAFLOK_WARMUP', warmup: true, opening: true,
+    mode: 'auto', dueAt: Date.now(), model: null, reasoningEffort: null,
+    state: 'browser', owner: 'browser', createdAt: Date.now(), conversationId: null
+  };
+  live.inputs.push(opening);
+  chatRuntimeBindings.pendingComposerInputs = [opening];
+  chatRuntimeBindings.pendingNewInput = { id: openingId, generation };
+  markComposerWarmupOpening(composerWarmupKey(null, generation), generation);
+
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  input.value = 'Keep implementing the project.';
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+
+  expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain('Keep implementing the project.');
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(live.sent).toHaveLength(0);
+
+  await settle();
+  expect(chatRuntimeBindings.selectedId).toBe(openingId);
+  expect(live.sent).toContainEqual(expect.objectContaining({
+    sessionId: openingId,
+    text: 'Keep implementing the project.',
+    mode: 'after-turn',
+    warmupDeferred: { selectionGeneration: generation }
+  }));
+  expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain('Keep implementing the project.');
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+});
+
 it('keeps the current transcript and handoff mounted when Write Directly focuses the same session', async () => {
   const attachment = { id: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff', name: 'current.png', mimeType: 'image/png', size: 42, preview: 'data:image/webp;base64,YQ==' };
   const rows: SessionEvent[] = [

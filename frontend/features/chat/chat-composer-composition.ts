@@ -136,6 +136,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get inputQueueGeneration() { return bindings.inputQueueGeneration; },
     set inputQueueGeneration(value: number) { bindings.inputQueueGeneration = value; },
     showAutoSkillReceipt: bindings.showAutoSkillReceipt,
+    paintDetail: bindings.paintDetail,
     adoptAcceptedOpening: bindings.adoptAcceptedOpening
   };
 

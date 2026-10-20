@@ -23,6 +23,8 @@ export function createChatFeatureComposition(bindings: typeof import('./chat-orc
     get controlledTurnId() { return bindings.controlledTurnId; },
     get goalWaitView() { return bindings.goalWaitView; },
     get events() { return bindings.events; },
+    get startingInputs() { return bindings.startingInputs; },
+    get pendingComposerInputs() { return bindings.pendingComposerInputs; },
     get sessions() { return bindings.sessions; },
     get detailFor() { return bindings.detailFor; },
     get swarm() { return bindings.swarm; },

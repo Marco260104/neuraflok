@@ -66,7 +66,7 @@ export function visibleStartingComposerInputs(
   existingIds: ReadonlySet<string>,
 ): InputEntry[] {
   return [...startingInputs].filter(entry =>
-    !isWarmupInput(entry) && belongsToSelection(entry) && !existingIds.has(entry.id));
+    !isWarmupInput(entry) && !entry.warmupDeferred && belongsToSelection(entry) && !existingIds.has(entry.id));
 }
 
 // Owns pending delivery rows, queued follow-ups, retries, and queue reconciliation.
@@ -169,6 +169,7 @@ export function createChatInputQueue(runtime: Runtime) {
           runtime.projectGroup(entry.projectId) ===
             runtime.selectedProjectId) &&
         !isWarmupInput(entry) &&
+        (!entry.warmupDeferred || notice(entry)) &&
         (notice(entry) ||
           !['sent', 'cancelled'].includes(entry.state) ||
           (entry.state === 'sent' && entry.messageId && !anchored(entry))),
