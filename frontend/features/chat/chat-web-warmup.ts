@@ -16,8 +16,24 @@ import {
 
 export const WEB_CHAT_WARMUP_TEXT = 'NEURAFLOK_WARMUP';
 const POLL_INTERVAL_MS = 750;
-const PREPARATION_TIMEOUT_MS = 11 * 60_000;
+export const WEB_CHAT_PREPARATION_TIMEOUT_MS = 75_000;
 const READY_CACHE_MS = 2 * 60_000;
+
+async function beforeDeadline<T>(deadline: number, message: string, work: () => Promise<T>): Promise<T> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error(message);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(work),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), remaining);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export function isWarmupInput(entry: { warmup?: boolean }): boolean {
   return entry.warmup === true;
@@ -39,7 +55,7 @@ export function webChatWarmupNeeded(input: {
 }
 
 export interface WebChatWarmupRuntime {
-  api: Pick<typeof window.api, 'sendInput' | 'listInputs' | 'getSession'>;
+  api: Pick<typeof window.api, 'sendInput' | 'listInputs' | 'getSession' | 'cancelInput'>;
   state: () => AppState | null;
   newChatSelected: boolean;
   selectedId: string | null;
@@ -84,32 +100,40 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       Date.now() - cached.at < READY_CACHE_MS;
   }
 
-  async function findExistingWarmup(sessionId: string | null): Promise<InputEntry | undefined> {
+  async function findExistingWarmup(sessionId: string | null, deadline: number): Promise<InputEntry | undefined> {
     if (!sessionId) return undefined;
-    const rows = await run(runtime.api.listInputs());
+    const rows = await beforeDeadline(deadline, 'DeepSeek took too long to prepare this chat. Retry to try again.',
+      () => run(runtime.api.listInputs()));
     if (!rows) throw new Error('Could not check existing chat preparation requests.');
     const related = rows.filter(entry => isWarmupInput(entry) &&
       (entry.sessionId === sessionId || entry.deliveredSessionId === sessionId));
     const pending = related.filter(entry => ['queued', 'browser'].includes(entry.state))
       .sort((left, right) => right.createdAt - left.createdAt)[0];
-    if (pending) return pending;
+    if (pending && Date.now() - pending.createdAt <= WEB_CHAT_PREPARATION_TIMEOUT_MS) return pending;
+    if (pending) {
+      const cancelled = await beforeDeadline(deadline, 'DeepSeek took too long to prepare this chat. Retry to try again.',
+        () => run(runtime.api.cancelInput(pending.id)));
+      if (!cancelled) throw new Error('The previous DeepSeek preparation is stuck in the delivery queue. Retry in a moment.');
+    }
     const accepted = related.filter(entry => entry.state === 'sent')
       .sort((left, right) => right.createdAt - left.createdAt)[0];
-    if (!accepted || Date.now() - accepted.createdAt > PREPARATION_TIMEOUT_MS) return undefined;
-    const detail = await run(runtime.api.getSession(sessionId, { limit: 160 }));
+    if (!accepted || Date.now() - accepted.createdAt > WEB_CHAT_PREPARATION_TIMEOUT_MS) return undefined;
+    const detail = await beforeDeadline(deadline, 'DeepSeek took too long to prepare this chat. Retry to try again.',
+      () => run(runtime.api.getSession(sessionId, { limit: 160 })));
     const acknowledged = detail?.events.some(event =>
       event.kind === 'assistant_message' && event.inputId === accepted.id &&
       (event.message.text.trim() === 'NEURAFLOK_READY' || event.message.text.trim() === 'NEURAL_JAM_READY'));
     return acknowledged ? undefined : accepted;
   }
 
-  async function waitForAcknowledgement(entry: InputEntry, sessionId: string): Promise<{ conversationId: string }> {
-    const deadline = Date.now() + PREPARATION_TIMEOUT_MS;
+  async function waitForAcknowledgement(entry: InputEntry, sessionId: string, deadline: number): Promise<{ conversationId: string }> {
     while (Date.now() < deadline) {
-      const [rows, detail] = await Promise.all([
-        run(runtime.api.listInputs()),
-        run(runtime.api.getSession(sessionId, { limit: 160 }))
-      ]);
+      const [rows, detail] = await beforeDeadline(deadline,
+        'DeepSeek took too long to confirm this chat. Retry to try again.',
+        () => Promise.all([
+          run(runtime.api.listInputs()),
+          run(runtime.api.getSession(sessionId, { limit: 160 }))
+        ]));
       if (!rows) throw new Error('Could not check whether DeepSeek finished preparing this chat.');
       const acknowledged = detail?.events.some(event =>
         event.kind === 'assistant_message' && event.inputId === entry.id &&
@@ -119,7 +143,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       if (!current) throw new Error('The preparation request disappeared before DeepSeek confirmed the chat.');
       if (current.state === 'failed' || current.state === 'cancelled')
         throw new Error(current.error || 'DeepSeek did not confirm this chat context.');
-      await new Promise(resolve => window.setTimeout(resolve, POLL_INTERVAL_MS));
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
     }
     throw new Error('DeepSeek took too long to confirm this chat context.');
   }
@@ -139,6 +163,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
 
   async function start(key: string, provider: WebProviderId, sessionId: string | null, projectId: string | null,
     generation: number): Promise<void> {
+    const deadline = Date.now() + WEB_CHAT_PREPARATION_TIMEOUT_MS;
     const id = crypto.randomUUID();
     const dueAt = Date.now();
     const seed: InputEntry = {
@@ -153,18 +178,21 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     let boundId: string | null = sessionId;
     let boundConversation: string | null = null;
     try {
-      let accepted = await findExistingWarmup(sessionId);
+      let accepted = await findExistingWarmup(sessionId, deadline);
       if (!accepted) {
         try {
-          accepted = (await run(runtime.api.sendInput({
-            id, sessionId, projectId, text: WEB_CHAT_WARMUP_TEXT, warmup: true, authoredSource: 'none',
-            mode: 'auto', dueAt, model: null, reasoningEffort: null, webProvider: provider
-          }))) ?? undefined;
+          accepted = (await beforeDeadline(deadline, 'DeepSeek took too long to queue chat preparation. Retry to try again.',
+            () => run(runtime.api.sendInput({
+              id, sessionId, projectId, text: WEB_CHAT_WARMUP_TEXT, warmup: true, authoredSource: 'none',
+              mode: 'auto', dueAt, model: null, reasoningEffort: null, webProvider: provider
+            })))) ?? undefined;
         } catch (error) {
-          accepted = (await run(runtime.api.listInputs()))?.find(row => row.id === id);
+          accepted = (await beforeDeadline(deadline, 'DeepSeek took too long to queue chat preparation. Retry to try again.',
+            () => run(runtime.api.listInputs())))?.find(row => row.id === id);
           if (!accepted) throw error;
         }
-        if (!accepted) accepted = (await run(runtime.api.listInputs()))?.find(row => row.id === id);
+        if (!accepted) accepted = (await beforeDeadline(deadline, 'DeepSeek took too long to queue chat preparation. Retry to try again.',
+          () => run(runtime.api.listInputs())))?.find(row => row.id === id);
       }
       if (!accepted) throw new Error('NeuraFlok could not queue the chat preparation request.');
 
@@ -177,7 +205,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       if (boundId !== key) markComposerWarmupOpening(boundId);
       runtime.paintDeliveryControls();
 
-      const ready = await waitForAcknowledgement(accepted, boundId);
+      const ready = await waitForAcknowledgement(accepted, boundId, deadline);
       boundConversation = ready.conversationId;
       verifiedSessions.set(boundId, { provider, conversationId: ready.conversationId, at: Date.now() });
       clearComposerWarmup(key);

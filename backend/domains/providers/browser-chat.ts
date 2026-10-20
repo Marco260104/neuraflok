@@ -30,7 +30,6 @@ import {
   confirmsWebProviderContext,
   prepareLocalProviderPrompt,
   prepareWebProviderBootstrap,
-  prepareWebProviderContextRefresh,
   prepareWebProviderContextCheck,
   LEGACY_WEB_BOOTSTRAP_ACK,
   WEB_BOOTSTRAP_ACK
@@ -56,6 +55,8 @@ import {
 
 const MAX_ROUEDS = 24;
 const MAX_INCOMPLETE_TOOL = 3;
+const DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS = 60_000;
+let webChatReadinessTimeoutMs = DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
 const DEEPSEEK_CONTEXT_UNAVAILABLE = 'DEEPSEEK_CONTEXT_UNAVAILABLE:';
 const VERIFIED_DEEPSEEK_CONTEXT_TTL_MS = 2 * 60_000;
 const verifiedDeepseekContexts = new Map<string, { conversationId: string; verifiedAt: number }>();
@@ -72,7 +73,9 @@ export function webProviderFlightTurnId(sessionId: string): string | undefined {
 
 export function configureBrowserChatForTests(options: {
   complete?: (text: string, signal?: AbortSignal, options?: { fresh?: boolean }) => Promise<{ text: string }>;
+  readinessTimeoutMs?: number;
 }): void {
+  webChatReadinessTimeoutMs = options.readinessTimeoutMs ?? DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
   configureProviderPageForTests({
     complete: options.complete
       ? (_provider, _conversationId, text, signal, pageOptions) => options.complete!(text, signal, pageOptions)
@@ -82,6 +85,7 @@ export function configureBrowserChatForTests(options: {
 
 export function resetBrowserChatForTests(): void {
   resetProviderPageForTests();
+  webChatReadinessTimeoutMs = DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
   verifiedDeepseekContexts.clear();
   for (const flight of flights.values()) flight.abort.abort(new Error('test reset'));
   flights.clear();
@@ -161,6 +165,45 @@ function hasRecentDeepseekContext(sessionId: string, conversationId: string): bo
   return true;
 }
 
+async function requestReadinessComplete(
+  provider: WebProviderId,
+  conversationId: string,
+  text: string,
+  signal: AbortSignal,
+  deadline: number,
+  options?: { fresh?: boolean }
+): Promise<{ text: string }> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error(`${WEB_PROVIDERS[provider].label} took too long to prepare this chat. Check the provider tab and retry.`);
+
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort(signal.reason);
+  if (signal.aborted) relayAbort();
+  else signal.addEventListener('abort', relayAbort, { once: true });
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error('Chat readiness timed out'));
+      reject(new Error(`${WEB_PROVIDERS[provider].label} took too long to prepare this chat. Check the provider tab and retry.`));
+    }, remaining);
+  });
+  try {
+    return await Promise.race([
+      requestProviderPageComplete(provider, conversationId, text, controller.signal, options),
+      timeout
+    ]);
+  } catch (error) {
+    if (timedOut) throw new Error(`${WEB_PROVIDERS[provider].label} took too long to prepare this chat. Check the provider tab and retry.`);
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal.removeEventListener('abort', relayAbort);
+  }
+}
+
 async function acknowledgeWarmup(
   entry: InputEntry,
   provider: WebProviderId,
@@ -168,13 +211,13 @@ async function acknowledgeWarmup(
   conversationId: string,
   system: string,
   prior: WebChatThread | null,
-  signal: AbortSignal
+  signal: AbortSignal,
+  deadline: number
 ): Promise<void> {
   const check = prepareWebProviderContextCheck(await latestAuthoredRequest(sessionId, entry.warmup ? undefined : entry.id));
-  const refresh = await prepareWebProviderContextRefresh(entry, sessionId, system, check);
   let reply: { text: string } | null = null;
   try {
-    reply = await requestProviderPageComplete(provider, conversationId, refresh, signal);
+    reply = await requestReadinessComplete(provider, conversationId, check.prompt, signal, deadline);
   } catch (error) {
     if (provider !== 'deepseek' || !isDeepseekContextUnavailable(error)) throw error;
   }
@@ -186,11 +229,11 @@ async function acknowledgeWarmup(
     if (!replay) throw new Error('DeepSeek could not confirm this chat context, and no saved transcript is available to restore it. No message was sent.');
 
     const setup = await prepareWebProviderBootstrap(entry, sessionId, system);
-    const setupReply = await requestProviderPageComplete(provider, conversationId, setup, signal, { fresh: true });
+    const setupReply = await requestReadinessComplete(provider, conversationId, setup, signal, deadline, { fresh: true });
     if (!validBootstrapReply(setupReply.text)) {
       throw new Error('DeepSeek did not confirm the restored project context. No message was sent.');
     }
-    reply = await requestProviderPageComplete(provider, conversationId, replay, signal);
+    reply = await requestReadinessComplete(provider, conversationId, replay, signal, deadline);
     if (!confirmsWebProviderContext(reply.text, check.expectedWords) ||
         parseWebChatTools(reply.text).length || incompleteWebChatTool(reply.text)) {
       throw new Error('DeepSeek could not confirm the restored conversation history. No message was sent.');
@@ -213,6 +256,7 @@ async function acknowledgeWarmup(
 // Accept the outbox row, drive the provider chat, persist its thread, and record the turn.
 export async function runWebProviderInput(entry: InputEntry, provider: WebProviderId, signal?: AbortSignal): Promise<string | null> {
   signal?.throwIfAborted();
+  const warmupDeadline = entry.warmup ? Date.now() + webChatReadinessTimeoutMs : null;
   const sessionId = entry.sessionId ?? entry.id;
   const session = await getSession(sessionId);
   const conversationId = resolveConversation(provider, entry, session?.conversationId ?? null);
@@ -256,7 +300,9 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     await persistWebProviderThread(thread, provider);
 
     if (bootstrap) {
-      const ready = await requestProviderPageComplete(provider, ownedConversation, bootstrap, abort.signal, { fresh: true });
+      const ready = warmupDeadline
+        ? await requestReadinessComplete(provider, ownedConversation, bootstrap, abort.signal, warmupDeadline, { fresh: true })
+        : await requestProviderPageComplete(provider, ownedConversation, bootstrap, abort.signal, { fresh: true });
       if (!validBootstrapReply(ready.text)) {
         throw new Error('The provider did not acknowledge NEURAFLOK setup. Your task was not sent to the page.');
       }
@@ -279,11 +325,13 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       }
     }
     if (entry.warmup) {
-      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal);
+      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
+        warmupDeadline ?? Date.now() + webChatReadinessTimeoutMs);
       return turnId;
     }
     if (provider === 'deepseek' && !hasRecentDeepseekContext(sessionId, ownedConversation)) {
-      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal);
+      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
+        Date.now() + webChatReadinessTimeoutMs);
     }
     thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: entry.text }]);
     await persistWebProviderThread(thread, provider);

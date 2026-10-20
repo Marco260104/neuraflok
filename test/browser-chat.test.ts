@@ -592,6 +592,9 @@ it('confirms the previous authored request before marking an existing DeepSeek c
   expect(pages.map(page => page.fresh)).toEqual([true, false, false]);
   expect(pages[2]!.text).toContain('NEURAFLOK_CONTEXT_CHECK');
   expect(pages[2]!.text).toContain('copy the final 7 words');
+  expect(pages[2]!.text).not.toContain('Available tools');
+  expect(pages[2]!.text).not.toContain('WORKSPACE_CONTEXT');
+  expect(pages[2]!.text.length).toBeLessThan(1_500);
   expect(pages[2]!.text).not.toContain(previousRequest);
   expect(confirmsWebProviderContext(`NEURAFLOK_READY\n${previousRequest}`, check.expectedWords)).toBe(true);
   expect(confirmsWebProviderContext('NEURAFLOK_READY\nA different request', check.expectedWords)).toBe(false);
@@ -600,6 +603,37 @@ it('confirms the previous authored request before marking an existing DeepSeek c
   expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
     event.message.text === 'NEURAFLOK_READY')).toBe(true);
   expect(events.some(event => event.kind === 'user_message' && event.inputId === warmup.id)).toBe(false);
+});
+
+it('times out a stalled readiness check and aborts its provider request', async () => {
+  configurePageForTests({ complete: async (_text, _signal, options) => {
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    return { text: 'Yesterday I fixed the project setup.' };
+  } });
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Yesterday I fixed the project setup.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+
+  let checkSignal: AbortSignal | undefined;
+  configurePageForTests({
+    readinessTimeoutMs: 25,
+    complete: async (_text, signal) => {
+      checkSignal = signal;
+      return await new Promise<never>(() => undefined);
+    }
+  });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekInput(warmup)).resolves.toBeNull();
+  expect(checkSignal?.aborted).toBe(true);
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'chat_error' && event.message.text.includes('too long to prepare'))).toBe(true);
 });
 
 it('restores an old DeepSeek transcript before it lets the chat pass readiness', async () => {

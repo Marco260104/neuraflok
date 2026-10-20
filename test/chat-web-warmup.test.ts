@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { createWebChatWarmup, isWarmupInput, webChatWarmupNeeded } from '../frontend/features/chat/chat-web-warmup.js';
+import { createWebChatWarmup, isWarmupInput, webChatWarmupNeeded, WEB_CHAT_PREPARATION_TIMEOUT_MS } from '../frontend/features/chat/chat-web-warmup.js';
 import { composerReadyPhase, composerSendBlocked, composerWarmupState, resetComposerReadyGateForTests } from '../frontend/features/chat/chat-composer-ready.js';
 
 const base = {
@@ -87,4 +87,42 @@ it('waits for the matching DeepSeek acknowledgement before unblocking an existin
   expect(sendInput.mock.calls[0]![0]).toMatchObject({ sessionId, warmup: true, authoredSource: 'none' });
   expect(runtime.paintDeliveryControls).toHaveBeenCalled();
   resetComposerReadyGateForTests();
+});
+
+it('releases the preparing gate when a readiness IPC call never returns', async () => {
+  vi.useFakeTimers();
+  try {
+    const sessionId = 'session-stalled';
+    const runtime: any = {
+      api: {
+        sendInput: vi.fn(),
+        listInputs: () => new Promise(() => undefined),
+        getSession: vi.fn(),
+        cancelInput: vi.fn()
+      },
+      state: () => ({ config: { ui: { chatExecutor: 'web', webProvider: 'deepseek' } },
+        bridge: { webProviders: { deepseek: { signedIn: true } } } }),
+      newChatSelected: false,
+      selectedId: sessionId,
+      selectedProjectId: null,
+      selectionGeneration: 2,
+      sessions: [{ id: sessionId, conversationId: 'ds-00000000-0000-4000-8000-000000000016', projectId: null }],
+      turnWorking: () => false,
+      pendingNewInput: null,
+      startingInputs: new Map(),
+      pendingComposerInputs: [],
+      adoptAcceptedOpening: async () => false,
+      selectSession: vi.fn(),
+      paintDeliveryControls: vi.fn(),
+      refreshInputQueue: vi.fn(async () => undefined),
+      setPendingNewInput: vi.fn()
+    };
+    resetComposerReadyGateForTests();
+    createWebChatWarmup(runtime).ensure();
+    await vi.advanceTimersByTimeAsync(WEB_CHAT_PREPARATION_TIMEOUT_MS);
+    expect(composerWarmupState(sessionId)?.phase).toBe('failed');
+  } finally {
+    vi.useRealTimers();
+    resetComposerReadyGateForTests();
+  }
 });
