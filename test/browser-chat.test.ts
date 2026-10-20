@@ -374,9 +374,35 @@ it('invokes real Core apply_patch from a mocked DeepSeek web turn and records th
   expect(pages[1]).toContain('neuraflok-result');
   expect(pages[1]).toContain('apply_patch');
   expect(pages[1]).toContain('Pasting source in the chat does not write files');
+  expect(pages[1]).toContain('ACTIVE REQUEST: Add hello.txt with that greeting.');
   const thread = JSON.parse(await fs.readFile(sessionWebProviderThreadPath(input.id, 'deepseek'), 'utf8')) as { messages: Array<{ role: string }> };
   expect(thread.messages[0]?.role).toBe('system');
   expect(thread.messages.some(message => message.role === 'tool')).toBe(true);
+});
+
+it('keeps later tool results and the original request when earlier output must be shortened', async () => {
+  await fs.writeFile(path.join(directory, 'large-quotes.txt'), '"'.repeat(39_000));
+  await fs.writeFile(path.join(directory, 'large-second.txt'), `SECOND_RESULT_MARKER:${'b'.repeat(39_000)}`);
+  const pages: string[] = [];
+  let round = 0;
+  configureDeepseekForTests({ complete: async (text) => {
+    pages.push(text);
+    if (round++ === 0) return { text: [
+      '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/large-quotes.txt"]}}\n```',
+      '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/large-second.txt"]}}\n```'
+    ].join('\n') };
+    return { text: 'Both files were inspected.' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Inspect both files and compare them.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await runDeepseekInput(input);
+
+  expect(pages[1]!).toContain('SECOND_RESULT_MARKER');
+  expect(pages[1]!).toContain('ACTIVE REQUEST: Inspect both files and compare them.');
+  expect(pages[1]!).toContain('Some tool output was shortened or omitted');
+  expect(pages[1]!.length).toBeLessThan(96_000);
 });
 
 it('retries an incomplete branded tool fence and then apply_patch writes the file', async () => {
@@ -564,6 +590,44 @@ it('warms a new web chat with setup only, then sends the first user task as a fo
   await flushRecorder();
   const events = await readEvents(warmup.id);
   expect(events.some(event => event.kind === 'user_message' && event.message.text === 'MY_ACTUAL_REQUEST')).toBe(true);
+});
+
+it('releases a message queued during project preparation after the model confirms readiness', async () => {
+  let releaseReadiness!: (reply: { text: string }) => void;
+  let noteStarted!: () => void;
+  const readinessStarted = new Promise<void>(resolve => { noteStarted = resolve; });
+  configurePageForTests({ complete: async () => {
+    noteStarted();
+    return await new Promise<{ text: string }>(resolve => { releaseReadiness = resolve; });
+  } });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  const preparing = runDeepseekInput(warmup);
+  await readinessStarted;
+  await vi.waitFor(async () => {
+    await flushRecorder();
+    const events = await readEvents(warmup.id);
+    expect(events.some(event => event.kind === 'turn_start')).toBe(true);
+  });
+  const activeEvents = await readEvents(warmup.id);
+  const turnStart = activeEvents.find(event => event.kind === 'turn_start');
+  if (!turnStart || turnStart.kind !== 'turn_start') throw new Error('Project preparation did not start a turn.');
+  const queued = await enqueueInput({
+    id: randomUUID(), sessionId: warmup.id, text: 'MY_QUEUED_REQUEST', mode: 'after-turn', dueAt: Date.now(),
+    model: null, reasoningEffort: null
+  });
+
+  releaseReadiness({ text: 'NEURAFLOK_READY' });
+  const completedTurn = await preparing;
+  expect(completedTurn).toBe(turnStart.turnId);
+  await flushRecorder();
+  const session = await getSession(warmup.id);
+  expect(session?.activeTurnId).toBeNull();
+  const { nextAfterTurnLocalInput } = await import('../backend/domains/sessions/input/input.js');
+  const next = await nextAfterTurnLocalInput(warmup.id, session!.conversationId!, completedTurn!);
+  expect(next).toMatchObject({ id: queued.id, text: 'MY_QUEUED_REQUEST' });
 });
 
 it('confirms the previous authored request before marking an existing DeepSeek chat ready', async () => {

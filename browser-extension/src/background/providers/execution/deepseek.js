@@ -1,13 +1,11 @@
 import { createDeepseekSessionResolver } from '../deepseek-session.js';
+import { createDeepseekReplyWatcher, hasDeepseekToolCall, isDeepseekAck, looksLikeDeepseekThink } from './deepseek-reply-watch.js';
 
 export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, usableProviderTab, state }) {
   const { stoppedProviderOffers, readDeepseekSent, writeDeepseekSent, readProviderTab, writeProviderTab } = state;
   let deepseekPageFlight = null;
   const DEEPSEEK_SEND_MS = 100_000;
   const DEEPSEEK_READ_MS = 8_000;
-  const DEEPSEEK_WATCH_MS = 540_000;
-  const DEEPSEEK_POLL_MS = 2_000;
-  const DEEPSEEK_TIMEOUT = 'DeepSeek did not finish this reply in time. Sign in at chat.deepseek.com in the same browser as this app, then send again.';
   const sessionPages = createDeepseekSessionResolver({
     chrome, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab,
     waitForTabReady, isDeepseekUrl, usableProviderTab, state
@@ -29,127 +27,8 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
     return false;
   }
 
-  function isAck(text) {
-    return /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/.test(String(text || '').trim());
-  }
+  const watchDeepseekReply = createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabReply, postDeepseekPage });
 
-  function hasToolCall(text) {
-    return /```(?:neuraflok-tool|json)\b/i.test(text) || /<(?:exec_command|read|apply_patch)\b/i.test(text) || /<[|｜]{2}DSML[|｜]{2}\s*invoke\s+name=/i.test(text);
-  }
-
-  function looksLikeThink(text) {
-    return /^(Let me|Let's|We need|I will|I'll |The user |Need to |Must not |Pensado|Pensó|Detenido|Voy a |Vamos a |Déjame |Dejame |Necesito |Debo |Hay que )\b/i.test(String(text || '').replace(/\s+/g, ' ').trim());
-  }
-
-  function quietNeed(text) {
-    if (isAck(text)) return 1;
-    if (String(text || '').trim().length < 80) return 6;
-    return 3;
-  }
-
-  async function watchDeepseekReply(tabId, offer, before, beforeThink, initial) {
-    let lastText = typeof initial === 'string' ? initial : '';
-    let reportedText = '';
-    let emptyIdle = 0;
-    let stableText = '';
-    let stableIdle = 0;
-    let quietText = '';
-    let quietIdle = 0;
-    let lastProgressAt = 0;
-    let completeText = isAck(lastText) && !isAck(before) ? lastText : '';
-    let deadline = Date.now() + DEEPSEEK_WATCH_MS;
-    while (Date.now() < deadline) {
-      if (stoppedProviderOffers.has(offer.id)) {
-        stoppedProviderOffers.delete(offer.id);
-        await postDeepseekPage(offer, { stopped: true });
-        return;
-      }
-      const snap = await tabReply(tabId, {
-        type: 'neuraflok-deepseek-read',
-        before,
-        beforeThink
-      }, undefined, DEEPSEEK_READ_MS);
-      const think = snap && typeof snap.think === 'string' ? snap.think : '';
-      let publicAnswer = snap && typeof snap.answer === 'string' ? snap.answer : '';
-      if (isAck(publicAnswer) && String(before || '').trim()) publicAnswer = '';
-      if (looksLikeThink(publicAnswer) && !hasToolCall(publicAnswer)) publicAnswer = '';
-      if (think && publicAnswer && publicAnswer.replace(/\s+/g, ' ').trim() === think.replace(/\s+/g, ' ').trim()) publicAnswer = '';
-      if (think && publicAnswer && publicAnswer.includes(think.trim()) && publicAnswer.length <= think.trim().length + 40) publicAnswer = '';
-      const text = publicAnswer || (snap && typeof snap.text === 'string' ? snap.text : '');
-      if (text) lastText = text;
-      completeText = publicAnswer || (isAck(lastText) && !isAck(before) ? lastText : '');
-      if (completeText && snap && snap.generating !== true) {
-        if (completeText === quietText) {
-          quietIdle += 1;
-          if (quietIdle >= quietNeed(completeText)) {
-            const posted = await postDeepseekPage(offer, { text: completeText }, tabId);
-            if (posted) return;
-          }
-        } else {
-          quietText = completeText;
-          quietIdle = 0;
-        }
-      } else {
-        quietText = completeText;
-        quietIdle = 0;
-      }
-      if (snap && snap.generating === true) {
-        deadline = Date.now() + DEEPSEEK_WATCH_MS;
-        if (lastText !== reportedText || Date.now() - lastProgressAt > 15_000) {
-          reportedText = lastText;
-          lastProgressAt = Date.now();
-          void call('/provider/page/progress', {
-            method: 'POST',
-            body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true })
-          }).catch(() => undefined);
-        }
-        if (completeText && completeText === stableText) {
-          stableIdle += 1;
-          if (stableIdle >= 15) {
-            const posted = await postDeepseekPage(offer, { text: completeText }, tabId);
-            if (posted) return;
-          }
-        } else {
-          stableText = completeText;
-          stableIdle = 0;
-        }
-      } else if (!completeText && lastText && isAck(lastText) && !isAck(before)) {
-        if (lastText === stableText) {
-          stableIdle += 1;
-          if (stableIdle >= 15) {
-            const posted = await postDeepseekPage(offer, { text: lastText }, tabId);
-            if (posted) return;
-          }
-        } else {
-          stableText = lastText;
-          stableIdle = 0;
-        }
-      } else {
-        stableText = lastText;
-        stableIdle = 0;
-      }
-      if (snap && snap.generating !== true && !lastText) {
-        emptyIdle += 1;
-        if (emptyIdle >= 4) {
-          const fallback = await tabReply(tabId, { type: 'neuraflok-deepseek-snapshot' }, undefined, 4_000).catch(() => null);
-          const ans = fallback && typeof fallback.before === 'string' ? fallback.before : '';
-          if (ans && ans !== before && !(isAck(ans) && isAck(before))) {
-            lastText = ans;
-            const posted = await postDeepseekPage(offer, { text: lastText }, tabId);
-            if (posted) return;
-          }
-        }
-        if (emptyIdle >= 180) {
-          await postDeepseekPage(offer, { error: DEEPSEEK_TIMEOUT });
-          return;
-        }
-      } else emptyIdle = 0;
-      await new Promise(resolve => setTimeout(resolve, DEEPSEEK_POLL_MS));
-    }
-    if (completeText) await postDeepseekPage(offer, { text: completeText }, tabId);
-    else await postDeepseekPage(offer, { error: DEEPSEEK_TIMEOUT });
-  }
-  
   function inspectDeepseekPage(offer, background) {
     if (!offer || typeof offer.id !== 'string' || typeof offer.conversationId !== 'string') return;
     if (deepseekPageFlight) {
@@ -265,9 +144,9 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         const immediate = reply && typeof reply.text === 'string' ? reply.text : '';
         const before = claim.before;
         const beforeThink = claim.beforeThink;
-        const ackRepeat = isAck(immediate) && isAck(before);
-        const staleAck = isAck(immediate) && String(before || '').trim() !== '';
-        const planningOnly = looksLikeThink(immediate) && !hasToolCall(immediate);
+        const ackRepeat = isDeepseekAck(immediate) && isDeepseekAck(before);
+        const staleAck = isDeepseekAck(immediate) && String(before || '').trim() !== '';
+        const planningOnly = looksLikeDeepseekThink(immediate) && !hasDeepseekToolCall(immediate);
         if (immediate && reply.pending !== true && !ackRepeat && !staleAck && !planningOnly) {
           await postDeepseekPage(offer, { text: immediate }, tab.id);
           return;

@@ -32,7 +32,7 @@ it('blocks sending until the web model is signed in', () => {
 it('unlocks a signed-in web chat without waiting for the handshake', () => {
   expect(composerReadyPhase({ apiExecutor: false, signedIn: true })).toBe('ready');
   expect(composerSendBlocked('ready', false)).toBe(false);
-  expect(composerSendBlocked('opening', false)).toBe(true);
+  expect(composerSendBlocked('opening', false)).toBe(false);
   expect(composerSendBlocked('opening', true)).toBe(false);
 });
 

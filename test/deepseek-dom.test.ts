@@ -11,6 +11,7 @@ interface DeepseekDomApi {
   composer(): FakeNode | null;
   sendButton(): FakeNode | null;
   stopButton(): FakeNode | null;
+  continueButton(): FakeNode | null;
   generating(): boolean;
   lastAnswer(): string;
   lastThink(): string;
@@ -263,6 +264,24 @@ it('sets the native textarea value and reports Stop while generating', () => {
   send.hidden = true;
   expect(api.stopButton()).toBe(stop);
   expect(api.generating()).toBe(true);
+});
+
+it('detects the provider Continue control used after a response reaches its output limit', () => {
+  const continueButton = node('button', { text: 'Continue generating' });
+  const { api } = load([continueButton]);
+  expect(api.continueButton()).toBe(continueButton);
+});
+
+it('only clicks Continue for the currently bound session and send claim', () => {
+  const continueButton = node('button', { text: 'Continue' });
+  const { listeners, sessionStorage } = load([continueButton]);
+  const requestId = '00000000-0000-4000-8000-000000000009';
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  sessionStorage.setItem('neuraflok.sendClaim', requestId);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-continue', id: requestId, conversationId: SESSION_ID }, {}, value => { reply = value; });
+  expect(reply).toEqual({ continued: true });
+  expect(continueButton.events).toContain('click');
 });
 
 it('keeps a DeepSeek DSML tool call when it follows a planning sentence', () => {

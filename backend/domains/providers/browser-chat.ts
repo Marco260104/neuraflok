@@ -53,8 +53,11 @@ import {
   invokeBrowserChatTool
 } from './browser-chat-tools.js';
 
-const MAX_ROUEDS = 24;
+const MAX_TOOL_ROUNDS = 64;
 const MAX_INCOMPLETE_TOOL = 3;
+const MAX_TOOL_RESULT_CONTEXT_CHARS = 64_000;
+const MAX_ACTIVE_REQUEST_CHARS = 4_000;
+const MAX_PROVIDER_PAGE_CHARS = 96_000;
 const DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS = 60_000;
 let webChatReadinessTimeoutMs = DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
 const DEEPSEEK_CONTEXT_UNAVAILABLE = 'DEEPSEEK_CONTEXT_UNAVAILABLE:';
@@ -152,6 +155,72 @@ function validBootstrapReply(text: string): boolean {
     parseWebChatTools(text).length === 0 && !incompleteWebChatTool(text);
 }
 
+function boundedText(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const marker = '\n[…middle omitted…]\n';
+  const available = Math.max(0, limit - marker.length);
+  const head = Math.ceil(available / 2);
+  return `${text.slice(0, head)}${marker}${text.slice(-(available - head))}`;
+}
+
+function boundedWebToolResults(results: Array<{ name: string; content: string }>): string {
+  const marker = '[Some tool output was shortened or omitted to fit the provider limit. Read focused ranges again if needed.]';
+  const resultBudget = MAX_TOOL_RESULT_CONTEXT_CHARS - marker.length - 2;
+  const selected: string[] = [];
+  let used = 0;
+  let shortened = false;
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index]!;
+    const separator = selected.length ? 2 : 0;
+    const remaining = resultBudget - used - separator;
+    const share = Math.floor(remaining / (results.length - index));
+    const full = formatWebChatResult(result.name, result.content);
+    if (full.length <= share) {
+      selected.push(full);
+      used += separator + full.length;
+      continue;
+    }
+    let contentLimit = Math.max(0, share - 256);
+    let compact = '';
+    while (contentLimit > 0) {
+      compact = formatWebChatResult(result.name, boundedText(result.content, contentLimit));
+      if (compact.length <= share) break;
+      contentLimit = Math.floor(contentLimit * 0.75);
+    }
+    if (contentLimit > 0 && compact.length <= share) {
+      selected.push(compact);
+      used += separator + compact.length;
+    } else {
+      const omitted = formatWebChatResult(result.name, '[output omitted to fit the provider context limit]');
+      if (omitted.length <= remaining) {
+        selected.push(omitted);
+        used += separator + omitted.length;
+      }
+    }
+    shortened = true;
+  }
+  const text = selected.join('\n\n');
+  return shortened ? `${text}${text ? '\n\n' : ''}${marker}` : text;
+}
+
+function webProviderRoundFollowup(
+  entry: InputEntry,
+  results: Array<{ name: string; content: string }>,
+  reminder: string,
+  finalizing: boolean
+): string {
+  const activeRequest = boundedText(entry.text.trim(), MAX_ACTIVE_REQUEST_CHARS);
+  const guidance = [
+    reminder,
+    `ACTIVE REQUEST: ${activeRequest}`,
+    'Continue this request from the completed work and tool results above. Do not switch tasks or ask the user to repeat the request.',
+    ...(finalizing ? ['This run has reached its tool-round limit. Finish the task now without another tool call. State clearly if any requested action remains incomplete.'] : [])
+  ].join('\n\n');
+  const output = boundedWebToolResults(results);
+  const pageText = `${output}${output ? '\n\n' : ''}${guidance}`;
+  return pageText.length <= MAX_PROVIDER_PAGE_CHARS ? pageText : boundedText(pageText, MAX_PROVIDER_PAGE_CHARS);
+}
+
 function rememberDeepseekContext(sessionId: string, conversationId: string): void {
   verifiedDeepseekContexts.set(sessionId, { conversationId, verifiedAt: Date.now() });
 }
@@ -212,7 +281,8 @@ async function acknowledgeWarmup(
   system: string,
   prior: WebChatThread | null,
   signal: AbortSignal,
-  deadline: number
+  deadline: number,
+  turnId: string
 ): Promise<void> {
   const check = prepareWebProviderContextCheck(await latestAuthoredRequest(sessionId, entry.warmup ? undefined : entry.id));
   let reply: { text: string } | null = null;
@@ -246,6 +316,7 @@ async function acknowledgeWarmup(
     messageId: randomUUID(),
     inputId: entry.id,
     text: WEB_BOOTSTRAP_ACK,
+    turnId,
     final: true,
     state: 'final',
     activeNow: false
@@ -256,7 +327,6 @@ async function acknowledgeWarmup(
 // Accept the outbox row, drive the provider chat, persist its thread, and record the turn.
 export async function runWebProviderInput(entry: InputEntry, provider: WebProviderId, signal?: AbortSignal): Promise<string | null> {
   signal?.throwIfAborted();
-  const warmupDeadline = entry.warmup ? Date.now() + webChatReadinessTimeoutMs : null;
   const sessionId = entry.sessionId ?? entry.id;
   const session = await getSession(sessionId);
   const conversationId = resolveConversation(provider, entry, session?.conversationId ?? null);
@@ -287,9 +357,9 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     if (!accepted) throw new Error(`NEURAFLOK could not verify the accepted ${WEB_PROVIDERS[provider].label} message.`);
     if (!entry.warmup) {
       await recordDeliveredInput(accepted, undefined, { turnId });
-      await observe(ownedConversation, [{ kind: 'turn_start', time: now(), turnId }]);
-      await noteLocalAgentTurnStarted(ownedConversation, now());
     }
+    await observe(ownedConversation, [{ kind: 'turn_start', time: now(), turnId }]);
+    if (!entry.warmup) await noteLocalAgentTurnStarted(ownedConversation, now());
     let thread: WebChatThread = {
       version: 1,
       sessionId,
@@ -299,6 +369,9 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     };
     await persistWebProviderThread(thread, provider);
 
+    // Start the readiness budget when the provider is about to be called. Local
+    // session setup can take longer than a short test or provider timeout.
+    const warmupDeadline = entry.warmup ? Date.now() + webChatReadinessTimeoutMs : null;
     if (bootstrap) {
       const ready = warmupDeadline
         ? await requestReadinessComplete(provider, ownedConversation, bootstrap, abort.signal, warmupDeadline, { fresh: true })
@@ -320,18 +393,19 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
           final: true,
           state: 'final',
           activeNow: false
-        }]);
+        }, { kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }]);
         return turnId;
       }
     }
     if (entry.warmup) {
       await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
-        warmupDeadline ?? Date.now() + webChatReadinessTimeoutMs);
+        warmupDeadline ?? Date.now() + webChatReadinessTimeoutMs, turnId);
+      await observe(ownedConversation, [{ kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }]);
       return turnId;
     }
     if (provider === 'deepseek' && !hasRecentDeepseekContext(sessionId, ownedConversation)) {
       await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
-        Date.now() + webChatReadinessTimeoutMs);
+        Date.now() + webChatReadinessTimeoutMs, turnId);
     }
     thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: entry.text }]);
     await persistWebProviderThread(thread, provider);
@@ -361,7 +435,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     });
 
     try {
-      for (let round = 0; round < MAX_ROUEDS; round++) {
+      for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         abort.signal.throwIfAborted();
         const live = createBrowserChatToolRegistrar();
         let completion: Awaited<ReturnType<typeof requestProviderPageComplete>>;
@@ -385,6 +459,12 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         const raw = completion.text ?? '';
         const calls = parseWebChatTools(raw);
         const assistantContent = stripWebChatTools(raw);
+        if (round === MAX_TOOL_ROUNDS && calls.length) {
+          assistantText = assistantContent || `The model reached the ${MAX_TOOL_ROUNDS}-round tool limit before returning a final answer. The completed work is saved; send a follow-up to continue.`;
+          thread.messages = trimWebProviderThread([...thread.messages, { role: 'assistant', content: assistantText }]);
+          await persistWebProviderThread(thread, provider);
+          break;
+        }
         thread.messages = trimWebProviderThread([...thread.messages, calls.length
           ? { role: 'assistant', ...(assistantContent ? { content: assistantContent } : {}), tool_calls: calls }
           : { role: 'assistant', content: raw }]);
@@ -414,11 +494,11 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         lastObservedClean = '';
         incompleteTries = 0;
         const requestId = `dsreq-${randomUUID()}`;
-        const results: string[] = [];
+        const results: Array<{ name: string; content: string }> = [];
         for (const call of calls) {
           abort.signal.throwIfAborted();
           const content = await invokeBrowserChatTool(live, call, requestId, ownedConversation, sessionId);
-          results.push(formatWebChatResult(call.function.name, content));
+          results.push({ name: call.function.name, content });
           thread.messages = trimWebProviderThread([...thread.messages, {
             role: 'tool',
             tool_call_id: call.id,
@@ -426,10 +506,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
           }]);
           await persistWebProviderThread(thread, provider);
         }
-        pageText = `${results.join('\n\n')}\n\n${reminder}`;
-        if (round === MAX_ROUEDS - 1) {
-          assistantText = stripWebChatTools(raw) || 'Stopped after too many tool rounds.';
-        }
+        pageText = webProviderRoundFollowup(entry, results, reminder, round === MAX_TOOL_ROUNDS - 1);
       }
       if (!assistantText) assistantText = '(no assistant text)';
       await observe(ownedConversation, [
@@ -461,7 +538,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     const detail = (error as Error).message.replace(/^DEEPSEEK_CONTEXT_UNAVAILABLE:\s*/, '').slice(0, 500);
     logWarn(`${provider}: session ${sessionId} failed: ${detail}`);
     await observe(ownedConversation, [
-      { kind: 'chat_error', time: now(), turnId, text: detail, recoverable: false },
+      { kind: 'chat_error', time: now(), turnId, inputId: entry.id, text: detail, recoverable: false },
       { kind: 'turn_end', time: now(), turnId, outcome: 'failed', detail }
     ]).catch(() => undefined);
     return null;

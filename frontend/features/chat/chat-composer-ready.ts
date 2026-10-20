@@ -107,24 +107,24 @@ export function composerReadyPhase(input: ComposerReadyInput): ComposerReadyPhas
 }
 
 export function composerSendBlocked(phase: ComposerReadyPhase, stopAction: boolean): boolean {
-  return phase === 'opening' || phase === 'failed' || (phase !== 'ready' && !stopAction);
+  return phase === 'failed' || (phase !== 'ready' && phase !== 'opening' && !stopAction);
 }
 
 export function composerReadyLabel(phase: ComposerReadyPhase): string {
   if (phase === 'models') return t('Loading web models');
   if (phase === 'signin') return t('Sign in required');
-  if (phase === 'opening') return t('Preparing chat…');
+  if (phase === 'opening') return t('Reading the project and connecting the model…');
   if (phase === 'failed') return t('Chat context not verified');
   return t('Ready');
 }
 
 export function composerReadyDetail(phase: ComposerReadyPhase, error?: string): string {
-  if (phase === 'opening') return t('Reading the project and connecting the model…');
+  if (phase === 'opening') return t('Your message will be queued until the model is ready.');
   if (phase === 'failed') {
     const reason = error?.trim().slice(0, 300);
     return reason
-      ? `${t('DeepSeek could not confirm this chat context. Retry before sending.')} ${reason}`
-      : t('DeepSeek could not confirm this chat context. Retry before sending.');
+      ? `${t('The model could not confirm this chat context. Retry to release queued messages.')} ${reason}`
+      : t('The model could not confirm this chat context. Retry to release queued messages.');
   }
   if (phase === 'ready') return t('Chat is ready.');
   return '';
@@ -183,7 +183,7 @@ export function paintComposerReadyGate(phase: ComposerReadyPhase, error?: string
     ui(retry, 'textContent', () => t('Retry'));
   }
   const input = document.getElementById('chatInput') as HTMLTextAreaElement | null;
-  if (input) input.readOnly = phase === 'models' || phase === 'signin' || phase === 'opening' || phase === 'failed';
+  if (input) input.readOnly = phase === 'models' || phase === 'signin' || phase === 'failed';
   lastPhase = phase;
 }
 

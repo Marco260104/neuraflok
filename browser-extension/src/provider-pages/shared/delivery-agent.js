@@ -133,6 +133,7 @@
         signedIn: signedIn(),
         generating: generating(),
         hasConversation: hasConversation(),
+        ...(typeof api.continueButton === 'function' && valueFrom(() => api.continueButton(), null) ? { continueAvailable: true } : {}),
         conversationId: stored(keys.session)
       };
     }
@@ -289,6 +290,24 @@
         }
         if (message.type === `${namespace}-read`) {
           sendResponse(read(message));
+          return;
+        }
+        if (message.type === `${namespace}-continue`) {
+          if (stored(keys.session) !== message.conversationId || stored(keys.claim) !== message.id) {
+            sendResponse({ continued: false });
+            return;
+          }
+          const button = valueFrom(() => api.continueButton?.(), null);
+          if (!button) {
+            sendResponse({ continued: false });
+            return;
+          }
+          try {
+            button.click();
+            sendResponse({ continued: true });
+          } catch {
+            sendResponse({ continued: false });
+          }
           return;
         }
         if (message.type !== `${namespace}-complete`) return;

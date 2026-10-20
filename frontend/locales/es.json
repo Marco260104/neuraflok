@@ -2165,7 +2165,8 @@
   "The web model is ready.": "El modelo web está listo.",
   "Preparing chat…": "Preparando el chat…",
   "Reading the project and connecting the model…": "Leyendo el proyecto y conectando el modelo…",
-  "Chat is ready.": "El chat está listo.",
+  "Your message will be queued until the model is ready.": "Puedes enviar tu mensaje ahora; quedará en cola hasta que el modelo esté listo.",
+  "The model could not confirm this chat context. Retry to release queued messages.": "El modelo no pudo confirmar el contexto del chat. Reintenta para liberar los mensajes en cola.",
   "Chat context not verified": "No se pudo verificar el contexto del chat",
-  "DeepSeek could not confirm this chat context. Retry before sending.": "DeepSeek no pudo confirmar el contexto de este chat. Vuelve a intentarlo antes de enviar."
+  "Chat is ready.": "El chat está listo."
 }

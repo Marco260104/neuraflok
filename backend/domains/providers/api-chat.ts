@@ -29,7 +29,7 @@ import { replyLanguageInstruction } from '../../../contracts/ui-language.js';
 import { logInfo, logWarn } from '../../infrastructure/settings/logger.js';
 import { noteLocalAgentTurnStarted } from '../automation/local-agent-observations.js';
 
-const MAX_ROUNDS = 24;
+const MAX_TOOL_ROUNDS = 64;
 const MAX_TOOL_RESULT_CHARS = 32_000;
 const ALLOWED_TOOLS = new Set<string>([...WEB_CHAT_CORE_TOOLS, 'agents']);
 interface Flight { turnId: string; controller: AbortController; }
@@ -222,20 +222,31 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
     await persistApiThread(thread);
     const declarations = openaiTools(registrarValue.declarations().filter(row => ALLOWED_TOOLS.has(row.name)));
     let assistantText = '';
-    for (let round = 0; round < MAX_ROUNDS; round++) {
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       abort.signal.throwIfAborted();
       clearTimeout(timer);
       timer = armRoundWait();
       const current = await getSession(sessionId);
       if (!current || current.conversationId !== conversationId) throw new Error('This API response belongs to a session that is no longer active.');
       const requestMessages = [...thread.messages];
+      if (round === MAX_TOOL_ROUNDS) requestMessages.push({
+        role: 'user',
+        content: 'This run has reached its tool-round limit. Use the saved tool results to finish the task now. Do not make another tool call. State clearly if any requested action remains incomplete.'
+      });
       // The current user message includes images only for this request; data URLs are not persisted.
       requestMessages[currentUserIndex] = modelUser;
       const completion = await completeApiChat(requestMessages, declarations, settings, abort.signal);
       abort.signal.throwIfAborted();
+      const calls = completion.message.tool_calls ?? [];
+      if (round === MAX_TOOL_ROUNDS && calls.length) {
+        const content = typeof completion.message.content === 'string' ? completion.message.content.trim() : '';
+        assistantText = content || `The model reached the ${MAX_TOOL_ROUNDS}-round tool limit before returning a final answer. The completed work is saved; send a follow-up to continue.`;
+        thread.messages = trimApiThread([...thread.messages, { role: 'assistant', content: assistantText }]);
+        await persistApiThread(thread);
+        break;
+      }
       thread.messages = trimApiThread([...thread.messages, completion.message]);
       await persistApiThread(thread);
-      const calls = completion.message.tool_calls ?? [];
       if (!calls.length) {
         assistantText = typeof completion.message.content === 'string' ? completion.message.content.trim() : '';
         break;
@@ -248,7 +259,6 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
         thread.messages = trimApiThread([...thread.messages, { role: 'tool', tool_call_id: call.id, content }]);
         await persistApiThread(thread);
       }
-      if (round === MAX_ROUNDS - 1) assistantText = 'I ran the available tools, but the API did not finish a final response within the tool limit.';
     }
     if (!assistantText) assistantText = '(The API returned no text.)';
     const latest = await getSession(sessionId);

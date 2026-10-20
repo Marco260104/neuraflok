@@ -49,7 +49,7 @@ export function webChatWarmupNeeded(input: {
   pending: boolean;
   turnWorking: boolean;
 }): boolean {
-  return !input.apiExecutor && input.webProvider === 'deepseek' && input.signedIn &&
+  return !input.apiExecutor && input.signedIn &&
     !input.pending && !input.turnWorking &&
     (input.newChatSelected || (!!input.selectedId && input.hasConversation));
 }
@@ -102,7 +102,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
 
   async function findExistingWarmup(sessionId: string | null, deadline: number): Promise<InputEntry | undefined> {
     if (!sessionId) return undefined;
-    const rows = await beforeDeadline(deadline, 'DeepSeek took too long to prepare this chat. Retry to try again.',
+    const rows = await beforeDeadline(deadline, 'The model took too long to prepare this chat. Retry to try again.',
       () => run(runtime.api.listInputs()));
     if (!rows) throw new Error('Could not check existing chat preparation requests.');
     const related = rows.filter(entry => isWarmupInput(entry) &&
@@ -111,41 +111,45 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       .sort((left, right) => right.createdAt - left.createdAt)[0];
     if (pending && Date.now() - pending.createdAt <= WEB_CHAT_PREPARATION_TIMEOUT_MS) return pending;
     if (pending) {
-      const cancelled = await beforeDeadline(deadline, 'DeepSeek took too long to prepare this chat. Retry to try again.',
+      const cancelled = await beforeDeadline(deadline, 'The model took too long to prepare this chat. Retry to try again.',
         () => run(runtime.api.cancelInput(pending.id)));
-      if (!cancelled) throw new Error('The previous DeepSeek preparation is stuck in the delivery queue. Retry in a moment.');
+      if (!cancelled) throw new Error('The previous chat preparation is stuck in the delivery queue. Retry in a moment.');
     }
     const accepted = related.filter(entry => entry.state === 'sent')
       .sort((left, right) => right.createdAt - left.createdAt)[0];
     if (!accepted || Date.now() - accepted.createdAt > WEB_CHAT_PREPARATION_TIMEOUT_MS) return undefined;
-    const detail = await beforeDeadline(deadline, 'DeepSeek took too long to prepare this chat. Retry to try again.',
+    const detail = await beforeDeadline(deadline, 'The model took too long to prepare this chat. Retry to try again.',
       () => run(runtime.api.getSession(sessionId, { limit: 160 })));
     const acknowledged = detail?.events.some(event =>
       event.kind === 'assistant_message' && event.inputId === accepted.id &&
       (event.message.text.trim() === 'NEURAFLOK_READY' || event.message.text.trim() === 'NEURAL_JAM_READY'));
+    const failed = detail?.events.some(event => event.kind === 'chat_error' && event.inputId === accepted.id);
+    if (failed) return undefined;
     return acknowledged ? undefined : accepted;
   }
 
   async function waitForAcknowledgement(entry: InputEntry, sessionId: string, deadline: number): Promise<{ conversationId: string }> {
     while (Date.now() < deadline) {
       const [rows, detail] = await beforeDeadline(deadline,
-        'DeepSeek took too long to confirm this chat. Retry to try again.',
+        'The model took too long to confirm this chat. Retry to try again.',
         () => Promise.all([
           run(runtime.api.listInputs()),
           run(runtime.api.getSession(sessionId, { limit: 160 }))
         ]));
-      if (!rows) throw new Error('Could not check whether DeepSeek finished preparing this chat.');
+      if (!rows) throw new Error('Could not check whether the model finished preparing this chat.');
       const acknowledged = detail?.events.some(event =>
         event.kind === 'assistant_message' && event.inputId === entry.id &&
         (event.message.text.trim() === 'NEURAFLOK_READY' || event.message.text.trim() === 'NEURAL_JAM_READY'));
       if (acknowledged && detail?.summary?.conversationId) return { conversationId: detail.summary.conversationId };
       const current = rows.find(row => row.id === entry.id);
-      if (!current) throw new Error('The preparation request disappeared before DeepSeek confirmed the chat.');
+      if (!current) throw new Error('The preparation request disappeared before the model confirmed the chat.');
+      const failure = detail?.events.find(event => event.kind === 'chat_error' && event.inputId === entry.id);
+      if (failure?.kind === 'chat_error') throw new Error(failure.message.text || 'The model could not prepare this chat.');
       if (current.state === 'failed' || current.state === 'cancelled')
-        throw new Error(current.error || 'DeepSeek did not confirm this chat context.');
+        throw new Error(current.error || 'The model did not confirm this chat context.');
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
     }
-    throw new Error('DeepSeek took too long to confirm this chat context.');
+    throw new Error('The model took too long to confirm this chat context.');
   }
 
   async function bindWarmupSession(entry: InputEntry, generation: number, priorKey: string): Promise<string> {
@@ -181,17 +185,17 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       let accepted = await findExistingWarmup(sessionId, deadline);
       if (!accepted) {
         try {
-          accepted = (await beforeDeadline(deadline, 'DeepSeek took too long to queue chat preparation. Retry to try again.',
+          accepted = (await beforeDeadline(deadline, 'The model took too long to queue chat preparation. Retry to try again.',
             () => run(runtime.api.sendInput({
               id, sessionId, projectId, text: WEB_CHAT_WARMUP_TEXT, warmup: true, authoredSource: 'none',
               mode: 'auto', dueAt, model: null, reasoningEffort: null, webProvider: provider
             })))) ?? undefined;
         } catch (error) {
-          accepted = (await beforeDeadline(deadline, 'DeepSeek took too long to queue chat preparation. Retry to try again.',
+          accepted = (await beforeDeadline(deadline, 'The model took too long to queue chat preparation. Retry to try again.',
             () => run(runtime.api.listInputs())))?.find(row => row.id === id);
           if (!accepted) throw error;
         }
-        if (!accepted) accepted = (await beforeDeadline(deadline, 'DeepSeek took too long to queue chat preparation. Retry to try again.',
+        if (!accepted) accepted = (await beforeDeadline(deadline, 'The model took too long to queue chat preparation. Retry to try again.',
           () => run(runtime.api.listInputs())))?.find(row => row.id === id);
       }
       if (!accepted) throw new Error('NeuraFlok could not queue the chat preparation request.');
@@ -226,7 +230,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     }
   }
 
-  function ensure(): void {
+  function ensure(retryFailed = false): void {
     const app = runtime.state();
     if (!app || runtime.selectionGeneration === 0) return;
     const provider = currentProvider(app);
@@ -239,7 +243,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     if (status?.phase === 'failed') return;
     if (status?.phase === 'opening' && inflightKey !== null) return;
     if (inflightKey === key) return;
-    if (runtime.selectedId && provider === 'deepseek' && conversationId && cachedReady(runtime.selectedId, provider, conversationId)) {
+    if (runtime.selectedId && conversationId && cachedReady(runtime.selectedId, provider, conversationId)) {
       clearComposerWarmup(key);
       return;
     }
@@ -252,7 +256,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       newChatSelected: runtime.newChatSelected,
       selectedId: runtime.selectedId,
       hasConversation: !!conversationId,
-      pending: hasPendingInput(runtime.selectedId),
+      pending: !retryFailed && hasPendingInput(runtime.selectedId),
       turnWorking: runtime.turnWorking()
     });
     if (!needed) return;
@@ -273,7 +277,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const key = currentSelectionKey();
     clearComposerWarmup(key);
     if (runtime.selectedId) verifiedSessions.delete(runtime.selectedId);
-    ensure();
+    ensure(true);
   }
 
   setComposerWarmupHandlers({ ensure, retry });

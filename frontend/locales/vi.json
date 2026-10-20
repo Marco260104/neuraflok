@@ -2165,5 +2165,8 @@
   "The web model is ready.": "Mô hình web đã sẵn sàng.",
   "Preparing chat…": "Đang chuẩn bị trò chuyện…",
   "Reading the project and connecting the model…": "Đang đọc dự án và kết nối mô hình…",
+  "Your message will be queued until the model is ready.": "Tin nhắn sẽ được xếp hàng cho đến khi mô hình sẵn sàng.",
+  "The model could not confirm this chat context. Retry to release queued messages.": "Mô hình chưa xác nhận được ngữ cảnh cuộc trò chuyện. Hãy thử lại để gửi các tin nhắn đang chờ.",
+  "Chat context not verified": "Chưa xác minh được ngữ cảnh trò chuyện",
   "Chat is ready.": "Trò chuyện đã sẵn sàng."
 }

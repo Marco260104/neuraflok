@@ -323,6 +323,7 @@ export function createChatInputQueue(runtime: Runtime) {
   function pendingComposerInput(): InputEntry | undefined {
     return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs].find(
       (entry) =>
+        !isWarmupInput(entry) &&
         (!queuedFollowup(entry) || entry.state === 'browser') &&
         ['queued', 'browser'].includes(entry.state) &&
         (runtime.selectedId

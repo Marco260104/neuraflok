@@ -66,7 +66,7 @@ export interface ChatObservation {
   attachments?: import('../../../../contracts/input.js').InputAttachment[];
   reaction?: string | null;
   messageId?: string;
-  /** Exact local outbox identity for an app-generated assistant acknowledgement. */
+  /** Exact local outbox identity for an app-generated assistant acknowledgement or setup failure. */
   inputId?: string;
   /** Raw public provider message UUID, retained as evidence, never used to guess ownership. */
   providerMessageId?: string;

@@ -2165,5 +2165,8 @@
   "The web model is ready.": "網頁模型已就緒。",
   "Preparing chat…": "正在準備聊天…",
   "Reading the project and connecting the model…": "正在讀取專案並連線模型…",
+  "Your message will be queued until the model is ready.": "模型準備好之前，您的訊息會先排入佇列。",
+  "The model could not confirm this chat context. Retry to release queued messages.": "模型無法確認此聊天的上下文。請重試以傳送佇列中的訊息。",
+  "Chat context not verified": "聊天上下文未驗證",
   "Chat is ready.": "聊天已就緒。"
 }

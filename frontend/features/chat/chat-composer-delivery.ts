@@ -48,15 +48,45 @@ export interface ChatComposerDeliveryRuntime {
 
 type Runtime = ChatComposerDeliveryRuntime;
 
+export async function waitForPendingOpeningSession(
+  runtime: Pick<Runtime, 'api' | 'pendingNewInput' | 'selectionGeneration' | 'selectedId' | 'adoptAcceptedOpening'>
+): Promise<boolean> {
+  const pending = runtime.pendingNewInput;
+  if (!pending || pending.generation !== runtime.selectionGeneration || runtime.selectedId !== null) return true;
+  const expectedId = pending.id;
+  const generation = pending.generation;
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (runtime.selectedId === expectedId) return true;
+    if (runtime.selectionGeneration !== generation || runtime.pendingNewInput?.id !== expectedId) return false;
+    const rows = await run(runtime.api.listInputs());
+    const accepted = rows?.find(row => row.id === expectedId);
+    if (accepted && await runtime.adoptAcceptedOpening(accepted)) return runtime.selectedId === expectedId;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  return runtime.selectedId === expectedId;
+}
+
 // Owns composer delivery and its renderer-side outbox handoff.
 export function createChatComposerDelivery(runtime: Runtime) {
+  let openingAdoptionInFlight = false;
+
   async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?: string, controlAction = false): Promise<boolean | void> {
+    if ($<HTMLButtonElement>('chatSend').disabled) return;
+    if (runtime.selectedId === null && runtime.pendingNewInput?.generation === runtime.selectionGeneration) {
+      if (openingAdoptionInFlight) return;
+      openingAdoptionInFlight = true;
+      try {
+        if (!await waitForPendingOpeningSession(runtime)) return;
+      } finally {
+        openingAdoptionInFlight = false;
+      }
+    }
     const input = $<HTMLTextAreaElement>('chatInput');
     const key = runtime.draftKey();
     const projectId = runtime.selectedId ? runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? null : runtime.selectedProjectId;
     const images = runtime.imageDrafts.get(key) ?? [];
     const text = plan?.[0] ?? (runtime.authoredComposerText().trim() || (images.length ? 'Please look at the attached files.' : ''));
-    if ($<HTMLButtonElement>('chatSend').disabled) return;
     if (!text) {
       if (!controlAction) return;
       const target = runtime.selectedId, selection = runtime.selectionGeneration;

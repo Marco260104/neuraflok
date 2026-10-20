@@ -232,6 +232,7 @@ export async function recordChatObservationsNow(
           await appendEvent(sessionId, {
             ...base,
             kind: 'chat_error',
+            ...(item.inputId ? { inputId: item.inputId } : {}),
             ...(item.reason === 'thinking_failed' || item.reason === 'stream_gone' ? { reason: item.reason } : {}),
             ...(typeof item.recoverable === 'boolean' ? { recoverable: item.recoverable } : {}),
             ...(typeof item.blocking === 'boolean' ? { blocking: item.blocking } : {}),
