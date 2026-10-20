@@ -1,4 +1,5 @@
 import { initBrowserSetup } from './features/browser/setup-browser.js';
+import { initWebModelLoading } from './features/browser/web-model-loading.js';
 import { createConnectionCapsule } from './features/browser/connection-capsule.js';
 import { dismissBootSplash, mountBrandAssets } from './brand-assets.js';
 import { mountProviderMarks } from './features/browser/provider-marks.js';
@@ -73,6 +74,9 @@ const settingsSearch = initSettingsSearch({
 });
 const browserSetup = initBrowserSetup({
   open: (provider, mode) => run(api.openWebProvider(provider, mode)),
+  showBrowser: () => run(api.showIntegratedBrowser())
+});
+const webModelLoading = initWebModelLoading({
   showBrowser: () => run(api.showIntegratedBrowser())
 });
 // Escape the translucent sidebar's backdrop-filter containing block.
@@ -209,6 +213,7 @@ function apply(next: AppState): void {
   const workspaceLabel = apiExecutor ? apiProviderWorkspaceLabel(next) : providerStatusView.webProviderWorkspaceLabel(next);
   const connectionTone = apiExecutor ? apiConfigured ? 'is-configured' : '' : workspaceConnected ? 'is-connected' : next.bridge.present ? '' : 'is-error';
   connectionCapsule.paint({ connected: workspaceConnected, tone: connectionTone, label: workspaceLabel });
+  webModelLoading.paint(next);
   ui($('headerSub'), 'textContent', () => apiExecutor
       ? `${config.providers.api.kind === 'custom' ? 'Custom endpoint' : config.providers.api.kind === 'openai' ? 'OpenAI' : 'OpenRouter'} · ${config.goal.model}`
       : `${WEB_PROVIDERS[selectedProvider].label} · browser session`);

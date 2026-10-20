@@ -77,6 +77,25 @@
 .send-button { display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; width: 36px; height: 36px; background: var(--accent-fill, var(--ink)); color: var(--on-accent, var(--page)); cursor: pointer; }
 .send-button > .send-icon { font-size: 20px; }
 .send-button:disabled { opacity: .4; cursor: default; }
+.composer-ready-gate {
+  position: absolute; inset: 0; z-index: 8; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px; padding: 16px;
+  border-radius: inherit; background: color-mix(in srgb, var(--card) 82%, transparent);
+  backdrop-filter: blur(8px); pointer-events: auto;
+}
+.composer-ready-gate[hidden] { display: none; }
+.composer-ready-spinner {
+  width: 18px; height: 18px; border: 2px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-top-color: var(--ink); border-radius: 50%;
+  animation: web-model-spin 700ms linear infinite;
+}
+.composer-ready-gate[data-tone='ready'] .composer-ready-spinner { display: none; }
+#composerReadyLabel { font-size: calc(13px * var(--text-scale, 1)); font-weight: 550; color: var(--ink); }
+#composerReadyDetail { font-size: calc(12px * var(--text-scale, 1)); color: var(--soft); }
+.composer.is-waiting textarea { caret-color: var(--soft); }
+@media (prefers-reduced-motion: reduce) {
+  .composer-ready-spinner { animation: none; }
+}
 #composerStatus:empty { display: none; }
 #composerStatus { padding-top: 8px; font-size: calc(12px * var(--text-scale, 1)); color: var(--soft); }
 .settings-heading { padding: 12px 0 32px; }

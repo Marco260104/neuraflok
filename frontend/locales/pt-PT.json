@@ -2158,4 +2158,12 @@
   "Could not run a command": "Could not run a command",
   "Command failed tests": "Command failed tests",
   "Command failed a command": "Command failed a command"
+,
+  "Loading web models": "A carregar modelos web",
+  "Opening the private browser and connecting to the selected provider.": "A abrir o navegador privado e a ligar ao fornecedor selecionado.",
+  "Opening the private browser and connecting to {0}.": "A abrir o navegador privado e a ligar a {0}.",
+  "The web model is ready.": "O modelo web está pronto.",
+  "Preparing chat…": "A preparar o chat…",
+  "Reading the project and connecting the model…": "A ler o projeto e a ligar o modelo…",
+  "Chat is ready.": "O chat está pronto."
 }

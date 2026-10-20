@@ -5,6 +5,7 @@ import type { InputEntry } from '../../../backend/domains/sessions/input/input.j
 import { $, run } from '../../shared/dom.js';
 import type { ComposerAttachment } from './chat-composer-attachments.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
+import { markUnboundOpening, noteOpeningSession } from './chat-composer-ready.js';
 
 export interface ChatComposerDeliveryRuntime {
   api: Pick<typeof window.api, 'cancelInput' | 'listInputs' | 'sendInput' | 'setInputAutomation'>;
@@ -103,7 +104,12 @@ export function createChatComposerDelivery(runtime: Runtime) {
     input.value = ''; runtime.inputDrafts.delete(key);
     runtime.restoreSkills();
     runtime.imageDrafts.delete(key); runtime.paintComposerImages();
-    if (sessionId === null) runtime.pendingNewInput = { id, generation };
+    if (sessionId === null) {
+      runtime.pendingNewInput = { id, generation };
+      markUnboundOpening();
+    } else if (!runtime.sessions.find(row => row.id === sessionId)?.conversationId) {
+      noteOpeningSession(sessionId);
+    }
     if (mode !== 'finish' && runtime.followOutput()) { runtime.sendAnchor = null; runtime.readingAfterSend = false; runtime.readerAtEnd = true; }
     else if (mode !== 'finish') { runtime.sendAnchor = { key: `input:${id}`, inputId: id, before: runtime.userMessageKeys(), session: runtime.selectedId, seen: false, smoothUntil: 0 }; runtime.readingAfterSend = false; }
     void runtime.refreshInputQueue();

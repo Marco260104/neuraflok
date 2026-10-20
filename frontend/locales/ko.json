@@ -2158,4 +2158,12 @@
   "Could not run a command": "Could not run a command",
   "Command failed tests": "Command failed tests",
   "Command failed a command": "Command failed a command"
+,
+  "Loading web models": "웹 모델 불러오는 중",
+  "Opening the private browser and connecting to the selected provider.": "비공개 브라우저를 열고 선택한 제공자에 연결하는 중.",
+  "Opening the private browser and connecting to {0}.": "비공개 브라우저를 열고 {0}에 연결하는 중.",
+  "The web model is ready.": "웹 모델이 준비되었습니다.",
+  "Preparing chat…": "채팅 준비 중…",
+  "Reading the project and connecting the model…": "프로젝트를 읽고 모델을 연결하는 중…",
+  "Chat is ready.": "채팅이 준비되었습니다."
 }
