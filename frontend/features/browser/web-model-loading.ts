@@ -11,6 +11,14 @@ interface WebModelLoadingActions {
 let revealedSignIn = false;
 let readyFlash: number | null = null;
 let lastPhase: 'models' | 'signin' | 'ready' | 'hidden' = 'models';
+let initialBootComplete = false;
+
+export function markInitialBootComplete(): void {
+  initialBootComplete = true;
+  lastPhase = 'ready';
+  const overlay = document.getElementById('webModelLoading');
+  if (overlay) overlay.hidden = true;
+}
 
 function selectedPresence(state: AppState) {
   const provider = isWebProviderId(state.config.ui.webProvider) ? state.config.ui.webProvider : 'deepseek';
@@ -40,11 +48,13 @@ export function initWebModelLoading(actions: WebModelLoadingActions): { paint(st
     const label = WEB_PROVIDERS[provider].label;
     const phase = webModelLoadingPhase(state);
 
-    if (phase === 'hidden') {
+    if (!initialBootComplete || phase === 'hidden') {
       overlay.hidden = true;
-      lastPhase = 'hidden';
+      lastPhase = phase;
       return;
     }
+
+
 
     if (phase === 'ready') {
       if (lastPhase === 'models' || lastPhase === 'signin') {
