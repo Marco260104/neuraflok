@@ -2158,4 +2158,12 @@
   "Could not run a command": "Could not run a command",
   "Command failed tests": "Command failed tests",
   "Command failed a command": "Command failed a command"
+,
+  "Loading web models": "正在載入網頁模型",
+  "Opening the private browser and connecting to the selected provider.": "正在開啟專用瀏覽器並連線所選提供者。",
+  "Opening the private browser and connecting to {0}.": "正在開啟專用瀏覽器並連線 {0}。",
+  "The web model is ready.": "網頁模型已就緒。",
+  "Preparing chat…": "正在準備聊天…",
+  "Reading the project and connecting the model…": "正在讀取專案並連線模型…",
+  "Chat is ready.": "聊天已就緒。"
 }

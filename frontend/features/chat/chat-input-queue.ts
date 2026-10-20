@@ -10,6 +10,7 @@ import { $ } from '../../shared/dom.js';
 import { t } from '../../shared/i18n.js';
 import { createQueuedTaskList } from './queued-task-list.js';
 import { createChatInputRows } from './chat-input-rows.js';
+import { adoptOpeningSession } from './chat-composer-ready.js';
 
 export interface ChatInputQueueRuntime {
   api: Pick<typeof window.api, 'cancelInput' | 'editQueuedInput' | 'getSession' | 'listInputs' | 'listPausedHelpers' | 'reorderQueuedInputs' | 'retryHelper' | 'retryInputBrowser' | 'sendInput'>;
@@ -101,6 +102,7 @@ export function createChatInputQueue(runtime: Runtime) {
     const images = runtime.imageDrafts.get(from);
     if (images) runtime.imageDrafts.set(summary.id, images);
     runtime.selectSession(summary.id);
+    adoptOpeningSession(summary.id);
     runtime.inputDrafts.delete(from);
     runtime.imageDrafts.delete(from);
     runtime.newChatTasks.delete(from);

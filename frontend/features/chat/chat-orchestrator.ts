@@ -419,6 +419,7 @@ export function chatSettingsPatch(current: Config) {
 
 export function chatApply(state: AppState, previous?: Config): void {
   chatSettings.chatApply(state, previous);
+  if (deps) paintDeliveryControls();
 }
 
 // Called when the Chat tab becomes visible or is left, so it only polls when shown.

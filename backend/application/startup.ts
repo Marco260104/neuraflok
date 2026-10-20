@@ -52,7 +52,8 @@ import {
   startBridge, shutdownBridge,
   setBrowserOpener, setWorkAreaSource,
   initBrowserProofPath, loadBrowserProof,
-  loadedIntegratedBrowser, syncIntegratedBrowser
+  loadedIntegratedBrowser, syncIntegratedBrowser,
+  connectSelectedWebModel
 } from '../domains/browser/index.js';
 
 import { initSkillsPath } from '../domains/skills/index.js';
@@ -272,7 +273,10 @@ void app.whenReady().then(async () => {
   // Recording, workers and direct browser tools share one extension transport. Start the companion
   // before the tray: a stuck native tray must not leave DeepSeek/Kimi/Qwen signed out.
   if (browserExtensionRequired(getConfig())) {
-    void startBridge().finally(() => void syncIntegratedBrowser());
+    void startBridge().finally(() => {
+      void syncIntegratedBrowser();
+      void connectSelectedWebModel().catch((error: Error) => logWarn(`web model connect: ${error.message}`));
+    });
   } else void syncIntegratedBrowser();
 
   try {
