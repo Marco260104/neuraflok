@@ -106,6 +106,7 @@ export function createSettingsPersistence(runtime: Runtime) {
       providerTools: previous.providerTools ?? { instructions: '' },
       controlApi: previous.controlApi ?? { enabled: false, allowActions: false },
       multiAgent: previous.multiAgent,
+      providers: previous.providers,
       goal: previous.goal
     };
     const next = await run(api.saveSettings(patch, base));

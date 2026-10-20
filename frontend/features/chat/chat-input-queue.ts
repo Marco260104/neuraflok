@@ -114,13 +114,13 @@ export function createChatInputQueue(runtime: Runtime) {
     const belongsToSelection = (entry: InputEntry): boolean =>
       runtime.selectedId === null
         ? runtime.pendingNewInput?.generation === runtime.selectionGeneration &&
-          entry.id === runtime.pendingNewInput.id
+          entry.id === runtime.pendingNewInput?.id
         : (entry.sessionId ?? entry.deliveredSessionId) === runtime.selectedId;
     // An unbound delivery row belongs only to its originating draft.
     const unbound = (entry: InputEntry) =>
       runtime.selectedId === null &&
       runtime.pendingNewInput?.id === entry.id &&
-      runtime.pendingNewInput.generation === runtime.selectionGeneration &&
+      runtime.pendingNewInput?.generation === runtime.selectionGeneration &&
       !entry.deliveredSessionId &&
       entry.purpose !== 'decision' &&
       ['queued', 'browser'].includes(entry.state);

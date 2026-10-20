@@ -27,6 +27,7 @@ function writeValue(node: Node, property: UiProperty, value: string): void {
 }
 
 export function ui<T extends Node>(node: T, property: UiProperty, value: () => string): T {
+  if (!node || typeof node !== 'object') return node;
   let properties = bindings.get(node);
   if (!properties) {
     properties = new Map();

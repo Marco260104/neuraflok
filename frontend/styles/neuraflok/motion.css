@@ -4,7 +4,7 @@
   transition: none !important;
 }
 
-:is(button, .btn, summary, .sidebar-settings, .quick-settings-nav button):not(:disabled):not(.sess):active {
+:is(button, .btn, summary, .sidebar-settings, .quick-settings-nav button, .model-picker-choice, .model-picker-connect):not(:disabled):not(.sess):active {
   transform: scale(0.96);
 }
 
