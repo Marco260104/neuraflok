@@ -29,6 +29,10 @@ export function createDeepseekSessionResolver({
     return tabReply(tabId, { type: 'neuraflok-deepseek-status' }, undefined, READ_MS).catch(() => null);
   }
 
+  function contextUnavailable(message) {
+    return new Error(`DEEPSEEK_CONTEXT_UNAVAILABLE: ${message}`);
+  }
+
   async function findBoundTab(candidates, conversationId) {
     for (const candidate of candidates) {
       if (!usableProviderTab(candidate) || !Number.isInteger(candidate?.id)) continue;
@@ -40,13 +44,13 @@ export function createDeepseekSessionResolver({
 
   async function openConversationPage(url, background) {
     const created = await createBrowserTab(url, background === true);
-    if (!Number.isInteger(created?.id)) throw new Error('Could not reopen the saved DeepSeek conversation. No message was sent.');
+    if (!Number.isInteger(created?.id)) throw contextUnavailable('Could not reopen the saved DeepSeek conversation. No message was sent.');
     await waitForTabReady(created.id);
     await restoreDeepseekTab(created.id);
     const tab = await chrome.tabs.get(created.id).catch(() => null);
     if (!tab || !isDeepseekUrl(tab.url || tab.pendingUrl) || conversationPageUrl(tab.url || tab.pendingUrl) !== url ||
         tab.pendingUrl || tab.status !== 'complete') {
-      throw new Error('The saved DeepSeek conversation did not finish loading. No message was sent.');
+      throw contextUnavailable('The saved DeepSeek conversation did not finish loading. No message was sent.');
     }
     return tab;
   }
@@ -58,7 +62,7 @@ export function createDeepseekSessionResolver({
     const current = await chrome.tabs.get(tab.id).catch(() => null);
     if (!current || !isDeepseekUrl(current.url || current.pendingUrl) || conversationPageUrl(current.url || current.pendingUrl) !== url ||
         current.pendingUrl || current.status !== 'complete') {
-      throw new Error('The saved DeepSeek conversation did not finish loading. No message was sent.');
+      throw contextUnavailable('The saved DeepSeek conversation did not finish loading. No message was sent.');
     }
     return current;
   }
@@ -66,7 +70,7 @@ export function createDeepseekSessionResolver({
   async function resolveExistingDeepseekTab(offer, background) {
     const binding = await readProviderTab(offer.conversationId);
     const savedUrl = binding?.url ? conversationPageUrl(binding.url) : null;
-    if (binding?.url && !savedUrl) throw new Error('The saved DeepSeek conversation address is invalid. No message was sent.');
+    if (binding?.url && !savedUrl) throw contextUnavailable('The saved DeepSeek conversation address is invalid. No message was sent.');
 
     let tab = Number.isInteger(binding?.tab) ? await chrome.tabs.get(binding.tab).catch(() => null) : null;
     if (tab && !isDeepseekUrl(tab.url || tab.pendingUrl)) tab = null;
@@ -95,7 +99,7 @@ export function createDeepseekSessionResolver({
     }
 
     if (!tab) {
-      throw new Error('The saved DeepSeek page for this chat is unavailable. No message was sent, so its context was not replaced.');
+      throw contextUnavailable('The saved DeepSeek page for this chat is unavailable. No message was sent, so its context was not replaced.');
     }
     await writeProviderTab(offer.conversationId, tab.id, 'deepseek', savedUrl || conversationPageUrl(tab.url || tab.pendingUrl));
     return { tab, binding, savedUrl };

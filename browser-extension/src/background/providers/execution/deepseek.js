@@ -225,7 +225,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         if (!snapshot || snapshot.signedIn !== true) throw new Error('Sign in to DeepSeek in this browser, then try again.');
         if (offer.fresh !== true && snapshot.conversationId && snapshot.conversationId !== offer.conversationId) {
           const savedPageMatches = savedUrl && conversationPageUrl(tab.url || tab.pendingUrl) === savedUrl && snapshot.hasConversation === true;
-          if (!savedPageMatches) throw new Error('The page no longer belongs to this DeepSeek session. Start a new chat to reconnect safely.');
+          if (!savedPageMatches) throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: The page no longer belongs to this DeepSeek session. No message was sent.');
         }
         if (offer.fresh !== true) {
           const currentUrl = conversationPageUrl(tab.url || tab.pendingUrl);
@@ -233,7 +233,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           const legacyMappedPage = !snapshot.conversationId && binding?.tab === tab.id && Boolean(currentUrl);
           const pageIsBoundToChat = snapshot.conversationId === offer.conversationId || savedPageMatches || legacyMappedPage;
           if (!snapshot.hasConversation || !pageIsBoundToChat) {
-            throw new Error('The saved DeepSeek page no longer contains this chat history. No message was sent. Open the original chat or start a new chat to continue safely.');
+            throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: The saved DeepSeek page no longer contains this chat history. No message was sent.');
           }
           await writeProviderTab(offer.conversationId, tab.id, 'deepseek', currentUrl);
         }

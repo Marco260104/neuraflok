@@ -386,6 +386,40 @@ it('sends only new user text on a follow-up because the DeepSeek page keeps hist
   expect(fresh).toEqual([false, false]);
 });
 
+it('rebuilds a lost DeepSeek page from the saved local transcript', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  let loseNextFollowup = false;
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (loseNextFollowup) {
+      loseNextFollowup = false;
+      throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: saved DeepSeek page is unavailable');
+    }
+    return { text: 'Continued with the restored context.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Yesterday I was implementing the import flow.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  loseNextFollowup = true;
+  const followup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'Continue from where we left off.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(followup);
+
+  expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
+  expect(pages[2]!.text).not.toContain('Yesterday I was implementing the import flow.');
+  expect(pages[3]!.text).toContain('Available tools');
+  expect(pages[4]!.text).toContain('Yesterday I was implementing the import flow.');
+  expect(pages[4]!.text).toContain('Continued with the restored context.');
+  expect(pages[4]!.text).toContain('Continue from where we left off.');
+  expect(pages[4]!.text.length).toBeLessThanOrEqual(96_000);
+});
+
 it('does not reopen an existing provider chat when its local transcript is unavailable', async () => {
   const pages: Array<{ text: string; fresh: boolean }> = [];
   const configure = () => configurePageForTests({ complete: async (text, _signal, options) => {

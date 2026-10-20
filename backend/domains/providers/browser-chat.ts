@@ -21,6 +21,7 @@ import {
 import { logInfo, logWarn } from '../../infrastructure/settings/logger.js';
 import {
   persistWebProviderThread,
+  replayWebProviderTranscript,
   readWebProviderThread,
   trimWebProviderThread,
   withWebProviderSystem
@@ -46,6 +47,7 @@ import {
 
 const MAX_ROUEDS = 24;
 const MAX_INCOMPLETE_TOOL = 3;
+const DEEPSEEK_CONTEXT_UNAVAILABLE = 'DEEPSEEK_CONTEXT_UNAVAILABLE:';
 
 interface Flight {
   turnId: string;
@@ -114,6 +116,10 @@ function resolveConversation(provider: WebProviderId, entry: InputEntry, session
 
 function isOpening(messages: WebChatMessage[]): boolean {
   return messages.every(row => row.role === 'system');
+}
+
+function isDeepseekContextUnavailable(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith(DEEPSEEK_CONTEXT_UNAVAILABLE);
 }
 
 // Accept the outbox row, drive the provider chat, persist its thread, and record the turn.
@@ -214,7 +220,24 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       for (let round = 0; round < MAX_ROUEDS; round++) {
         abort.signal.throwIfAborted();
         const live = createBrowserChatToolRegistrar();
-        const completion = await requestProviderPageComplete(provider, ownedConversation, pageText, abort.signal);
+        let completion: Awaited<ReturnType<typeof requestProviderPageComplete>>;
+        try {
+          completion = await requestProviderPageComplete(provider, ownedConversation, pageText, abort.signal);
+        } catch (error) {
+          if (provider !== 'deepseek' || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
+          const replay = replayWebProviderTranscript(prior?.messages ?? [], pageText);
+          if (!replay) {
+            throw new Error('DeepSeek perdió el historial remoto y NeuraFlok no tiene suficiente transcripción local para reconstruir el contexto. No se envió el mensaje.');
+          }
+          abort.signal.throwIfAborted();
+          const setup = await prepareWebProviderBootstrap(entry, sessionId, system);
+          const ready = await requestProviderPageComplete(provider, ownedConversation, setup, abort.signal, { fresh: true });
+          if ((!ready.text.includes(WEB_BOOTSTRAP_ACK) && !ready.text.includes(LEGACY_WEB_BOOTSTRAP_ACK)) ||
+              parseWebChatTools(ready.text).length || incompleteWebChatTool(ready.text)) {
+            throw new Error('DeepSeek no confirmó la restauración del contexto. No se envió el mensaje.');
+          }
+          completion = await requestProviderPageComplete(provider, ownedConversation, replay, abort.signal);
+        }
         const raw = completion.text ?? '';
         const calls = parseWebChatTools(raw);
         thread.messages = trimWebProviderThread([...thread.messages, { role: 'assistant', content: raw }]);
@@ -288,7 +311,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       ]).catch(() => undefined);
       return null;
     }
-    const detail = (error as Error).message.slice(0, 500);
+    const detail = (error as Error).message.replace(/^DEEPSEEK_CONTEXT_UNAVAILABLE:\s*/, '').slice(0, 500);
     logWarn(`${provider}: session ${sessionId} failed: ${detail}`);
     await observe(ownedConversation, [
       { kind: 'chat_error', time: now(), turnId, text: detail, recoverable: false },
