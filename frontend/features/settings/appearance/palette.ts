@@ -27,6 +27,7 @@ export function applyAppearance(theme: AppearanceTheme, settings: AppearanceSett
   const palette = settings[theme];
   const root = document.documentElement;
   root.classList.add('theme-switching');
+  void root.offsetHeight;
   root.dataset.theme = theme;
   root.dataset.translucentSidebar = String(settings.translucentSidebar);
   applyTokens(root, paletteTokens(palette.background, palette.accent, palette.contrast));

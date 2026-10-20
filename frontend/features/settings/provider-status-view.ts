@@ -120,7 +120,8 @@ export function createProviderStatusView(options: ProviderStatusViewOptions) {
     const { bridge, config } = snapshot;
     const extensionActive = bridge.present;
     const extensionLabel = extensionActive ? t('Connected') : bridge.paired ? t('Paired · not active') : t('Not connected');
-    const extension = $('connectionPopoverBrowser');
+    const extension = document.getElementById('connectionPopoverBrowser');
+    if (!extension) return;
     extension.textContent = extensionLabel;
     extension.dataset.status = extensionActive ? 'connected' : bridge.paired ? 'paired' : 'disconnected';
     ui($('bigHandshake'), 'textContent', () => extensionLabel);

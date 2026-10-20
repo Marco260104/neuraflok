@@ -40,10 +40,11 @@ export function initWebModelLoading(actions: WebModelLoadingActions): { paint(st
   });
 
   function paint(state: AppState): void {
-    const overlay = $('webModelLoading');
-    const title = $('webModelLoadingTitle');
-    const detail = $('webModelLoadingDetail');
-    const action = $<HTMLButtonElement>('webModelLoadingAction');
+    const overlay = document.getElementById('webModelLoading') as HTMLElement | null;
+    if (!overlay) return;
+    const title = document.getElementById('webModelLoadingTitle') ?? overlay;
+    const detail = document.getElementById('webModelLoadingDetail') ?? overlay;
+    const action = (document.getElementById('webModelLoadingAction') as HTMLButtonElement | null) ?? document.createElement('button');
     const { provider, presence } = selectedPresence(state);
     const label = WEB_PROVIDERS[provider].label;
     const phase = webModelLoadingPhase(state);

@@ -122,7 +122,9 @@
 .model-picker-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 5px; }
 .composer-popover .model-picker-choice { display: flex; min-width: 0; min-height: 28px; align-items: center; gap: 8px; padding: 3px 8px; border: 1px solid transparent; border-radius: 6px; transition: background 140ms ease, border-color 140ms ease; }
 .composer-popover .model-picker-choice:not(:disabled) { cursor: pointer; }
-.composer-popover .model-picker-choice:hover:not(:disabled) { background: var(--hover); }
+@media (hover: hover) and (pointer: fine) {
+  .composer-popover .model-picker-choice:hover:not(:disabled) { background: var(--hover); }
+}
 .composer-popover .model-picker-choice:disabled { cursor: default; opacity: .5; }
 .composer-popover .model-picker-choice[data-selected='true'] { border-color: var(--edge); background: var(--hover); }
 .model-picker-choice > .ico { flex: none; color: var(--soft); font-size: 15px; }
@@ -151,7 +153,9 @@
 }
 .model-picker-divider { height: 1px; margin: 6px 4px; background: var(--hover); }
 .composer-popover .model-picker-manage { min-height: 32px; margin-top: 5px; padding: 6px 8px; border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; color: var(--soft); font-size: 11px; font-weight: 500; transition: color 140ms ease; }
-.composer-popover .model-picker-manage:hover { color: var(--ink); background: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  .composer-popover .model-picker-manage:hover { color: var(--ink); background: transparent; }
+}
 .model-picker-manage > .ico { color: var(--soft); font-size: 14px; }
 .sidebar-connection {
   border-radius: 8px;
@@ -161,9 +165,11 @@
   min-height: 28px;
   box-shadow: none;
 }
-.sidebar-connection:hover {
-  background: var(--hover);
-  border-color: var(--edge);
+@media (hover: hover) and (pointer: fine) {
+  .sidebar-connection:hover {
+    background: var(--hover);
+    border-color: var(--edge);
+  }
 }
 .sidebar-connection::before { display: none; }
 .sidebar-connection-dot {
