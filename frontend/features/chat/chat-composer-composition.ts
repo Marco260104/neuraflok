@@ -2,6 +2,7 @@ import { createChatTaskPlan } from './chat-task-plan.js';
 import { createChatTaskControls } from './chat-task-controls.js';
 import { createChatInputQueue } from './chat-input-queue.js';
 import { createChatComposerDelivery } from './chat-composer-delivery.js';
+import { createWebChatWarmup } from './chat-web-warmup.js';
 import { createChatAutomationControls } from './chat-automation-controls.js';
 import { imageDrafts } from './chat-composer-attachments.js';
 import { createChatSessionControls } from './chat-session-controls.js';
@@ -189,7 +190,8 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get sessions() { return bindings.sessions; },
     get events() { return bindings.events; },
     get detailFor() { return bindings.detailFor; },
-    get pendingNewInput() { return bindings.pendingNewInput; }
+    get pendingNewInput() { return bindings.pendingNewInput; },
+    get newChatSelected() { return bindings.newChatSelected; }
   });
 
   const chatComposerInputRuntime = {
@@ -284,6 +286,24 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
 
   const chatAutomationControls = createChatAutomationControls(chatAutomationRuntime);
 
+  const webChatWarmup = createWebChatWarmup({
+    api: bindings.api,
+    state: () => bindings.deps.state(),
+    get newChatSelected() { return bindings.newChatSelected; },
+    get selectedId() { return bindings.selectedId; },
+    get selectedProjectId() { return bindings.selectedProjectId; },
+    get selectionGeneration() { return bindings.selectionGeneration; },
+    get pendingNewInput() { return bindings.pendingNewInput; },
+    get startingInputs() { return bindings.startingInputs; },
+    get pendingComposerInputs() { return bindings.pendingComposerInputs; },
+    set pendingComposerInputs(value) { bindings.pendingComposerInputs = value; },
+    adoptAcceptedOpening: bindings.adoptAcceptedOpening,
+    selectSession: bindings.selectSession,
+    paintDeliveryControls: bindings.paintDeliveryControls,
+    refreshInputQueue: () => bindings.refreshInputQueue(),
+    setPendingNewInput: value => { bindings.pendingNewInput = value; }
+  });
+
   return {
     chatInputQueueRuntime,
     chatInputQueue,
@@ -293,6 +313,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     taskPlanController,
     chatComposerInputRuntime,
     chatAutomationRuntime,
-    chatAutomationControls
+    chatAutomationControls,
+    webChatWarmup
   };
 }

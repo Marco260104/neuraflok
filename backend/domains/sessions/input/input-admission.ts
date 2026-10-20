@@ -24,7 +24,7 @@ export function deliveryProof(row: Readonly<InputEntry>): DeliveryProof {
 
 export const preparable = (row: InputEntry): boolean => row.state === 'queued' ||
   (row.state === 'browser' && row.requiresAuthorization === true && row.sendAuthorizedAt === undefined);
-export const needsHistory = (row: InputEntry): boolean => row.purpose !== 'decision' && !row.historyRecorded &&
+export const needsHistory = (row: InputEntry): boolean => row.purpose !== 'decision' && !row.warmup && !row.historyRecorded &&
   ((row.state === 'tool' && Number.isFinite(row.offeredAt)) || ((row.state === 'sent' || row.state === 'cancelled') && !!row.messageId));
 export const pendingStages = (row: InputEntry): boolean => row.state === 'sent' && !!row.stages?.length && !row.stagesApplied;
 export const ordered = (rows: InputEntry[]): InputEntry[] => [...rows].sort((a, b) =>
@@ -122,7 +122,7 @@ export function createInputAdmission(runtime: InputAdmissionRuntime) {
       existing.conversationId === entry.conversationId &&
       existing.origin?.kind !== 'worker' && existing.origin?.kind !== 'helper';
     const session = recoveredExactOwner ? existing : await runtime.createSession({ reservedId: entry.sessionId,
-      title: runtime.userTitle(entry.text, entry.text), titleSource: 'fallback',
+      title: entry.warmup ? 'New chat' : runtime.userTitle(entry.text, entry.text), titleSource: 'fallback',
       origin: { kind: 'desktop', fromSessionId: null, agentId: null, task: '' } });
     if (session.conversationId && session.conversationId !== entry.conversationId)
       throw new Error('Reserved opening session belongs to another provider conversation');

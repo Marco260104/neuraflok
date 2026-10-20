@@ -94,7 +94,7 @@ export function createInputEnqueuer(runtime: InputEnqueueRuntime) {
         }
       }
       const authoredOrdinary = (input.authoredSource ?? 'text') === 'text' && input.mode !== 'finish' &&
-        !finishOwner && !input.stages?.length;
+        !finishOwner && !input.stages?.length && !input.warmup;
       if (getConfig().ui.autoSelectSkills === true && authoredOrdinary && invokedSkills(input.text).length === 0) {
         const folder = input.sessionId ? await getSessionProject(input.sessionId)
           : input.projectId ? await projectWorkspace(input.projectId) : null;

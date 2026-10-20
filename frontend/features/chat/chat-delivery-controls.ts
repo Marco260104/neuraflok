@@ -12,7 +12,7 @@ import { t, ui } from '../../shared/i18n.js';
 import {
   composerReadyPhase,
   composerSendBlocked,
-  hasPublicAssistantReply,
+  hasHandshakeAck,
   openingInputInFlight,
   paintComposerReadyGate,
   releaseOpeningSession,
@@ -45,6 +45,7 @@ export interface ChatDeliveryControlsRuntime {
   events: SessionEvent[];
   detailFor: string | null;
   pendingNewInput: { id: string; generation: number } | null;
+  newChatSelected: boolean;
 }
 
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
@@ -98,10 +99,10 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     const app = runtime.state();
     const selected = runtime.sessions.find(row => row.id === runtime.selectedId) ?? null;
     const provider = isWebProviderId(app?.config.ui.webProvider) ? app!.config.ui.webProvider : 'deepseek';
-    const assistantReply = runtime.selectedId !== null
+    const handshakeAck = runtime.selectedId !== null
       && runtime.detailFor === runtime.selectedId
-      && hasPublicAssistantReply(runtime.events);
-    if (assistantReply) releaseOpeningSession(runtime.selectedId);
+      && hasHandshakeAck(runtime.events);
+    if (handshakeAck) releaseOpeningSession(runtime.selectedId);
     const openingRows = openingInputInFlight(
       runtime.selectedId,
       selected?.conversationId ?? null,
@@ -114,10 +115,11 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     const phase = composerReadyPhase({
       apiExecutor: usesApiProvider(app?.config.ui.chatExecutor),
       signedIn: app?.bridge.webProviders?.[provider]?.signedIn,
+      newChatSelected: runtime.newChatSelected,
       pendingNewInput: runtime.pendingNewInput !== null,
       openingInFlight: openingRows,
       trackedOpening: trackedOpening(runtime.selectedId),
-      hasAssistantReply: assistantReply
+      hasHandshakeAck: handshakeAck
     });
     paintComposerReadyGate(phase);
     const planDisabled = !!preparedPlan && (preparedPlan.sending || preparedPlan.stages.some(stage => !stage.trim()));

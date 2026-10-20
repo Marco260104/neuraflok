@@ -11,6 +11,7 @@ import { t } from '../../shared/i18n.js';
 import { createQueuedTaskList } from './queued-task-list.js';
 import { createChatInputRows } from './chat-input-rows.js';
 import { adoptOpeningSession } from './chat-composer-ready.js';
+import { isWarmupInput } from './chat-web-warmup.js';
 
 export interface ChatInputQueueRuntime {
   api: Pick<typeof window.api, 'cancelInput' | 'editQueuedInput' | 'getSession' | 'listInputs' | 'listPausedHelpers' | 'reorderQueuedInputs' | 'retryHelper' | 'retryInputBrowser' | 'sendInput'>;
@@ -157,6 +158,7 @@ export function createChatInputQueue(runtime: Runtime) {
           runtime.selectedId !== null ||
           runtime.projectGroup(entry.projectId) ===
             runtime.selectedProjectId) &&
+        (!isWarmupInput(entry) || notice(entry)) &&
         (notice(entry) ||
           !['sent', 'cancelled'].includes(entry.state) ||
           (entry.state === 'sent' && entry.messageId && !anchored(entry))),
