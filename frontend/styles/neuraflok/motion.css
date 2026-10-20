@@ -52,6 +52,7 @@
   .skill-page-head,
   .quick-settings-view,
   .boot-splash-mark,
+  .nf-loader-wrapper,
   .provider-card,
   #timelineEmpty.workspace-empty,
   .connection-popover:not([hidden]) {
@@ -66,5 +67,18 @@
   .app :is(button, .btn):active:not(:disabled),
   :is(button, .btn, summary):not(:disabled):active {
     transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nf-path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+    fill: #ffffff !important;
+    stroke-width: 0 !important;
+  }
+  .nf-loader-bar-fill {
+    animation: none !important;
+    width: 100% !important;
   }
 }

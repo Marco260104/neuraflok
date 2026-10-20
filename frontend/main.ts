@@ -56,7 +56,7 @@ function showTab(name: string): void {
   workspaceNavigation.showTab(name);
 }
 mountBrandAssets();
-dismissBootSplash();
+// Initial splash dismissal is deferred until startup completes.
 // First: main announces a Keychain read before it starts and may not get through again until it ends.
 initKeychainNotice(api);
 initLanguage();
@@ -388,13 +388,19 @@ initBrowserPreferences();
 initChat({ save: () => save(), state: () => state });
 
 void (async () => {
-  await refresh();
-  // A first run has nothing set up, so open on the wizard rather than an empty Home.
-  showTab(state && missingStep(state)?.step === 'folder' ? 'setup' : 'chat');
-  // Show What's New after an update, but not during first-run setup.
-  const started = state as AppState | null;
-  if (started && missingStep(started)?.step !== 'folder') initWhatsNew(started.update.current, started.config.ui.lastSeenVersion);
-  await activityLogHydration.loadStartupSnapshot();
-  const swarm = await run(api.getSwarm());
-  if (swarm) paintAgentFilter(swarm);
+  try {
+    await refresh();
+    // A first run has nothing set up, so open on the wizard rather than an empty Home.
+    showTab(state && missingStep(state)?.step === 'folder' ? 'setup' : 'chat');
+    // Show What's New after an update, but not during first-run setup.
+    const started = state as AppState | null;
+    if (started && missingStep(started)?.step !== 'folder') initWhatsNew(started.update.current, started.config.ui.lastSeenVersion);
+    await activityLogHydration.loadStartupSnapshot();
+    const swarm = await run(api.getSwarm());
+    if (swarm) paintAgentFilter(swarm);
+  } finally {
+    dismissBootSplash();
+  }
 })();
+// Failsafe timer so splash is never stuck if backend init stalls
+window.setTimeout(() => dismissBootSplash(), 10000);
