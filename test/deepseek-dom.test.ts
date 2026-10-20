@@ -291,11 +291,11 @@ it('answers neuraflok-deepseek-status and marks the page so the companion shows 
   let status: unknown;
   const kept = listeners[0]!({ type: 'neuraflok-deepseek-status' }, {}, (value) => { status = value; });
   expect(kept).toBeUndefined();
-  expect(status).toEqual({ signedIn: true, generating: false, conversationId: null });
+  expect(status).toEqual({ signedIn: true, generating: false, hasConversation: false, conversationId: null });
   const { listeners: signedOut, api } = load([], { composer: false });
   expect(api.signedIn()).toBe(false);
   signedOut[0]!({ type: 'neuraflok-deepseek-status' }, {}, (value) => { status = value; });
-  expect(status).toEqual({ signedIn: false, generating: false, conversationId: null });
+  expect(status).toEqual({ signedIn: false, generating: false, hasConversation: false, conversationId: null });
 });
 
 it('migrates a pending DeepSeek send claim into the NEURAFLOK page namespace', async () => {
@@ -452,7 +452,7 @@ it('answers neuraflok-deepseek-read with the grown think text', () => {
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'old public', beforeThink: '' }, {}, (value) => { reply = value; });
   expect(reply).toEqual({
-    signedIn: true, generating: false, conversationId: null,
+    signedIn: true, generating: false, hasConversation: true, conversationId: null,
     text: 'new think reply', answer: '', think: 'new think reply'
   });
 });
@@ -532,7 +532,7 @@ it('exposes the public assistant answer separately from think on read', () => {
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: '', beforeThink: '' }, {}, (value) => { reply = value; });
   expect(reply).toEqual({
-    signedIn: true, generating: false, conversationId: null,
+    signedIn: true, generating: false, hasConversation: true, conversationId: null,
     text: 'Este proyecto es Commander.js.',
     answer: 'Este proyecto es Commander.js.',
     think: 'The user asked for a summary.'

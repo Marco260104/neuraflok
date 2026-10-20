@@ -1,3 +1,5 @@
+import { createDeepseekSessionResolver } from '../deepseek-session.js';
+
 export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, usableProviderTab, state }) {
   const { stoppedProviderOffers, readDeepseekSent, writeDeepseekSent, readProviderTab, writeProviderTab } = state;
   let deepseekPageFlight = null;
@@ -6,9 +8,15 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
   const DEEPSEEK_WATCH_MS = 540_000;
   const DEEPSEEK_POLL_MS = 2_000;
   const DEEPSEEK_TIMEOUT = 'DeepSeek did not finish this reply in time. Sign in at chat.deepseek.com in the same browser as this app, then send again.';
+  const sessionPages = createDeepseekSessionResolver({
+    chrome, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab,
+    waitForTabReady, isDeepseekUrl, usableProviderTab, state
+  });
+  const { conversationPageUrl, rememberConversationPage, resolveExistingDeepseekTab } = sessionPages;
 
-  async function postDeepseekPage(offer, body) {
+  async function postDeepseekPage(offer, body, tabId) {
     if (!offer || typeof offer.id !== 'string' || typeof offer.conversationId !== 'string') return false;
+    if (typeof body.text === 'string' && body.text.trim()) await rememberConversationPage(offer, tabId);
     const reply = await call('/provider/page', {
       method: 'POST',
       body: JSON.stringify({ ...body, id: offer.id, provider: 'deepseek', conversationId: offer.conversationId })
@@ -20,7 +28,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
     }
     return false;
   }
-  
+
   function isAck(text) {
     return /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/.test(String(text || '').trim());
   }
@@ -74,7 +82,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         if (completeText === quietText) {
           quietIdle += 1;
           if (quietIdle >= quietNeed(completeText)) {
-            const posted = await postDeepseekPage(offer, { text: completeText });
+            const posted = await postDeepseekPage(offer, { text: completeText }, tabId);
             if (posted) return;
           }
         } else {
@@ -98,7 +106,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         if (completeText && completeText === stableText) {
           stableIdle += 1;
           if (stableIdle >= 15) {
-            const posted = await postDeepseekPage(offer, { text: completeText });
+            const posted = await postDeepseekPage(offer, { text: completeText }, tabId);
             if (posted) return;
           }
         } else {
@@ -109,7 +117,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         if (lastText === stableText) {
           stableIdle += 1;
           if (stableIdle >= 15) {
-            const posted = await postDeepseekPage(offer, { text: lastText });
+            const posted = await postDeepseekPage(offer, { text: lastText }, tabId);
             if (posted) return;
           }
         } else {
@@ -127,7 +135,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           const ans = fallback && typeof fallback.before === 'string' ? fallback.before : '';
           if (ans && ans !== before && !(isAck(ans) && isAck(before))) {
             lastText = ans;
-            const posted = await postDeepseekPage(offer, { text: lastText });
+            const posted = await postDeepseekPage(offer, { text: lastText }, tabId);
             if (posted) return;
           }
         }
@@ -138,7 +146,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
       } else emptyIdle = 0;
       await new Promise(resolve => setTimeout(resolve, DEEPSEEK_POLL_MS));
     }
-    if (completeText) await postDeepseekPage(offer, { text: completeText });
+    if (completeText) await postDeepseekPage(offer, { text: completeText }, tabId);
     else await postDeepseekPage(offer, { error: DEEPSEEK_TIMEOUT });
   }
   
@@ -177,6 +185,8 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           return;
         }
         let tab = null;
+        let binding = null;
+        let savedUrl = null;
         if (offer.fresh === true && !offer.stop) {
           tab = await createBrowserTab('https://chat.deepseek.com/', background === true);
           if (Number.isInteger(tab?.id)) {
@@ -189,27 +199,10 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
             }
           }
         } else {
-          let binding = await readProviderTab(offer.conversationId);
-          if (!binding) {
-            const candidates = await queryProviderTabs('deepseek');
-            const readyCandidate = candidates.find(usableProviderTab) || candidates[0] || null;
-            if (readyCandidate && Number.isInteger(readyCandidate.id)) {
-              await writeProviderTab(offer.conversationId, readyCandidate.id, 'deepseek');
-              binding = { provider: 'deepseek', tab: readyCandidate.id, at: Date.now() };
-            }
-          }
-          if (!binding) throw new Error('This DeepSeek session has no verified browser tab. Start a new chat to reconnect it safely.');
-          tab = await chrome.tabs.get(binding.tab).catch(() => null);
-          if (!tab || !isDeepseekUrl(tab.url || tab.pendingUrl)) {
-            const candidates = await queryProviderTabs('deepseek');
-            const readyCandidate = candidates.find(usableProviderTab) || candidates[0] || null;
-            if (readyCandidate && Number.isInteger(readyCandidate.id)) {
-              await writeProviderTab(offer.conversationId, readyCandidate.id, 'deepseek');
-              tab = readyCandidate;
-            } else {
-              throw new Error('The DeepSeek tab assigned to this session is no longer available. Start a new chat to reconnect safely.');
-            }
-          }
+          const resolved = await resolveExistingDeepseekTab(offer, background);
+          tab = resolved.tab;
+          binding = resolved.binding;
+          savedUrl = resolved.savedUrl;
           if (tab.discarded === true || tab.frozen === true || tab.status === 'loading') {
             try { await chrome.tabs.reload(tab.id); } catch {}
             await waitForTabReady(tab.id);
@@ -231,7 +224,18 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         const snapshot = await tabReply(tab.id, { type: 'neuraflok-deepseek-snapshot' }, undefined, DEEPSEEK_READ_MS);
         if (!snapshot || snapshot.signedIn !== true) throw new Error('Sign in to DeepSeek in this browser, then try again.');
         if (offer.fresh !== true && snapshot.conversationId && snapshot.conversationId !== offer.conversationId) {
-          throw new Error('The page no longer belongs to this DeepSeek session. Start a new chat to reconnect safely.');
+          const savedPageMatches = savedUrl && conversationPageUrl(tab.url || tab.pendingUrl) === savedUrl && snapshot.hasConversation === true;
+          if (!savedPageMatches) throw new Error('The page no longer belongs to this DeepSeek session. Start a new chat to reconnect safely.');
+        }
+        if (offer.fresh !== true) {
+          const currentUrl = conversationPageUrl(tab.url || tab.pendingUrl);
+          const savedPageMatches = Boolean(savedUrl && currentUrl === savedUrl);
+          const legacyMappedPage = !snapshot.conversationId && binding?.tab === tab.id && Boolean(currentUrl);
+          const pageIsBoundToChat = snapshot.conversationId === offer.conversationId || savedPageMatches || legacyMappedPage;
+          if (!snapshot.hasConversation || !pageIsBoundToChat) {
+            throw new Error('The saved DeepSeek page no longer contains this chat history. No message was sent. Open the original chat or start a new chat to continue safely.');
+          }
+          await writeProviderTab(offer.conversationId, tab.id, 'deepseek', currentUrl);
         }
         const claim = {
           id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, tab: tab.id,
@@ -265,7 +269,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         const staleAck = isAck(immediate) && String(before || '').trim() !== '';
         const planningOnly = looksLikeThink(immediate) && !hasToolCall(immediate);
         if (immediate && reply.pending !== true && !ackRepeat && !staleAck && !planningOnly) {
-          await postDeepseekPage(offer, { text: immediate });
+          await postDeepseekPage(offer, { text: immediate }, tab.id);
           return;
         }
         if (!reply) {
@@ -273,7 +277,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           return;
         }
         if (immediate && reply.generating !== true && !ackRepeat && !staleAck && reply.pending !== true && !planningOnly) {
-          await postDeepseekPage(offer, { text: immediate });
+          await postDeepseekPage(offer, { text: immediate }, tab.id);
           return;
         }
         await watchDeepseekReply(tab.id, offer, before, beforeThink, immediate);

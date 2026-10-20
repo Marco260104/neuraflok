@@ -132,6 +132,7 @@
         ...(options.includeProvider ? { provider } : {}),
         signedIn: signedIn(),
         generating: generating(),
+        hasConversation: hasConversation(),
         conversationId: stored(keys.session)
       };
     }
