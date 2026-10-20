@@ -128,7 +128,8 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   const system = webToolGuide(advertisedBrowserChatTools(registrar), guideCtx);
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
   let messages = withWebProviderSystem(prior?.messages ?? [], system);
-  const opening = isOpening(messages);
+  // A missing local mirror must not turn a bound conversation into a fresh provider chat.
+  const opening = !session?.conversationId && !entry.conversationId && isOpening(messages);
   const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, opening);
   const bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
   const userMessageId = randomUUID();

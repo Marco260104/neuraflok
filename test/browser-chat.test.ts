@@ -386,6 +386,33 @@ it('sends only new user text on a follow-up because the DeepSeek page keeps hist
   expect(fresh).toEqual([false, false]);
 });
 
+it('does not reopen an existing provider chat when its local transcript is unavailable', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  const configure = () => configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    return { text: options?.fresh ? 'NEURAFLOK_READY' : 'continued' };
+  } });
+  configure();
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'first job', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  const originalConversation = (await getSession(first.id))?.conversationId;
+  expect(originalConversation).toMatch(/^ds-/);
+
+  await fs.rm(sessionWebProviderThreadPath(first.id, 'deepseek'), { force: true });
+  resetBrowserChatForTests();
+  configure();
+  const second = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'continue the same task', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(second);
+
+  expect((await getSession(first.id))?.conversationId).toBe(originalConversation);
+  expect(pages).toHaveLength(3);
+  expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('continue the same task') });
+});
+
 it('sends setup once, waits for its acknowledgement, then sends authored messages separately', async () => {
   const pages: Array<{ text: string; fresh: boolean }> = [];
   let acknowledge!: (value: { text: string }) => void;

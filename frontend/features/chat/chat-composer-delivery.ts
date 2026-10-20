@@ -115,7 +115,9 @@ export function createChatComposerDelivery(runtime: Runtime) {
     void runtime.refreshInputQueue();
     runtime.paintDeliveryControls();
     try {
-      const currentWebProvider = isWebProviderId($<HTMLSelectElement>('webProvider').value) ? $<HTMLSelectElement>('webProvider').value as WebProviderId : undefined;
+      const currentWebProvider = sessionId === null && isWebProviderId($<HTMLSelectElement>('webProvider').value)
+        ? $<HTMLSelectElement>('webProvider').value as WebProviderId
+        : undefined;
       const result = await run(runtime.api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource, automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: runtime.openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, webProvider: currentWebProvider, ...modelSettings }));
       if (runtime.cancelledStarts.has(id)) return;
       if (!result) {
