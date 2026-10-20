@@ -11,6 +11,8 @@ import { t, ui } from '../../shared/i18n.js';
 import {
   composerReadyPhase,
   composerSendBlocked,
+  composerWarmupKey,
+  composerWarmupState,
   paintComposerReadyGate
 } from './chat-composer-ready.js';
 
@@ -88,11 +90,14 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     const preparedPlan = runtime.currentPreparedPlan();
     const app = runtime.state();
     const provider = isWebProviderId(app?.config.ui.webProvider) ? app!.config.ui.webProvider : 'deepseek';
+    const warmup = composerWarmupState(composerWarmupKey(runtime.selectedId, runtime.selectionGeneration));
     const phase = composerReadyPhase({
       apiExecutor: usesApiProvider(app?.config.ui.chatExecutor),
-      signedIn: app?.bridge.webProviders?.[provider]?.signedIn
+      signedIn: app?.bridge?.webProviders?.[provider]?.signedIn,
+      opening: warmup?.phase === 'opening',
+      failed: warmup?.phase === 'failed'
     });
-    paintComposerReadyGate(phase);
+    paintComposerReadyGate(phase, warmup?.phase === 'failed' ? warmup.error : undefined);
     const planDisabled = !!preparedPlan && (preparedPlan.sending || preparedPlan.stages.some(stage => !stage.trim()));
     send.disabled = planDisabled || composerSendBlocked(phase, stop);
     send.dataset.action = stop ? 'stop' : 'send';

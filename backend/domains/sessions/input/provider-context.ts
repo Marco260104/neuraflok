@@ -7,14 +7,61 @@ import type { InputEntry } from './input.js';
 export const LOCAL_PROVIDER_PROMPT_LIMITS = { maxChars: 72_000, maxBytes: 288_000 } as const;
 export const WEB_BOOTSTRAP_ACK = 'NEURAFLOK_READY';
 export const LEGACY_WEB_BOOTSTRAP_ACK = 'NEURAL_JAM_READY';
+export const WEB_CONTEXT_CHECK_MARKER = 'NEURAFLOK_CONTEXT_CHECK';
 const WEB_BOOTSTRAP_REQUEST = `Initialize this NEURAFLOK conversation using the instructions below. This is configuration only, not a user task. Do not run tools or execute examples. Reply with exactly ${WEB_BOOTSTRAP_ACK} and wait for the next user message.`;
+const WEB_CONTEXT_REFRESH_REQUEST = 'Refresh the NEURAFLOK project instructions and workspace context for this existing chat. This is configuration only, not a user task. Preserve the previous conversation and do not repeat earlier work.';
 const MAX_INLINE_ATTACHMENT_BYTES = 500_000;
+
+export interface WebContextCheck {
+  prompt: string;
+  expectedWords: string[];
+}
+
+function contextWords(text: string): string[] {
+  return text.normalize('NFKC').toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/** Ask the provider to prove it can still read the last authored request in an existing chat. */
+export function prepareWebProviderContextCheck(previousRequest: string | null): WebContextCheck {
+  const words = previousRequest ? contextWords(previousRequest) : [];
+  const expectedWords = words.slice(-Math.min(8, words.length));
+  const proof = expectedWords.length
+    ? `On the second line, copy the final ${expectedWords.length} words of the most recent human-authored task from before this application-generated context refresh, exactly and without quotation marks. Ignore earlier setup, context-refresh, and readiness messages. Do not copy words from this instruction; find the task in the earlier conversation. If you cannot see it, reply exactly CONTEXT_MISSING.`
+    : 'If you can read this conversation and its project instructions, reply exactly NEURAFLOK_READY. If you cannot, reply exactly CONTEXT_MISSING.';
+  return {
+    prompt: `${WEB_CONTEXT_CHECK_MARKER}\nThis is a hidden readiness check for the existing NEURAFLOK chat. Do not answer earlier tasks, summarize, or use tools. On the first line reply exactly ${WEB_BOOTSTRAP_ACK}. ${proof}`,
+    expectedWords
+  };
+}
+
+/** A provider is ready only when it returns the acknowledgement and the requested history proof. */
+export function confirmsWebProviderContext(text: string, expectedWords: readonly string[]): boolean {
+  const lines = String(text ?? '').trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (lines[0] !== WEB_BOOTSTRAP_ACK) return false;
+  if (!expectedWords.length) return lines.length === 1;
+  const answer = contextWords(lines.slice(1).join(' '));
+  if (answer.length < expectedWords.length) return false;
+  const start = answer.findIndex((_, index) => expectedWords.every((word, offset) => answer[index + offset] === word));
+  return start >= 0;
+}
 
 /** Setup is its own first native message; authored work and file bytes arrive afterwards. */
 export async function prepareWebProviderBootstrap(entry: InputEntry, sessionId: string, guide: string): Promise<string> {
   const setup = await prepareProviderSessionPrompt(WEB_BOOTSTRAP_REQUEST,
     { sessionId, projectId: entry.projectId }, LOCAL_PROVIDER_PROMPT_LIMITS, '');
   return `${setup}\n\n${guide}\n\n${WEB_BOOTSTRAP_REQUEST}`;
+}
+
+/** Refresh project instructions inside an existing chat while checking its prior transcript. */
+export async function prepareWebProviderContextRefresh(
+  entry: InputEntry,
+  sessionId: string,
+  guide: string,
+  check: WebContextCheck
+): Promise<string> {
+  const setup = await prepareProviderSessionPrompt(WEB_CONTEXT_REFRESH_REQUEST,
+    { sessionId, projectId: entry.projectId }, LOCAL_PROVIDER_PROMPT_LIMITS, '');
+  return `${setup}\n\n${guide}\n\n${WEB_CONTEXT_REFRESH_REQUEST}\n\n${check.prompt}`;
 }
 
 async function attachedText(attachments: readonly InputAttachment[] | undefined, allowImages: boolean): Promise<string> {

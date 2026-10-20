@@ -268,6 +268,8 @@ export type SessionEvent =
       message: StoredText;
       /** Stable provider message identity used by the local canonical store. */
       messageId?: string;
+      /** Exact local input that requested this reply, when the app generated it. */
+      inputId?: string;
       /** Public provider object UUID. Evidence for identity drift; not a canonical key or turn owner. */
       providerMessageId?: string;
       /** Provider-reported model for this reply; model usage attribution remains separate. */

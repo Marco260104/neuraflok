@@ -49,6 +49,7 @@ import {
   webToolGuide
 } from '../contracts/chat-protocol.js';
 import { isWebProviderConversationId } from '../contracts/web-providers.js';
+import { confirmsWebProviderContext, prepareWebProviderContextCheck } from '../backend/domains/sessions/input/provider-context.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
 const TEST_PROVIDER_CONVERSATION = 'ds-00000000-0000-0000-0000-000000000001';
@@ -481,7 +482,9 @@ it('does not reopen an existing provider chat when its local transcript is unava
   const pages: Array<{ text: string; fresh: boolean }> = [];
   const configure = () => configurePageForTests({ complete: async (text, _signal, options) => {
     pages.push({ text, fresh: options?.fresh === true });
-    return { text: options?.fresh ? 'NEURAFLOK_READY' : 'continued' };
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (text.includes('NEURAFLOK_CONTEXT_CHECK')) return { text: 'NEURAFLOK_READY\nfirst job' };
+    return { text: 'continued' };
   } });
   configure();
   const first = await enqueueInput({
@@ -500,8 +503,9 @@ it('does not reopen an existing provider chat when its local transcript is unava
   await runDeepseekInput(second);
 
   expect((await getSession(first.id))?.conversationId).toBe(originalConversation);
-  expect(pages).toHaveLength(3);
-  expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('continue the same task') });
+  expect(pages).toHaveLength(4);
+  expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('NEURAFLOK_CONTEXT_CHECK') });
+  expect(pages[3]).toMatchObject({ fresh: false, text: expect.stringContaining('continue the same task') });
 });
 
 it('sends setup once, waits for its acknowledgement, then sends authored messages separately', async () => {
@@ -560,6 +564,79 @@ it('warms a new web chat with setup only, then sends the first user task as a fo
   await flushRecorder();
   const events = await readEvents(warmup.id);
   expect(events.some(event => event.kind === 'user_message' && event.message.text === 'MY_ACTUAL_REQUEST')).toBe(true);
+});
+
+it('confirms the previous authored request before marking an existing DeepSeek chat ready', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  const previousRequest = 'Yesterday I was implementing the import flow.';
+  const check = prepareWebProviderContextCheck(previousRequest);
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (text.includes('NEURAFLOK_CONTEXT_CHECK'))
+      return { text: `NEURAFLOK_READY\n${previousRequest}` };
+    return { text: 'The import flow is ready to continue.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: previousRequest, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(warmup);
+
+  expect(check.expectedWords).toEqual(['yesterday', 'i', 'was', 'implementing', 'the', 'import', 'flow']);
+  expect(pages.map(page => page.fresh)).toEqual([true, false, false]);
+  expect(pages[2]!.text).toContain('NEURAFLOK_CONTEXT_CHECK');
+  expect(pages[2]!.text).toContain('copy the final 7 words');
+  expect(pages[2]!.text).not.toContain(previousRequest);
+  expect(confirmsWebProviderContext(`NEURAFLOK_READY\n${previousRequest}`, check.expectedWords)).toBe(true);
+  expect(confirmsWebProviderContext('NEURAFLOK_READY\nA different request', check.expectedWords)).toBe(false);
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(true);
+  expect(events.some(event => event.kind === 'user_message' && event.inputId === warmup.id)).toBe(false);
+});
+
+it('restores an old DeepSeek transcript before it lets the chat pass readiness', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  let loseContext = false;
+  const previousRequest = 'Yesterday we fixed the broken branch names for NF-15.';
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (loseContext && text.includes('NEURAFLOK_CONTEXT_CHECK')) {
+      loseContext = false;
+      throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: saved DeepSeek page is unavailable');
+    }
+    if (text.startsWith('The original provider page'))
+      return { text: `NEURAFLOK_READY\n${previousRequest}` };
+    return { text: 'The branches are ready.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: previousRequest, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  loseContext = true;
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(warmup);
+
+  expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
+  expect(pages[3]!.text).toContain('Available tools');
+  expect(pages[4]!.text).toContain(previousRequest);
+  expect(pages[4]!.text).toContain('NEURAFLOK_CONTEXT_CHECK');
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(true);
 });
 
 it('does not execute tool examples or send the user task when setup is not acknowledged', async () => {

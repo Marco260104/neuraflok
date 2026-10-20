@@ -90,6 +90,7 @@
   animation: web-model-spin 700ms linear infinite;
 }
 .composer-ready-gate[data-tone='ready'] .composer-ready-spinner { display: none; }
+.composer-ready-gate[data-tone='error'] .composer-ready-spinner { display: none; }
 #composerReadyLabel { font-size: calc(13px * var(--text-scale, 1)); font-weight: 550; color: var(--ink); }
 #composerReadyDetail { font-size: calc(12px * var(--text-scale, 1)); color: var(--soft); }
 .composer.is-waiting textarea { caret-color: var(--soft); }

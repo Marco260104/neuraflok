@@ -27,6 +27,7 @@ import { createSidebarOrder } from './sidebar/order.js';
 import { createSidebarPins } from './sidebar/pins.js';
 import { createSidebarCompletionState } from './sidebar/completion-state.js';
 import { paintContextMeter } from './context-meter.js';
+import { ensureSelectedChatWarmup } from './chat-composer-ready.js';
 
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { LocalProject } from '../../../contracts/workspace/projects.js';
@@ -419,7 +420,10 @@ export function chatSettingsPatch(current: Config) {
 
 export function chatApply(state: AppState, previous?: Config): void {
   chatSettings.chatApply(state, previous);
-  if (deps) paintDeliveryControls();
+  if (deps) {
+    paintDeliveryControls();
+    ensureSelectedChatWarmup();
+  }
 }
 
 // Called when the Chat tab becomes visible or is left, so it only polls when shown.

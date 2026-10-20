@@ -65,6 +65,7 @@ export function bindChatComposerInputEvents(runtime: Runtime): void {
 
   $('composer').addEventListener('submit', event => {
     event.preventDefault();
+    if ($<HTMLButtonElement>('chatSend').disabled) return;
     const controlAction = event.submitter === $('chatSend') && $('chatSend').dataset.action === 'stop';
     if (runtime.currentPreparedPlan()) void runtime.sendPreparedPlan();
     else if (runtime.taskPlans.hasPlan(runtime.draftKey())) {

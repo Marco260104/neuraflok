@@ -223,6 +223,9 @@ it('gives twenty rapid New Chat sends independent visible local chats before any
     listSessions: async () => ok({ sessions: [...summaries], activeId: null, pressure: [] }),
     getSession: async (id: string) => ok({ summary: summaries.find(row => row.id === id), events: [], nextCursor: null })
   });
+  mounted.state.config.ui.chatExecutor = 'api';
+  mounted.push(mounted.state);
+  await settle();
   const w = mounted.window, doc = w.document, field = doc.getElementById('chatInput') as HTMLTextAreaElement;
   for (let index = 0; index < 20; index++) {
     (doc.getElementById('newChat') as HTMLButtonElement).click(); await settle();
@@ -280,6 +283,9 @@ it('shows the frozen Auto-selected Skill receipt for an accepted ordinary send',
     listSessions: async () => ok({ sessions: [...summaries], activeId: null, pressure: [] }),
     getSession: async (id: string) => ok({ summary: summaries.find(row => row.id === id), events: [], nextCursor: null })
   });
+  mounted.state.config.ui.chatExecutor = 'api';
+  mounted.push(mounted.state);
+  await settle();
   const w = mounted.window, doc = w.document, field = doc.getElementById('chatInput') as HTMLTextAreaElement;
   (doc.getElementById('newChat') as HTMLButtonElement).click();
   await settle();
@@ -303,6 +309,9 @@ it('does not steal a newer New Chat draft when an older admission response arriv
     listSessions: async () => ok({ sessions: [...summaries], activeId: null, pressure: [] }),
     getSession: async (id: string) => ok({ summary: summaries.find(row => row.id === id), events: [], nextCursor: null })
   });
+  mounted.state.config.ui.chatExecutor = 'api';
+  mounted.push(mounted.state);
+  await settle();
   const w = mounted.window, doc = w.document, field = doc.getElementById('chatInput') as HTMLTextAreaElement;
   (doc.getElementById('newChat') as HTMLButtonElement).click(); await settle();
   field.value = 'Old admission'; doc.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
