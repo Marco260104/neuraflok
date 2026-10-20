@@ -65,14 +65,42 @@
       return { before: lastAnswer(), beforeThink: lastThink() };
     }
 
-    function responseText(sent, before, beforeThink) {
+    function isAck(text) {
+      return /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/.test(String(text || '').trim());
+    }
+
+    function hasToolCall(text) {
+      return /```(?:neuraflok-tool|json)\b/i.test(text) || /<(?:exec_command|read|apply_patch)\b/i.test(text);
+    }
+
+    function looksLikeThink(text) {
+      return /^(Let me|Let's|We need|I will|I'll |The user |Need to |Must not |Pensado|Pensó|Detenido|Voy a |Vamos a |Déjame |Dejame |Necesito |Debo |Hay que )\b/i.test(normalized(text));
+    }
+
+    function publicAnswer(sent, before) {
       const answer = lastAnswer();
-      if (answer && normalized(answer) !== normalized(before) && normalized(answer) !== normalized(sent)) return answer;
-      if (options.includeThink) {
-        const think = lastThink();
-        if (think && normalized(think) !== normalized(beforeThink) && normalized(think) !== normalized(sent) && think !== before) return think;
-      }
+      if (!answer) return '';
+      const think = lastThink();
+      const answerNorm = normalized(answer);
+      const thinkNorm = normalized(think);
+      // After bootstrap, the chat title and first ACK bubble stay NEURAFLOK_READY.
+      // That is not a new answer, and posting it ends the turn before tools finish.
+      if (isAck(answer) && normalized(before)) return '';
+      if (looksLikeThink(answer) && !hasToolCall(answer)) return '';
+      if (thinkNorm && (answerNorm === thinkNorm || (answerNorm.includes(thinkNorm) && answerNorm.length <= thinkNorm.length + 40))) return '';
+      if (normalized(answer) === normalized(before) || normalized(answer) === normalized(sent)) return '';
+      return answer;
+    }
+
+    function thinkText(sent, before, beforeThink) {
+      if (!options.includeThink) return '';
+      const think = lastThink();
+      if (think && normalized(think) !== normalized(beforeThink) && normalized(think) !== normalized(sent) && think !== before) return think;
       return '';
+    }
+
+    function responseText(sent, before, beforeThink) {
+      return publicAnswer(sent, before) || thinkText(sent, before, beforeThink);
     }
 
     function generating() {
@@ -112,7 +140,9 @@
       const sent = typeof message.sent === 'string' ? message.sent : active?.sent || '';
       const before = typeof message.before === 'string' ? message.before : active?.before || '';
       const beforeThink = typeof message.beforeThink === 'string' ? message.beforeThink : active?.beforeThink || '';
-      return { ...pageStatus(), text: responseText(sent, before, beforeThink) };
+      const answer = publicAnswer(sent, before);
+      const think = thinkText(sent, before, beforeThink);
+      return { ...pageStatus(), text: answer || think, answer, think };
     }
 
     function sessionError(conversationId) {
@@ -201,13 +231,15 @@
       } catch {
         return { error: `${provider.toUpperCase()} send could not be dispatched. Check this conversation before retrying.` };
       }
-      const freshAnswer = () => responseText(sent, before, beforeThink);
-      await until(() => generating() || freshAnswer(), options.startMs);
-      const finished = await until(() => !generating() && freshAnswer(), options.finishMs);
+      const publicNow = () => publicAnswer(sent, before);
+      const ackRepeat = (text) => isAck(text) && isAck(before);
+      const staleAck = (text) => isAck(text) && Boolean(normalized(before));
+      await until(() => generating() || publicNow() || thinkText(sent, before, beforeThink), options.startMs);
+      const finished = await until(() => !generating() && publicNow() && !ackRepeat(publicNow()) && !staleAck(publicNow()), options.finishMs);
       await wait(400);
-      const text = freshAnswer();
-      if (finished && text) return { text, before, beforeThink };
-      return { pending: true, text, before, beforeThink, generating: generating() };
+      const text = publicNow();
+      if (finished && text && !ackRepeat(text) && !staleAck(text)) return { text, before, beforeThink };
+      return { pending: true, text: text || thinkText(sent, before, beforeThink), before, beforeThink, generating: generating() };
     }
 
     function showMark() {

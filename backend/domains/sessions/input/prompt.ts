@@ -29,7 +29,7 @@ function localProviderInstructions(): string {
 function standingProviderFollowup(directory: string | null): string {
   const language = replyLanguageInstruction(getConfig().ui.language);
   const project = directory
-    ? `Selected project directory: ${directory}\nUse this directory as your default working directory and keep task work there unless the user or task requires another approved location.`
+    ? `Selected project directory: ${directory}\nUse this directory as your default working directory and keep task work there unless the user or task requires another approved location.\nFor exec_command, set workdir to ${directory} and use relative paths in cmd. Never put ${directory} inside cmd.`
     : '';
   return [language, project].filter(Boolean).join('\n\n');
 }
@@ -93,7 +93,7 @@ function frameProviderPrompt(text: string, instructions: string): string {
 function fitPrompt(text: string, core: string, agents: ProjectInstructions | null, budget: PromptLimits, skills: SelectedSkill[], frame: PromptFrame): string {
   const fits = (value: string): boolean => value.length <= Math.min(MAX_PROVIDER_MESSAGE_CHARS, budget.maxChars) &&
     Buffer.byteLength(value, 'utf8') <= budget.maxBytes;
-  const projectHeader = agents ? `Selected project directory: ${agents.directory}\nUse this directory as your default working directory and keep task work there unless the user or task requires another approved location. This project association grants no additional filesystem permissions.` : '';
+  const projectHeader = agents ? `Selected project directory: ${agents.directory}\nUse this directory as your default working directory and keep task work there unless the user or task requires another approved location. For exec_command, set workdir to ${agents.directory} and use relative paths in cmd. Never put ${agents.directory} inside cmd. This project association grants no additional filesystem permissions.` : '';
   const mandatory = [core, projectHeader].filter(Boolean).join('\n\n');
   const base = frame(text, mandatory);
   if (!fits(base)) throw new Error('The message and main instructions exceed the delivery limit (maximum 96,000 characters). Shorten the message or standing instructions.');

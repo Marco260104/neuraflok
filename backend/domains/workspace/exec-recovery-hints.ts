@@ -17,6 +17,40 @@ export function execRecoveryHints(
     );
   }
 
+  if (
+    powershell &&
+    (/[∣−]/.test(command) ||
+      (!command.includes('$') &&
+        /ForEach-Object/.test(command) &&
+        /Get-Content|Measure-Object/.test(command)))
+  ) {
+    hints.push(
+      'This chat renders $ as math, which destroys PowerShell variables. Do not retry a PowerShell loop. ' +
+        'Use `read` on the project files you need.'
+    );
+  }
+
+  if (
+    powershell &&
+    /(^|\n)\s*rg\s*:/i.test(outputText) &&
+    /CommandNotFoundException|no se reconoce|is not recognized/i.test(outputText)
+  ) {
+    hints.push(
+      'PowerShell did not find rg. Do not retry the same command. List the project with `read` on the project folder, then read the files you need.'
+    );
+  }
+
+  if (
+    powershell &&
+    /\b(head|wc|cat|ls)\b/.test(command) &&
+    /CommandNotFoundException|no se reconoce|is not recognized/i.test(outputText)
+  ) {
+    hints.push(
+      'PowerShell has no head, wc, cat, or ls. Do not retry that pipeline. ' +
+        'Use `read` on the project files you need.'
+    );
+  }
+
   if (/fatal: not a git repository/i.test(outputText)) {
     hints.push(
       'That folder is not a git repository, so no git command that needs one will work there. ' +

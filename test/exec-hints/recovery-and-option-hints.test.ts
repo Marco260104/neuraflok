@@ -6,6 +6,34 @@ import { locateRipgrep } from "../../backend/infrastructure/binaries/ripgrep.js"
 import { describe, expect, it } from 'vitest';
 
 describe('saying what to do next', () => {
+  it('steers away from PowerShell loops after this chat strips $ as math', () => {
+    const garbled = 'Get-ChildItem lib/*.js, index.js | ForEach-Object { "{0} {1}" -f (Get-Content .         ∣        −       −     ) .      , . FullName∣Measure−Object−Line).Lines,.FullName }';
+    const hints = execRecoveryHints(garbled, '', 'powershell');
+    expect(hints.join(' ')).toMatch(/renders \$ as math/i);
+    expect(hints.join(' ')).toMatch(/Use `read`/);
+    expect(hints.join(' ')).toMatch(/Do not retry a PowerShell loop/i);
+    expect(
+      execRecoveryHints(
+        'Get-ChildItem lib/*.js | ForEach-Object { (Get-Content . FullName | Measure-Object -Line).Lines }',
+        '',
+        'powershell'
+      ).join(' ')
+    ).toMatch(/Use `read`/);
+    expect(execRecoveryHints('rg --files', '', 'powershell')).toEqual([]);
+    expect(execRecoveryHints('Get-Content app.js | Select-String -Pattern x', '', 'powershell')).toEqual([]);
+    expect(execRecoveryHints(garbled, '', 'bash')).toEqual([]);
+  });
+
+  it('steers off POSIX pipelines when PowerShell does not have the program', () => {
+    const output =
+      "wc : El término 'wc' no se reconoce como nombre de un cmdlet, función, archivo de script o programa ejecutable.\n" +
+      'FullyQualifiedErrorId : CommandNotFoundException';
+    const hints = execRecoveryHints('wc -l lib/*.js index.js', output, 'powershell');
+    expect(hints.join(' ')).toMatch(/no head, wc, cat, or ls/i);
+    expect(hints.join(' ')).toMatch(/Use `read`/);
+    expect(execRecoveryHints('rg --files', output, 'powershell')).toEqual([]);
+  });
+
   it('names the cause when git ran outside a repository', () => {
     const hints = execRecoveryHints('git status --short', 'fatal: not a git repository (or any of the parent directories): .git');
     expect(hints).toHaveLength(1);

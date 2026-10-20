@@ -113,11 +113,26 @@ var NEURAFLOK_DEEPSEEK = (() => {
     return text.trim();
   };
 
+  const thinkNode = (node) =>
+    node.closest('.ds-think-content') ||
+    node.closest('[class*="think-content"]') ||
+    node.closest('[class*="thinking-content"]');
+
+  const thinkChild = (node) =>
+    node.querySelector?.('.ds-think-content, [class*="think-content"], [class*="thinking-content"]');
+
   const pickAnswer = (nodes, options) => {
     const allowThink = options && options.think === true;
     for (let i = nodes.length - 1; i >= 0; i--) {
       const node = nodes[i];
-      if (!allowThink && (node.closest('.ds-think-content') || node.closest('[class*="think-content"]') || node.closest('[class*="thinking-content"]'))) continue;
+      if (!allowThink && thinkNode(node)) continue;
+      if (!allowThink && thinkChild(node)) {
+        const pub = node.querySelector?.('.ds-assistant-message-main-content');
+        if (!pub) continue;
+        const nested = serializeAnswer(pub);
+        if (nested) return nested;
+        continue;
+      }
       if (node.closest('._9663006, [data-role="user"], .ds-message--user, .chat-message-user, [class*="user-message"], [class*="message-user"]')) continue;
       if (node.closest('textarea, #chat-input')) continue;
       if (classNames(node).includes('md-code-block-banner')) continue;
@@ -125,6 +140,14 @@ var NEURAFLOK_DEEPSEEK = (() => {
       if (text) return text;
     }
     return '';
+  };
+
+  const ACK = /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/;
+  const titleAck = () => {
+    const header = nodeText(document.querySelector('.the-header')).replace(/\s+/g, ' ').trim();
+    if (ACK.test(header)) return header;
+    const title = String(document.title || '').replace(/\s*[-–—]\s*DeepSeek.*$/i, '').trim();
+    return ACK.test(title) ? title : '';
   };
 
   const lastAnswer = () => safe(() => {
@@ -139,7 +162,12 @@ var NEURAFLOK_DEEPSEEK = (() => {
     if (assistant) return assistant;
     const message = pickAnswer([...document.querySelectorAll('.ds-message .ds-markdown, .ds-message')]);
     if (message) return message;
-    return pickAnswer([...document.querySelectorAll('[data-virtual-list-item-key] .ds-markdown, .ds-markdown')]);
+    const listed = pickAnswer([
+      ...document.querySelectorAll('.ds-virtual-list-visible-items .ds-markdown, .ds-virtual-list-visible-items .ds-message'),
+      ...document.querySelectorAll('[data-virtual-list-item-key] .ds-markdown, .ds-markdown')
+    ]);
+    if (listed) return listed;
+    return titleAck();
   }, '');
 
   const lastThink = () => safe(() => pickAnswer(
@@ -208,14 +236,16 @@ var NEURAFLOK_DEEPSEEK = (() => {
     sendButton,
     stopButton,
     generating: () => {
+      // Streaming cursor/spinner is the live signal. A leftover Send icon on the page must not
+      // end the turn while DeepSeek is still thinking or writing a tool call.
+      if (document.querySelector('.ds-assistant-message-main-content .ds-loading, .ds-message--assistant .ds-loading, [class*="assistant-message"] .ds-loading, .ds-cursor, .ds-think-content .ds-loading')) return true;
+      const box = composer();
+      if (box && (box.disabled || box.readOnly)) return true;
       const send = sendButton();
       const stop = stopButton();
       // An enabled Send button proves generation is not active, even if a decoy/leftover Stop icon exists
       if (send) return false;
       if (stop) return true;
-      if (document.querySelector('.ds-assistant-message-main-content .ds-loading, .ds-message--assistant .ds-loading, [class*="assistant-message"] .ds-loading, .ds-cursor')) return true;
-      const box = composer();
-      if (box && (box.disabled || box.readOnly)) return true;
       return false;
     },
     lastAnswer,

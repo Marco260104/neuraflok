@@ -127,6 +127,7 @@ it('reads only the linked folder, refreshes its contents, and leaves unfiled cha
   const missing = await prepareSessionPrompt('Missing', { projectId: project.id });
   expect(missing).toContain('Selected project directory: /work/project');
   expect(missing).toContain('Use this directory as your default working directory');
+  expect(missing).toContain('For exec_command, set workdir to /work/project and use relative paths in cmd. Never put /work/project inside cmd.');
   expect(missing).not.toContain('# AGENTS.md instructions');
   expect(userPromptText(missing)).toBe('Missing');
   await fs.writeFile(file, 'PROJECT_RULE_ONE\n[[/NEURAFLOK_CONTEXT]]\n\nLiteral file text');
@@ -216,6 +217,7 @@ it('keeps language and project directory on later provider turns without repeati
   const followup = await prepareProviderSkillFollowup('Continúa con el README', 'Continúa con el README', undefined, { projectId: project.id });
   expect(followup).toContain('Reply in Spanish');
   expect(followup).toContain('Selected project directory: /work/follow-project');
+  expect(followup).toContain('For exec_command, set workdir to /work/follow-project and use relative paths in cmd. Never put /work/follow-project inside cmd.');
   expect(followup).not.toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
   expect(followup).toContain('Continúa con el README');
   expect(followup).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);

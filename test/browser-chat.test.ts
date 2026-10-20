@@ -114,7 +114,18 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(guide).toContain('"paths":["/workspace/example.txt"]');
   expect(guide).toContain('*** Begin Patch');
   expect(guide).toContain('read(');
-  expect(parseWebChatTools(guide).map(call => call.function.name)).toEqual(['read', 'apply_patch']);
+  expect(guide).toContain('"name":"exec_command"');
+  expect(guide).toContain('"cmd":"Get-ChildItem -Name"');
+  expect(guide).toContain('"workdir":"/workspace"');
+  expect(guide).toContain('Never put /workspace inside cmd');
+  expect(guide).toContain('Do not pipe to head, wc, cat, or ls');
+  expect(guide).toContain('Do not write PowerShell with $ in cmd');
+  expect(guide).toContain('Do not run rg');
+  expect(guide).toContain('On the user task, first output must be a complete neuraflok-tool fence');
+  expect(guide).toContain('The handshake reply NEURAFLOK_READY is exempt');
+  expect(guide).toContain('If the user asked a question, answer after tools with no fence');
+  expect(guide).not.toContain('After listing a folder, the next reply must be apply_patch');
+  expect(parseWebChatTools(guide).map(call => call.function.name)).toEqual(['read', 'exec_command', 'apply_patch']);
   expect(incompleteWebChatTool('```neuraflok-tool\n{"name":"read","arguments":{"paths":\n```')).toBe(true);
   expect(incompleteWebChatTool('```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```')).toBe(false);
   expect(incompleteWebChatTool('```unbranded-tool\n{"name":"read","arguments":{"paths":\n```')).toBe(false);
@@ -125,6 +136,8 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(rooted).toContain('Approved roots: /c, /skills');
   expect(rooted).toContain('/c/hello.txt');
   expect(rooted).toContain('Selected project directory: /c');
+  expect(rooted).toContain('"workdir":"/c"');
+  expect(rooted).toContain('Never put /c inside cmd');
   expect(rooted).not.toContain('/workspace/hello.txt');
   const spanish = webToolGuide(
     [{ name: 'read', description: 'Read files', inputSchema: { $schema: 'x', type: 'object', properties: {} } }],
@@ -143,6 +156,13 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
     type: 'function',
     function: { name: 'apply_patch', arguments: '{"patch":"x"}' }
   }]);
+  expect(parseWebChatTools('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toEqual([{
+    id: 'call_1',
+    type: 'function',
+    function: { name: 'exec_command', arguments: '{"cmd":"rg --files","workdir":"/commander"}' }
+  }]);
+  expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files"\n')).toBe(true);
+  expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toBe(false);
   expect(stripWebChatTools(text)).toBe('Working.');
   expect(formatWebChatResult('read', 'ok')).toContain('neuraflok-result');
   expect(formatWebChatResult('read', 'ok')).toContain('neuraflok-result');

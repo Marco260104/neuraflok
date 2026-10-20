@@ -102,7 +102,8 @@ export function registerExecCommandTool(reg: SurfaceRegistrar): void {
           if (virtualCommandPath) {
             return fail(
               `INVALID_COMMAND_PATH${isBatch ? ` in command ${index + 1}` : ''}: ${virtualCommandPath} is an app virtual path, but shell commands do not understand virtual paths. ` +
-                `Use workdir plus a relative path, or use the approved folder's native filesystem path. No command was run.`
+                `Use workdir plus a relative path, or use the approved folder's native filesystem path. ` +
+                `Retry with {"cmd":"rg --files","workdir":${JSON.stringify(dir.virtual)}}. Do not put ${virtualCommandPath} inside cmd. No command was run.`
             );
           }
         }

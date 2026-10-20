@@ -168,6 +168,48 @@ function taggedToolBlocks(source: string, tag: string): Array<{ start: number; e
   return out;
 }
 
+const XML_TOOL_OPEN = new RegExp(`<(${WEB_CHAT_CORE_TOOLS.join('|')})\\b[^>]*>`, 'gi');
+
+function xmlToolBody(name: string, raw: string): string | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const row = parsed as { name?: unknown; arguments?: unknown };
+  if (typeof row.name === 'string' && row.name.trim()) return raw;
+  return JSON.stringify({ name, arguments: parsed });
+}
+
+function xmlToolBlocks(source: string): Array<{ start: number; end: number; body: string }> {
+  const out: Array<{ start: number; end: number; body: string }> = [];
+  const open = new RegExp(XML_TOOL_OPEN.source, 'gi');
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(source))) {
+    const name = match[1]!;
+    const obj = readJsonObject(source, match.index + match[0].length);
+    if (!obj) continue;
+    const body = xmlToolBody(name, obj.json);
+    if (!body) continue;
+    let end = obj.end;
+    const close = source.slice(end).match(new RegExp(`^[ \\t]*\\r?\\n?</${name}\\s*>`, 'i'));
+    if (close) end += close[0].length;
+    out.push({ start: match.index, end, body });
+    open.lastIndex = end;
+  }
+  return out;
+}
+
+function xmlToolOpens(source: string): number {
+  const open = new RegExp(XML_TOOL_OPEN.source, 'gi');
+  let count = 0;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(source))) {
+    const from = match.index + match[0].length;
+    const brace = source.indexOf('{', from);
+    if (brace >= 0 && brace - from <= 48) count++;
+  }
+  return count;
+}
+
 function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder: string } {
   const source = text ?? '';
   const calls: WebChatToolCall[] = [];
@@ -180,6 +222,7 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
   };
   for (const block of taggedToolBlocks(source, 'neuraflok-tool')) take(block.start, block.end, block.body);
   for (const block of taggedToolBlocks(source, 'json')) take(block.start, block.end, block.body);
+  for (const block of xmlToolBlocks(source)) take(block.start, block.end, block.body);
   const banner = /(?:^|\n)neuraflok-tool[ \t]*\r?\n/gi;
   let match: RegExpExecArray | null;
   while ((match = banner.exec(source))) {
@@ -216,6 +259,7 @@ export function incompleteWebChatTool(text: string): boolean {
   while (fence.exec(source)) opens++;
   const banner = /(?:^|\n)neuraflok-tool[ \t]*\r?\n/gi;
   while (banner.exec(source)) opens++;
+  opens += xmlToolOpens(source);
   if (!opens) return false;
   return parseWebChatTools(source).length < opens;
 }
@@ -243,12 +287,12 @@ export function webChatRoundReminder(ctx?: WebChatGuideContext): string {
   return [
     language,
     ctx?.project ? `Selected project directory: ${ctx.project}. Keep task work there.` : '',
-    `Approved roots: ${listed}. Create files under ${root} with apply_patch.`,
-    'To create or edit files you must emit a complete neuraflok-tool fence calling apply_patch.',
-    'Pasting source in the chat does not write files.',
-    `read takes {"paths":["${root}/file"]}. exec_command takes {"cmd":"..."}.`,
-    'After listing a folder, the next reply must be apply_patch.',
-    'When apply_patch has succeeded, answer the user with no fence.'
+    `Approved roots: ${listed}.`,
+    `read takes a neuraflok-tool fence {"name":"read","arguments":{"paths":["${root}/file"]}}. Prefer read on the project folder. Do not run rg; it is not on this PowerShell PATH.`,
+    `exec_command takes a neuraflok-tool fence {"name":"exec_command","arguments":{"cmd":"Get-ChildItem -Name","workdir":"${root}"}}. Set workdir to the virtual project path. Never put ${root} inside cmd; use relative paths such as lib/index.js.`,
+    'Do not write PowerShell with $ in cmd; this chat renders $ as math and corrupts the command. Do not pipe to head, wc, cat, or ls.',
+    `To create or edit files, emit a complete neuraflok-tool fence calling apply_patch under ${root}. Pasting source in the chat does not write files.`,
+    'Do not write planning sentences such as Let me or We need. On the user task, first output must be a complete neuraflok-tool fence. The handshake reply NEURAFLOK_READY is exempt and must not include a tool fence. If the user asked a question, answer after tools with no fence. Only apply_patch when they asked to change files.'
   ].filter(Boolean).join(' ');
 }
 
@@ -258,7 +302,7 @@ export function incompleteToolNotice(ctx?: WebChatGuideContext): string {
     'INCOMPLETE_TOOL: A neuraflok-tool fence was cut off or was not valid JSON.',
     'Reply with one complete fence and nothing else.',
     `apply_patch: {"name":"apply_patch","arguments":{"patch":"*** Begin Patch\\n*** Add File: ${root}/hello.txt\\n+hello\\n*** End Patch"}}`,
-    'exec_command argument is cmd. read argument is paths (an array).'
+    'exec_command arguments are cmd and workdir. read argument is paths (an array).'
   ].join(' ');
 }
 
@@ -279,6 +323,7 @@ export function webToolGuide(
 ): string {
   const root = webChatWriteRoot(ctx);
   const readExample = JSON.stringify({ name: 'read', arguments: { paths: [`${root}/example.txt`] } });
+  const execExample = JSON.stringify({ name: 'exec_command', arguments: { cmd: 'Get-ChildItem -Name', workdir: root } });
   const patchExample = JSON.stringify({
     name: 'apply_patch',
     arguments: { patch: `*** Begin Patch\n*** Add File: ${root}/hello.txt\n+hello\n*** End Patch` }
@@ -305,9 +350,12 @@ export function webToolGuide(
     readExample,
     '```',
     '```neuraflok-tool',
+    execExample,
+    '```',
+    '```neuraflok-tool',
     patchExample,
     '```',
-    'You will receive a neuraflok-result fence with that tool\'s output. When apply_patch has succeeded, write the answer with no neuraflok-tool fence.'
+    'You will receive a neuraflok-result fence with that tool\'s output. After tools finish, answer the user with no fence unless another tool call is required.'
   ].join('\n');
 }
 

@@ -155,7 +155,7 @@ Object.defineProperty(HTMLTextAreaElement.prototype, 'value', {
   set(value: string) { nativeValues.set(this, String(value)); }
 });
 
-function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolean } = {}): {
+function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolean; title?: string } = {}): {
   api: DeepseekDomApi;
   composer: FakeNode | null;
   send: FakeNode;
@@ -184,6 +184,7 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
   const extras: FakeNode[] = [];
   const documentElement = node('html');
   const document = {
+    title: options.title ?? '',
     querySelector(selector: string) {
       return roots.flatMap(collect).find(candidate => matches(candidate, selector)) ?? null;
     },
@@ -338,6 +339,13 @@ it('does not treat a leftover Stop-like SVG as generating while Send is visible'
   expect(api.generating()).toBe(false);
 });
 
+it('treats a streaming cursor as generating even when Send is still visible', () => {
+  const cursor = node('div', { class: 'ds-cursor' });
+  const { api, send } = load([cursor]);
+  expect(api.sendButton()).toBe(send);
+  expect(api.generating()).toBe(true);
+});
+
 it('complete skips a user markdown echo of the sent prompt', async () => {
   const echo = node('div', { class: 'ds-markdown', text: 'hello from NEURAFLOK' });
   const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
@@ -443,7 +451,92 @@ it('answers neuraflok-deepseek-read with the grown think text', () => {
   const { listeners } = load([previous, think]);
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'old public', beforeThink: '' }, {}, (value) => { reply = value; });
-  expect(reply).toEqual({ signedIn: true, generating: false, conversationId: null, text: 'new think reply' });
+  expect(reply).toEqual({
+    signedIn: true, generating: false, conversationId: null,
+    text: 'new think reply', answer: '', think: 'new think reply'
+  });
+});
+
+it('does not treat the bootstrap ACK as a public follow-up after tools', () => {
+  const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+  const thinkMd = node('div', { class: 'ds-markdown', text: 'Let me inspect command.js next.' });
+  const think = node('div', { class: 'ds-think-content' }, [thinkMd]);
+  const { listeners } = load([ack, think]);
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-read',
+    before: '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/commander/lib/command.js"]}}\n```',
+    beforeThink: ''
+  }, {}, (value) => { reply = value; });
+  expect(reply).toMatchObject({ answer: '' });
+});
+
+it('still reports the bootstrap ACK when nothing has been said yet', () => {
+  const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+  const { listeners } = load([ack]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', before: '', beforeThink: '' }, {}, (value) => { reply = value; });
+  expect(reply).toMatchObject({ answer: 'NEURAFLOK_READY' });
+});
+
+it('does not treat English planning sentences as a public follow-up answer', () => {
+  const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+  const plan = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'We need inspect project to identify complex files. Must not edit. Let\'s list files.' });
+  const { listeners } = load([ack, plan]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'NEURAFLOK_READY', beforeThink: '' }, {}, (value) => { reply = value; });
+  expect(reply).toMatchObject({ answer: '' });
+});
+
+it('does not treat Spanish planning sentences as a public follow-up answer', () => {
+  const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+  const plan = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Voy a listar los archivos del proyecto.' });
+  const { listeners } = load([ack, plan]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'NEURAFLOK_READY', beforeThink: '' }, {}, (value) => { reply = value; });
+  expect(reply).toMatchObject({ answer: '' });
+});
+
+it('keeps a planning sentence that already contains a tool fence', () => {
+  const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+  const plan = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Let me inspect the project.\n```neuraflok-tool\n{"name":"read","arguments":{"paths":["/commander"]}}\n```' });
+  const { listeners } = load([ack, plan]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'NEURAFLOK_READY', beforeThink: '' }, {}, (value) => { reply = value; });
+  expect(reply).toMatchObject({
+    answer: expect.stringContaining('```neuraflok-tool')
+  });
+});
+
+it('does not report a Detenido think wrapper as the public follow-up answer', () => {
+  const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+  const thinkMd = node('div', { class: 'ds-markdown', text: 'Let me explore the project structure first.' });
+  const think = node('div', { class: 'ds-think-content' }, [thinkMd]);
+  const wrapper = node('div', { class: 'ds-message' }, [think]);
+  wrapper.innerText = 'Detenido Let me explore the project structure first.';
+  wrapper.textContent = wrapper.innerText;
+  const { listeners } = load([ack, wrapper]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'NEURAFLOK_READY', beforeThink: '' }, {}, (value) => { reply = value; });
+  expect(reply).toMatchObject({
+    answer: '',
+    think: 'Let me explore the project structure first.'
+  });
+});
+
+it('exposes the public assistant answer separately from think on read', () => {
+  const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Este proyecto es Commander.js.' });
+  const thinkMd = node('div', { class: 'ds-markdown', text: 'The user asked for a summary.' });
+  const think = node('div', { class: 'ds-think-content' }, [thinkMd]);
+  const { listeners } = load([assistant, think]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', before: '', beforeThink: '' }, {}, (value) => { reply = value; });
+  expect(reply).toEqual({
+    signedIn: true, generating: false, conversationId: null,
+    text: 'Este proyecto es Commander.js.',
+    answer: 'Este proyecto es Commander.js.',
+    think: 'The user asked for a summary.'
+  });
 });
 
 it('clicks New chat when the complete message asks for a fresh DeepSeek chat', async () => {
@@ -473,6 +566,64 @@ it('never binds a new local session to an existing DeepSeek conversation without
   await vi.waitFor(() => expect(reply).toMatchObject({ error: expect.stringMatching(/new-chat control/i) }));
   expect(send.events).not.toContain('click');
   expect(sessionStorage.getItem('neuraflok.providerSession')).toBeNull();
+});
+
+it('reads the bootstrap ACK from the chat title when the virtual list has not painted', () => {
+  const header = node('div', { class: 'the-header', text: 'NEURAFLOK_READY' });
+  const { api } = load([header], { title: 'NEURAFLOK_READY - DeepSeek' });
+  expect(api.lastAnswer()).toBe('NEURAFLOK_READY');
+});
+
+it('prefers painted assistant markdown over the chat title', () => {
+  const header = node('div', { class: 'the-header', text: 'NEURAFLOK_READY' });
+  const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Voy a listar los archivos.' });
+  const { api } = load([header, assistant], { title: 'NEURAFLOK_READY - DeepSeek' });
+  expect(api.lastAnswer()).toBe('Voy a listar los archivos.');
+});
+
+it('does not treat a think-only wrapper message as the public answer', () => {
+  const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+  const thinkMd = node('div', { class: 'ds-markdown', text: 'Let me explore the project structure first.' });
+  const think = node('div', { class: 'ds-think-content' }, [thinkMd]);
+  const wrapper = node('div', { class: 'ds-message' }, [think]);
+  wrapper.innerText = 'Detenido Let me explore the project structure first.';
+  wrapper.textContent = wrapper.innerText;
+  const { api } = load([ack, wrapper]);
+  expect(api.lastAnswer()).toBe('NEURAFLOK_READY');
+  expect(api.lastThink()).toBe('Let me explore the project structure first.');
+});
+
+it('keeps a follow-up pending when only think has appeared after the bootstrap ACK', async () => {
+  vi.useFakeTimers();
+  try {
+    const ack = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'NEURAFLOK_READY' });
+    const thinkMd = node('div', { class: 'ds-markdown', text: '' });
+    const think = node('div', { class: 'ds-think-content' }, [thinkMd]);
+    const wrapper = node('div', { class: 'ds-message' }, [think]);
+    const { listeners, send, sessionStorage, api } = load([ack, wrapper]);
+    sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+    expect(api.lastAnswer()).toBe('NEURAFLOK_READY');
+    send.click = function click() {
+      this.events.push('click');
+      thinkMd.textContent = 'Let me explore the project structure first.';
+      thinkMd.innerText = thinkMd.textContent;
+      think.innerText = thinkMd.innerText;
+      wrapper.innerText = `Detenido ${thinkMd.innerText}`;
+    };
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete',
+      id: '00000000-0000-4000-8000-000000000009',
+      conversationId: SESSION_ID,
+      text: 'what files are hardest',
+      before: 'NEURAFLOK_READY'
+    }, {}, value => { reply = value; });
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(reply).toMatchObject({ pending: true, before: 'NEURAFLOK_READY' });
+    expect((reply as { text?: string }).text).not.toBe('NEURAFLOK_READY');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('allows follow-up messages on the bound tab even if sessionStorage was blank', async () => {
