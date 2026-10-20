@@ -412,6 +412,38 @@ it('sends setup once, waits for its acknowledgement, then sends authored message
   expect(pages[2]!.text).not.toContain('Available tools');
 });
 
+it('warms a new web chat with setup only, then sends the first user task as a follow-up', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    return { text: 'Task received.' };
+  } });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(warmup);
+  expect(pages).toHaveLength(1);
+  expect(pages[0]).toMatchObject({ fresh: true });
+  expect(pages[0]!.text).toContain('Do not run tools or execute examples');
+  expect(pages[0]!.text).not.toContain('NEURAFLOK_WARMUP');
+  await flushRecorder();
+  const warmed = await readEvents(warmup.id);
+  expect(warmed.some(event => event.kind === 'user_message')).toBe(false);
+  expect(warmed.some(event => event.kind === 'assistant_message' && event.message.text === 'NEURAFLOK_READY')).toBe(true);
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: warmup.id, text: 'MY_ACTUAL_REQUEST', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  expect(pages).toHaveLength(2);
+  expect(pages[1]).toMatchObject({ fresh: false, text: expect.stringContaining('MY_ACTUAL_REQUEST') });
+  expect(pages[1]!.text).not.toContain('Available tools');
+  await flushRecorder();
+  const events = await readEvents(warmup.id);
+  expect(events.some(event => event.kind === 'user_message' && event.message.text === 'MY_ACTUAL_REQUEST')).toBe(true);
+});
+
 it('does not execute tool examples or send the user task when setup is not acknowledged', async () => {
   const complete = vi.fn(async () => ({ text: '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace"]}}\n```' }));
   configurePageForTests({ complete });

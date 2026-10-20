@@ -185,11 +185,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     authoredComposerText: bindings.authoredComposerText,
     pendingComposerInput: () => chatInputQueue.pendingComposerInput(),
     taskPlans: taskPlanController,
-    state: () => bindings.deps.state(),
-    get sessions() { return bindings.sessions; },
-    get events() { return bindings.events; },
-    get detailFor() { return bindings.detailFor; },
-    get pendingNewInput() { return bindings.pendingNewInput; }
+    state: () => bindings.deps.state()
   });
 
   const chatComposerInputRuntime = {

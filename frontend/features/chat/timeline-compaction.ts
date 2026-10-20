@@ -3,6 +3,7 @@ import { currentLanguage, ui, t } from '../../shared/i18n.js';
 import { clockTime, compactNumber, el, icon } from '../../shared/dom.js';
 import { userPromptText } from '../../../contracts/messaging/provider-message-envelope.js';
 import { renderedMarkdown, textBlock } from './markdown-renderer.js';
+import { isHandshakeAck } from './chat-composer-ready.js';
 
 export interface CompactionTimelineRuntime {
   el: typeof el;
@@ -65,6 +66,7 @@ export function createTimelineCompaction(runtime: CompactionTimelineRuntime) {
       return block;
     };
     for (const event of source) {
+      if (event.kind === 'assistant_message' && isHandshakeAck(event.message.text)) continue;
       const marker = continuationMarker(event);
       if (marker && event.kind === 'user_message') {
         const block = blockFor(marker.token, event);

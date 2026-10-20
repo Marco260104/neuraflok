@@ -9,10 +9,6 @@ export type ComposerReadyPhase = 'models' | 'signin' | 'opening' | 'ready';
 export interface ComposerReadyInput {
   apiExecutor: boolean;
   signedIn: boolean | null | undefined;
-  pendingNewInput: boolean;
-  openingInFlight: boolean;
-  trackedOpening: boolean;
-  hasAssistantReply: boolean;
 }
 
 const openingSessions = new Set<string>();
@@ -33,6 +29,7 @@ export function noteOpeningSession(sessionId: string): void {
 
 export function releaseOpeningSession(sessionId: string | null): void {
   if (sessionId) openingSessions.delete(sessionId);
+  else unboundOpening = false;
 }
 
 export function trackedOpening(sessionId: string | null): boolean {
@@ -45,6 +42,10 @@ export function isHandshakeAck(text: string | null | undefined): boolean {
 
 export function hasPublicAssistantReply(events: readonly SessionEvent[]): boolean {
   return events.some(event => event.kind === 'assistant_message' && !isHandshakeAck(event.message.text));
+}
+
+export function hasHandshakeAck(events: readonly SessionEvent[]): boolean {
+  return events.some(event => event.kind === 'assistant_message' && isHandshakeAck(event.message.text));
 }
 
 export function openingInputInFlight(
@@ -64,13 +65,9 @@ export function openingInputInFlight(
 }
 
 export function composerReadyPhase(input: ComposerReadyInput): ComposerReadyPhase {
-  if (!input.apiExecutor && input.signedIn !== true) {
-    return input.signedIn === false ? 'signin' : 'models';
-  }
-  if (input.pendingNewInput || input.trackedOpening || (input.openingInFlight && !input.hasAssistantReply)) {
-    return input.hasAssistantReply ? 'ready' : 'opening';
-  }
-  return 'ready';
+  if (input.apiExecutor) return 'ready';
+  if (input.signedIn === true) return 'ready';
+  return input.signedIn === false ? 'signin' : 'models';
 }
 
 export function composerSendBlocked(phase: ComposerReadyPhase, stopAction: boolean): boolean {

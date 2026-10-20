@@ -3,6 +3,7 @@ import {
   adoptOpeningSession,
   composerReadyPhase,
   composerSendBlocked,
+  hasHandshakeAck,
   hasPublicAssistantReply,
   isHandshakeAck,
   openingInputInFlight,
@@ -22,29 +23,28 @@ it('treats handshake acknowledgements as setup, not as a public reply', () => {
 });
 
 it('blocks sending until the web model is signed in', () => {
-  expect(composerReadyPhase({
-    apiExecutor: false, signedIn: null, pendingNewInput: false, openingInFlight: false, trackedOpening: false, hasAssistantReply: false
-  })).toBe('models');
-  expect(composerReadyPhase({
-    apiExecutor: false, signedIn: false, pendingNewInput: false, openingInFlight: false, trackedOpening: false, hasAssistantReply: false
-  })).toBe('signin');
+  expect(composerReadyPhase({ apiExecutor: false, signedIn: null })).toBe('models');
+  expect(composerReadyPhase({ apiExecutor: false, signedIn: false })).toBe('signin');
   expect(composerSendBlocked('models', false)).toBe(true);
   expect(composerSendBlocked('signin', false)).toBe(true);
 });
 
-it('blocks sending on a new chat until the first public reply arrives', () => {
-  expect(composerReadyPhase({
-    apiExecutor: false, signedIn: true, pendingNewInput: true, openingInFlight: true, trackedOpening: true, hasAssistantReply: false
-  })).toBe('opening');
-  expect(composerReadyPhase({
-    apiExecutor: false, signedIn: true, pendingNewInput: false, openingInFlight: false, trackedOpening: true, hasAssistantReply: false
-  })).toBe('opening');
-  expect(composerReadyPhase({
-    apiExecutor: false, signedIn: true, pendingNewInput: false, openingInFlight: false, trackedOpening: true, hasAssistantReply: true
-  })).toBe('ready');
+it('unlocks a signed-in web chat without waiting for the handshake', () => {
+  expect(composerReadyPhase({ apiExecutor: false, signedIn: true })).toBe('ready');
+  expect(composerSendBlocked('ready', false)).toBe(false);
   expect(composerSendBlocked('opening', false)).toBe(true);
   expect(composerSendBlocked('opening', true)).toBe(false);
-  expect(composerSendBlocked('ready', false)).toBe(false);
+});
+
+it('leaves API chats ready before the first send', () => {
+  expect(composerReadyPhase({ apiExecutor: true, signedIn: null })).toBe('ready');
+});
+
+it('detects handshake acknowledgements without treating them as a public reply', () => {
+  const ack = { kind: 'assistant_message', message: { text: 'NEURAFLOK_READY' } } as SessionEvent;
+  const reply = { kind: 'assistant_message', message: { text: 'Listed the project files.' } } as SessionEvent;
+  expect(hasHandshakeAck([ack])).toBe(true);
+  expect(hasHandshakeAck([reply])).toBe(false);
 });
 
 it('treats an opening outbox row as in-flight until the session has a public reply', () => {
@@ -59,11 +59,9 @@ it('treats an opening outbox row as in-flight until the session has a public rep
   }])).toBe(false);
 });
 
-it('keeps a new session locked after the outbox row is adopted', () => {
+it('keeps tracking an adopted opening without locking the composer', () => {
   resetComposerReadyGateForTests();
   adoptOpeningSession('chat-2');
   expect(trackedOpening('chat-2')).toBe(true);
-  expect(composerReadyPhase({
-    apiExecutor: false, signedIn: true, pendingNewInput: false, openingInFlight: false, trackedOpening: true, hasAssistantReply: false
-  })).toBe('opening');
+  expect(composerReadyPhase({ apiExecutor: false, signedIn: true })).toBe('ready');
 });

@@ -24,7 +24,7 @@ export async function recordDeliveredInput(
   const sessionId = entry.sessionId ?? entry.deliveredSessionId;
   const offered = entry.state === 'tool' && !!entry.owner && Number.isFinite(entry.offeredAt);
   const confirmed = ['sent', 'cancelled'].includes(entry.state) && !!entry.messageId && Number.isFinite(entry.deliveredAt);
-  if ((!offered && !confirmed) || !sessionId || entry.purpose === 'decision') return false;
+  if ((!offered && !confirmed) || !sessionId || entry.purpose === 'decision' || entry.warmup) return false;
   const messageId = offered ? `input:${entry.id}` : entry.messageId!;
   const time = offered || (messageId.startsWith('input:') && Number.isFinite(entry.offeredAt))
     ? entry.offeredAt! : entry.deliveredAt!;

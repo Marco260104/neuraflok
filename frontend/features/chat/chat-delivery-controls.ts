@@ -2,7 +2,6 @@ import { injectableAttachments } from '../../../contracts/input.js';
 import { usesApiProvider } from '../../../contracts/chat-protocol.js';
 import { isWebProviderId } from '../../../contracts/web-providers.js';
 import type { AppState } from '../../../contracts/types.js';
-import type { SessionEvent, SessionSummary } from '../../../contracts/session.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { GoalDraftPresentation } from './chat-goal-progress.js';
 import type { ComposerAttachment } from './chat-composer-attachments.js';
@@ -12,11 +11,7 @@ import { t, ui } from '../../shared/i18n.js';
 import {
   composerReadyPhase,
   composerSendBlocked,
-  hasPublicAssistantReply,
-  openingInputInFlight,
-  paintComposerReadyGate,
-  releaseOpeningSession,
-  trackedOpening
+  paintComposerReadyGate
 } from './chat-composer-ready.js';
 
 export interface ChatDeliveryControlsRuntime {
@@ -41,10 +36,6 @@ export interface ChatDeliveryControlsRuntime {
   pendingComposerInput: () => InputEntry | undefined;
   taskPlans: Pick<ReturnType<typeof createChatTaskPlan>, 'hasPlan'>;
   state: () => AppState | null;
-  sessions: SessionSummary[];
-  events: SessionEvent[];
-  detailFor: string | null;
-  pendingNewInput: { id: string; generation: number } | null;
 }
 
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
@@ -96,28 +87,10 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     const planMode = runtime.taskPlans.hasPlan(runtime.draftKey());
     const preparedPlan = runtime.currentPreparedPlan();
     const app = runtime.state();
-    const selected = runtime.sessions.find(row => row.id === runtime.selectedId) ?? null;
     const provider = isWebProviderId(app?.config.ui.webProvider) ? app!.config.ui.webProvider : 'deepseek';
-    const assistantReply = runtime.selectedId !== null
-      && runtime.detailFor === runtime.selectedId
-      && hasPublicAssistantReply(runtime.events);
-    if (assistantReply) releaseOpeningSession(runtime.selectedId);
-    const openingRows = openingInputInFlight(
-      runtime.selectedId,
-      selected?.conversationId ?? null,
-      runtime.pendingNewInput !== null,
-      [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs]
-    );
-    const failedOpening = [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs].some(entry =>
-      entry.opening && entry.state === 'failed' && (entry.sessionId ?? entry.deliveredSessionId) === runtime.selectedId);
-    if (failedOpening) releaseOpeningSession(runtime.selectedId);
     const phase = composerReadyPhase({
       apiExecutor: usesApiProvider(app?.config.ui.chatExecutor),
-      signedIn: app?.bridge.webProviders?.[provider]?.signedIn,
-      pendingNewInput: runtime.pendingNewInput !== null,
-      openingInFlight: openingRows,
-      trackedOpening: trackedOpening(runtime.selectedId),
-      hasAssistantReply: assistantReply
+      signedIn: app?.bridge.webProviders?.[provider]?.signedIn
     });
     paintComposerReadyGate(phase);
     const planDisabled = !!preparedPlan && (preparedPlan.sending || preparedPlan.stages.some(stage => !stage.trim()));

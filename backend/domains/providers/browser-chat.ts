@@ -129,7 +129,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
   let messages = withWebProviderSystem(prior?.messages ?? [], system);
   const opening = isOpening(messages);
-  const preparedText = await prepareLocalProviderPrompt(entry, sessionId, opening);
+  const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, opening);
   const bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
   const userMessageId = randomUUID();
   const turnId = randomUUID();
@@ -146,9 +146,11 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   try {
     const accepted = (await listInputs()).find(row => row.id === entry.id && row.state === 'sent');
     if (!accepted) throw new Error(`NEURAFLOK could not verify the accepted ${WEB_PROVIDERS[provider].label} message.`);
-    await recordDeliveredInput(accepted, undefined, { turnId });
-    await observe(ownedConversation, [{ kind: 'turn_start', time: now(), turnId }]);
-    await noteLocalAgentTurnStarted(ownedConversation, now());
+    if (!entry.warmup) {
+      await recordDeliveredInput(accepted, undefined, { turnId });
+      await observe(ownedConversation, [{ kind: 'turn_start', time: now(), turnId }]);
+      await noteLocalAgentTurnStarted(ownedConversation, now());
+    }
     let thread: WebChatThread = {
       version: 1,
       sessionId,
@@ -165,7 +167,21 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       }
       thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: bootstrap }, { role: 'assistant', content: ready.text }]);
       await persistWebProviderThread(thread, provider);
+      if (entry.warmup) {
+        await observe(ownedConversation, [{
+          kind: 'assistant_message',
+          time: now(),
+          messageId: randomUUID(),
+          text: WEB_BOOTSTRAP_ACK,
+          turnId,
+          final: true,
+          state: 'final',
+          activeNow: true
+        }]);
+        return turnId;
+      }
     }
+    if (entry.warmup) return turnId;
     thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: entry.text }]);
     await persistWebProviderThread(thread, provider);
 
