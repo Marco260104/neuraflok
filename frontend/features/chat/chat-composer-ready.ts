@@ -9,11 +9,6 @@ export type ComposerReadyPhase = 'models' | 'signin' | 'opening' | 'ready';
 export interface ComposerReadyInput {
   apiExecutor: boolean;
   signedIn: boolean | null | undefined;
-  newChatSelected: boolean;
-  pendingNewInput: boolean;
-  openingInFlight: boolean;
-  trackedOpening: boolean;
-  hasHandshakeAck: boolean;
 }
 
 const openingSessions = new Set<string>();
@@ -71,12 +66,8 @@ export function openingInputInFlight(
 
 export function composerReadyPhase(input: ComposerReadyInput): ComposerReadyPhase {
   if (input.apiExecutor) return 'ready';
-  if (input.signedIn !== true) {
-    return input.signedIn === false ? 'signin' : 'models';
-  }
-  const waiting = input.pendingNewInput || input.trackedOpening || input.openingInFlight;
-  if (waiting && !input.hasHandshakeAck) return 'opening';
-  return 'ready';
+  if (input.signedIn === true) return 'ready';
+  return input.signedIn === false ? 'signin' : 'models';
 }
 
 export function composerSendBlocked(phase: ComposerReadyPhase, stopAction: boolean): boolean {

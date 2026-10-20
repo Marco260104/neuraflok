@@ -11,7 +11,7 @@ export function isWarmupInput(entry: { warmup?: boolean }): boolean {
   return entry.warmup === true;
 }
 
-export function webChatWarmupNeeded(input: {
+export function webChatWarmupNeeded(_input: {
   apiExecutor: boolean;
   signedIn: boolean;
   newChatSelected: boolean;
@@ -19,8 +19,7 @@ export function webChatWarmupNeeded(input: {
   pending: boolean;
   warmupInFlight: boolean;
 }): boolean {
-  return !input.apiExecutor && input.signedIn && input.newChatSelected && input.selectedId === null &&
-    !input.pending && !input.warmupInFlight;
+  return false;
 }
 
 export interface WebChatWarmupRuntime {

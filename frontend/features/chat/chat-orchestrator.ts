@@ -419,10 +419,7 @@ export function chatSettingsPatch(current: Config) {
 
 export function chatApply(state: AppState, previous?: Config): void {
   chatSettings.chatApply(state, previous);
-  if (deps) {
-    paintDeliveryControls();
-    chatFeatureComposition.webChatWarmup.ensure();
-  }
+  if (deps) paintDeliveryControls();
 }
 
 // Called when the Chat tab becomes visible or is left, so it only polls when shown.
@@ -453,10 +450,7 @@ export function openChatView(name: string): void {
 
 function showView(name: string): void { navigation().showView(name); }
 function selectSession(id: string): void { navigation().selectSession(id); }
-function selectNewChat(projectId: string | null = null): void {
-  navigation().selectNewChat(projectId);
-  chatFeatureComposition.webChatWarmup.ensure();
-}
+function selectNewChat(projectId: string | null = null): void { navigation().selectNewChat(projectId); }
 
 export function initChat(next: ChatRendererDependencies): void {
   initializeChatRenderer(chatInitializationBindings, next);
