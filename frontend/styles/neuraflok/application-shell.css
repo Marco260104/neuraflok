@@ -389,8 +389,9 @@
   .quick-theme button:hover { color: var(--ink); }
 }
 .quick-settings .language-select {
-  flex: 0 0 auto; width: 152px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; flex: 0 0 auto; width: 152px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
   background: var(--sunk); color: var(--ink); font: inherit; font-size: calc(12.5px * var(--text-scale, 1));
+  line-height: 30px;
   cursor: pointer; outline: none; transition-property: border-color, box-shadow; transition-duration: 150ms; transition-timing-function: var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
