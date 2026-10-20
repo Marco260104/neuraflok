@@ -133,7 +133,9 @@ export function settleProviderPage(body: Record<string, unknown>): boolean {
     return true;
   }
   if (typeof body.error === 'string' && body.error.trim()) {
-    current.reject(new Error(body.error.slice(0, 500)));
+    const failure = new Error(body.error.slice(0, 500));
+    if (body.providerIdle === true) Object.assign(failure, { providerIdle: true });
+    current.reject(failure);
     return true;
   }
   current.reject(new Error('The provider page returned no reply.'));

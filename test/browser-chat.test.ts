@@ -287,6 +287,20 @@ it('settles a page wait that still carries the grown DeepSeek reply', async () =
   await expect(pending).resolves.toEqual({ text: 'ArbolBinario.h and main.cpp are ready.' });
 });
 
+it('preserves verified provider-idle evidence so the task can continue safely', async () => {
+  resetProviderPageForTests();
+  const pending = requestProviderPageComplete('deepseek', TEST_PROVIDER_CONVERSATION, 'hello from the app');
+  const offer = pendingProviderPage();
+  expect(settleProviderPage({
+    id: offer!.id,
+    provider: 'deepseek',
+    conversationId: TEST_PROVIDER_CONVERSATION,
+    error: 'DeepSeek did not finish this reply in time.',
+    providerIdle: true
+  })).toBe(true);
+  await expect(pending).rejects.toMatchObject({ providerIdle: true });
+});
+
 it('publishes one page offer and settles it by id', async () => {
   resetProviderPageForTests();
   const pending = requestProviderPageComplete('deepseek', TEST_PROVIDER_CONVERSATION, 'hello from the app');
@@ -468,6 +482,33 @@ it('sends only new user text on a follow-up because the DeepSeek page keeps hist
   expect(pages[1]).toContain('apply_patch');
   expect(pages[1]).not.toContain('Available tools');
   expect(fresh).toEqual([false, false]);
+});
+
+it('continues a task once in the same DeepSeek chat after the provider confirms it is idle', async () => {
+  const pages: string[] = [];
+  let call = 0;
+  configureDeepseekForTests({
+    complete: async (text) => {
+      pages.push(text);
+      if (call++ === 0) throw Object.assign(new Error('DeepSeek did not finish this reply in time.'), { providerIdle: true });
+      return { text: 'Continued the existing work and completed the request.' };
+    }
+  });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Finish the project changes and verify them.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  const turnId = await runDeepseekInput(input);
+
+  expect(turnId).toBeTruthy();
+  expect(pages).toHaveLength(2);
+  expect(pages[1]).toContain('Original user request still in progress');
+  expect(pages[1]).toContain(input.text);
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'user_message' && event.inputId === input.id)).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('completed the request'))).toBe(true);
+  expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(true);
 });
 
 it('rebuilds a lost DeepSeek page from the saved local transcript', async () => {

@@ -26,7 +26,10 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
   const DEEPSEEK_EMPTY_IDLE_POLLS = timings.emptyIdlePolls ?? 180;
 
   return async function watchDeepseekReply(tabId, offer, before, beforeThink, initial) {
-    let lastText = typeof initial === 'string' ? initial : '';
+    // The immediate reply can contain DeepSeek's private reasoning. Re-read the
+    // page and only ever publish the explicitly public answer field below.
+    void initial;
+    let lastText = '';
     let reportedText = '';
     let emptyIdle = 0;
     let stableText = '';
@@ -35,10 +38,13 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
     let quietIdle = 0;
     let lastProgressAt = 0;
     let consecutiveReadFailures = 0;
-    let automaticContinues = 0;
     let lastGenerationActive = false;
     let lastSuccessfulReadAt = Date.now();
-    let reportedThink = '';
+    let reportedThink = typeof beforeThink === 'string' ? beforeThink : '';
+    let continuationText = '';
+    let continuationIdle = 0;
+    let continuationAttempts = 0;
+    let turnActivitySeen = false;
     let completeText = isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '';
     let deadline = Date.now() + DEEPSEEK_WATCH_MS;
     const hardDeadline = Date.now() + DEEPSEEK_MAX_WATCH_MS;
@@ -92,35 +98,51 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
       if (looksLikeDeepseekThink(publicAnswer) && !hasDeepseekToolCall(publicAnswer)) publicAnswer = '';
       if (think && publicAnswer && publicAnswer.replace(/\s+/g, ' ').trim() === think.replace(/\s+/g, ' ').trim()) publicAnswer = '';
       if (think && publicAnswer && publicAnswer.includes(think.trim()) && publicAnswer.length <= think.trim().length + 40) publicAnswer = '';
-      const text = publicAnswer || (snap && typeof snap.text === 'string' ? snap.text : '');
-      if (text) lastText = text;
+      const answerChanged = Boolean(publicAnswer.trim()) && publicAnswer.replace(/\s+/g, ' ').trim() !== String(before || '').replace(/\s+/g, ' ').trim();
+      const reasoningChanged = hasReasoningActivity && think.replace(/\s+/g, ' ').trim() !== String(beforeThink || '').replace(/\s+/g, ' ').trim();
+      if (snap?.generating === true || answerChanged || reasoningChanged) turnActivitySeen = true;
+      if (publicAnswer) lastText = publicAnswer;
       completeText = publicAnswer || (isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '');
+
+      const continueIsStable = snap && snap.generating !== true && snap.continueAvailable === true &&
+        turnActivitySeen && continuationAttempts < DEEPSEEK_MAX_AUTOMATIC_CONTINUES;
+      if (continueIsStable) {
+        const activity = `${publicAnswer}\n${think}`;
+        if (activity === continuationText) continuationIdle++;
+        else {
+          continuationText = activity;
+          continuationIdle = 1;
+        }
+        if (continuationIdle >= quietNeed(publicAnswer || think)) {
+          continuationAttempts++;
+          const continued = await tabReply(tabId, {
+            type: 'neuraflok-deepseek-continue',
+            id: offer.id,
+            conversationId: offer.conversationId
+          }, undefined, DEEPSEEK_READ_MS).catch(() => null);
+          if (continued?.continued === true) {
+            deadline = Date.now() + DEEPSEEK_WATCH_MS;
+            quietText = '';
+            quietIdle = 0;
+            stableText = '';
+            stableIdle = 0;
+            continuationText = '';
+            continuationIdle = 0;
+            reportedThink = think;
+            await new Promise(resolve => setTimeout(resolve, DEEPSEEK_POLL_MS));
+            continue;
+          }
+          continuationIdle = 0;
+        }
+      } else {
+        continuationText = '';
+        continuationIdle = 0;
+      }
 
       if (completeText && snap && snap.generating !== true) {
         if (completeText === quietText) {
           quietIdle += 1;
           if (quietIdle >= quietNeed(completeText)) {
-            if (snap.continueAvailable === true && automaticContinues < DEEPSEEK_MAX_AUTOMATIC_CONTINUES) {
-              void call('/provider/page/progress', {
-                method: 'POST',
-                body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: completeText, generating: true })
-              }).catch(() => undefined);
-              const continued = await tabReply(tabId, {
-                type: 'neuraflok-deepseek-continue',
-                id: offer.id,
-                conversationId: offer.conversationId
-              }, undefined, DEEPSEEK_READ_MS).catch(() => null);
-              if (continued?.continued === true) {
-                automaticContinues++;
-                deadline = Date.now() + DEEPSEEK_WATCH_MS;
-                quietText = '';
-                quietIdle = 0;
-                stableText = '';
-                stableIdle = 0;
-                await new Promise(resolve => setTimeout(resolve, DEEPSEEK_POLL_MS));
-                continue;
-              }
-            }
             if (await postDeepseekPage(offer, { text: completeText }, tabId)) return;
           }
         } else {
@@ -169,7 +191,10 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           }
         }
         if (emptyIdle >= DEEPSEEK_EMPTY_IDLE_POLLS) {
-          await postDeepseekPage(offer, { error: 'DeepSeek did not finish this reply in time. Check the same provider session before retrying; if your message is there, do not send it again.' });
+          await postDeepseekPage(offer, {
+            error: 'DeepSeek did not finish this reply in time. Check the same provider session before retrying; if your message is there, do not send it again.',
+            providerIdle: true
+          });
           return;
         }
       } else emptyIdle = 0;
@@ -179,6 +204,9 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
     const timeout = 'DeepSeek did not finish this reply in time. Check the same provider session before retrying; if your message is there, do not send it again.';
     if (completeText && !lastGenerationActive && Date.now() - lastSuccessfulReadAt <= DEEPSEEK_READ_STALE_MS)
       await postDeepseekPage(offer, { text: completeText }, tabId);
-    else await postDeepseekPage(offer, { error: timeout });
+    else await postDeepseekPage(offer, {
+      error: timeout,
+      ...(Date.now() - lastSuccessfulReadAt <= DEEPSEEK_READ_STALE_MS && !lastGenerationActive ? { providerIdle: true } : {})
+    });
   };
 }

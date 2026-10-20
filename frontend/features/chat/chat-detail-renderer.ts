@@ -188,7 +188,7 @@ export function createChatDetailRenderer(runtime: Runtime) {
       runtime.turnWorking, selectedId, toolGroups, true)));
     runtime.setRoundsEnter(timelineRows.length > 0);
     runtime.paintPendingInputs();
-    $('timelineEmpty').hidden = selectedId !== null || timelineRows.length > 0 || $('inputQueue').childElementCount > 0;
+    $('timelineEmpty').hidden = timelineRows.length > 0 || $('inputQueue').childElementCount > 0;
     if (runtime.timelineShown() && !runtime.holdSentMessage()) restoreViewport();
     runtime.paintJumpLatest();
 

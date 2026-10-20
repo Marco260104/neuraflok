@@ -105,7 +105,8 @@ it('retries a transient DeepSeek tab read failure without failing an already-sen
 
 it('keeps waiting when DeepSeek is reasoning without showing a public answer', async () => {
   const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
-  let snapshot = { answer: '', text: '', think: 'I am inspecting the project files before editing.', generating: false };
+  const privateReasoning = 'I am inspecting the project files before editing, checking the requested changes, and preparing the implementation plan.';
+  let snapshot = { answer: '', text: privateReasoning, think: privateReasoning, generating: false };
   const progress: Array<Record<string, unknown>> = [];
   const call = vi.fn(async (_path: string, init: { body?: string }) => {
     progress.push(JSON.parse(init.body ?? '{}'));
@@ -121,11 +122,12 @@ it('keeps waiting when DeepSeek is reasoning without showing a public answer', a
     timings: { readMs: 50, watchMs: 500, maxWatchMs: 5_000, readStaleMs: 5_000, pollMs: 2, emptyIdlePolls: 3 }
   });
 
-  const watching = watch(7, offer, '', '', '');
+  const watching = watch(7, offer, '', '', 'Initial private reasoning must never become a public progress message.');
   await new Promise(resolve => setTimeout(resolve, 30));
   expect(settle).not.toHaveBeenCalled();
   expect(progress.length).toBeGreaterThan(0);
   expect(progress.every(item => item.text === '')).toBe(true);
+  expect(progress.every(item => !String(item.text).includes('inspecting the project'))).toBe(true);
 
   snapshot = {
     answer: 'The requested changes are complete.',
@@ -134,5 +136,38 @@ it('keeps waiting when DeepSeek is reasoning without showing a public answer', a
     generating: false
   };
   await watching;
+  expect(settle).toHaveBeenCalledWith(offer, { text: 'The requested changes are complete.' }, 7);
+}, 15_000);
+
+it('clicks DeepSeek Continue after private reasoning settles even when no public answer appeared', async () => {
+  const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
+  const privateReasoning = 'I inspected the files and made the required edits, but I need to continue checking the project and finish the verification.';
+  let snapshot = { answer: '', text: privateReasoning, think: privateReasoning, generating: false, continueAvailable: true };
+  let continueCount = 0;
+  const settle = vi.fn(async () => true);
+  const watch = createDeepseekReplyWatcher({
+    stoppedProviderOffers: new Set<string>(),
+    call: async () => ({ ok: true, data: { ok: true } }),
+    tabReply: async (_tabId: number, message: { type: string }) => {
+      if (message.type === 'neuraflok-deepseek-continue') {
+        continueCount++;
+        snapshot = {
+          answer: 'The requested changes are complete.',
+          text: 'The requested changes are complete.',
+          think: privateReasoning,
+          generating: false,
+          continueAvailable: false
+        };
+        return { continued: true };
+      }
+      return message.type === 'neuraflok-deepseek-read' ? snapshot : null;
+    },
+    postDeepseekPage: settle,
+    timings: { readMs: 50, watchMs: 500, maxWatchMs: 5_000, readStaleMs: 5_000, pollMs: 2, emptyIdlePolls: 3 }
+  });
+
+  await watch(7, offer, '', '', privateReasoning);
+
+  expect(continueCount).toBe(1);
   expect(settle).toHaveBeenCalledWith(offer, { text: 'The requested changes are complete.' }, 7);
 }, 15_000);

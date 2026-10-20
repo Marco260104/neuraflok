@@ -19,6 +19,8 @@ import {
   resetProviderPageForTests
 } from './provider-page.js';
 import { logInfo, logWarn } from '../../infrastructure/settings/logger.js';
+import { getConfig } from '../../infrastructure/settings/config.js';
+import { recoveryMessage } from '../../../contracts/recovery.js';
 import {
   persistWebProviderThread,
   replayWebProviderTranscript,
@@ -55,6 +57,7 @@ import {
 
 const MAX_TOOL_ROUNDS = 64;
 const MAX_INCOMPLETE_TOOL = 3;
+const MAX_DEEPSEEK_IDLE_RECOVERIES = 2;
 const MAX_TOOL_RESULT_CONTEXT_CHARS = 64_000;
 const MAX_ACTIVE_REQUEST_CHARS = 4_000;
 const MAX_PROVIDER_PAGE_CHARS = 96_000;
@@ -139,6 +142,10 @@ function isOpening(messages: WebChatMessage[]): boolean {
 
 function isDeepseekContextUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(DEEPSEEK_CONTEXT_UNAVAILABLE);
+}
+
+function isVerifiedIdleProviderFailure(error: unknown): boolean {
+  return !!error && typeof error === 'object' && (error as { providerIdle?: unknown }).providerIdle === true;
 }
 
 async function latestAuthoredRequest(sessionId: string, excludeInputId?: string): Promise<string | null> {
@@ -415,6 +422,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     let incompleteTries = 0;
     let assistantMessageId = randomUUID();
     let lastObservedClean = '';
+    let idleRecoveries = 0;
 
     const unsubscribeProgress = onProviderPageProgress(async (progress) => {
       if (progress.conversationId !== ownedConversation) return;
@@ -442,19 +450,31 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         try {
           completion = await requestProviderPageComplete(provider, ownedConversation, pageText, abort.signal);
         } catch (error) {
-          if (provider !== 'deepseek' || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
-          const replay = replayWebProviderTranscript(prior?.messages ?? [], pageText, 96_000, entry.text);
-          if (!replay) {
-            throw new Error('DeepSeek perdió el historial remoto y NeuraFlok no tiene suficiente transcripción local para reconstruir el contexto. No se envió el mensaje.');
+          const canContinue = provider === 'deepseek' && !entry.warmup &&
+            getConfig().ui.autoContinue !== false && idleRecoveries < MAX_DEEPSEEK_IDLE_RECOVERIES &&
+            isVerifiedIdleProviderFailure(error);
+          if (canContinue) {
+            idleRecoveries++;
+            pageText = `${recoveryMessage(entry.text)}\n\n${reminder}`;
+            thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: pageText }]);
+            await persistWebProviderThread(thread, provider);
+            abort.signal.throwIfAborted();
+            completion = await requestProviderPageComplete(provider, ownedConversation, pageText, abort.signal);
+          } else {
+            if (provider !== 'deepseek' || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
+            const replay = replayWebProviderTranscript(prior?.messages ?? [], pageText, 96_000, entry.text);
+            if (!replay) {
+              throw new Error('DeepSeek perdió el historial remoto y NeuraFlok no tiene suficiente transcripción local para reconstruir el contexto. No se envió el mensaje.');
+            }
+            abort.signal.throwIfAborted();
+            const setup = await prepareWebProviderBootstrap(entry, sessionId, system);
+            const ready = await requestProviderPageComplete(provider, ownedConversation, setup, abort.signal, { fresh: true });
+            if (!validBootstrapReply(ready.text)) {
+              throw new Error('DeepSeek no confirmó la restauración del contexto. No se envió el mensaje.');
+            }
+            if (provider === 'deepseek') rememberDeepseekContext(sessionId, ownedConversation);
+            completion = await requestProviderPageComplete(provider, ownedConversation, replay, abort.signal);
           }
-          abort.signal.throwIfAborted();
-          const setup = await prepareWebProviderBootstrap(entry, sessionId, system);
-          const ready = await requestProviderPageComplete(provider, ownedConversation, setup, abort.signal, { fresh: true });
-          if (!validBootstrapReply(ready.text)) {
-            throw new Error('DeepSeek no confirmó la restauración del contexto. No se envió el mensaje.');
-          }
-          if (provider === 'deepseek') rememberDeepseekContext(sessionId, ownedConversation);
-          completion = await requestProviderPageComplete(provider, ownedConversation, replay, abort.signal);
         }
         const raw = completion.text ?? '';
         const calls = parseWebChatTools(raw);

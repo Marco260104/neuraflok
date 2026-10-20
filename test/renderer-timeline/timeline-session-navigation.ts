@@ -341,7 +341,7 @@ it('keeps the prior transcript inert until the selected detail arrives and fence
   expect(w.document.getElementById('timelineEmpty')!.hidden).toBe(true);
 });
 
-it.each(['failed', 'empty', 'new-chat'] as const)('retires retained rows after a %s destination without a welcome flash', async outcome => {
+it.each(['failed', 'empty', 'new-chat'] as const)('retires retained rows after a %s destination and shows welcome for empty chats', async outcome => {
   const rows: SessionEvent[] = [{ seq: 1, time: T0, source: 'extension', kind: 'user_message', messageId: 'a', message: text('Previous chat') }];
   const first = summary(rows), second = { ...summary([]), id: 'other', title: 'Other session' };
   const { w } = await boot(rows, true, [], [], { sessions: [first, second] });
@@ -359,7 +359,20 @@ it.each(['failed', 'empty', 'new-chat'] as const)('retires retained rows after a
   expect(timeline.textContent).toBe('');
   expect(timeline.hasAttribute('inert')).toBe(false);
   expect(timeline.hasAttribute('aria-busy')).toBe(false);
-  expect(welcome.hidden).toBe(outcome !== 'new-chat');
+  expect(welcome.hidden).toBe(outcome === 'failed');
+});
+
+it('keeps the welcome screen visible while an empty chat has only internal warmup pending', async () => {
+  const blank = { ...summary([]), id: 'warmup-session', title: 'New chat', conversationId: 'ds-warmup-chat', chatIds: [], events: 0, userMessages: 0, toolCalls: 0 };
+  const { w, live, append } = await boot([], true, [], [], { sessions: [blank] });
+  live.inputs.push({ id: 'internal-warmup', sessionId: blank.id, deliveredSessionId: blank.id, conversationId: blank.conversationId,
+    text: 'NEURAFLOK_WARMUP', warmup: true, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null,
+    state: 'browser', owner: 'browser', createdAt: Date.now() });
+
+  await append([]);
+
+  expect(w.document.getElementById('timelineEmpty')!.hidden).toBe(false);
+  expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
 });
 
 it('keeps the current transcript and handoff mounted when Write Directly focuses the same session', async () => {
