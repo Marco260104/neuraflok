@@ -54,9 +54,22 @@ import {
 } from './context.js';
 import type { Caller } from './context.js';
 import { describe, expect, it } from 'vitest';
+import { isLocalProviderTurnQueued, setLocalProviderTurnQueued } from '../../backend/domains/sessions/input/local-executor-activity.js';
 
 /** Workers sleep instead of ending, and the prime wakes them in the chat they already have. The expensive part of a run is the conversation a worker built up, and throwing that away after one task is what fills somebody's ChatGPT with abandoned chats. Everything here is about that one chat surviving — the tab closing, the prime pausing, the app restarting — and about the worker slot, which is the only genuinely scarce thing in the run. */
 describe('a worker that is sleeping', () => {
+  it('stays active while its local provider turn waits for the shared browser slot', () => {
+    startSwarm(1);
+    startWorker('worker-1');
+    setLocalProviderTurnQueued('c-worker-1', true);
+    try {
+      expect(sleepSilentWorkers(Date.now() + WORKER_SILENCE_MS + 1, undefined, isLocalProviderTurnQueued)).toEqual([]);
+    } finally {
+      setLocalProviderTurnQueued('c-worker-1', false);
+    }
+    expect(sleepSilentWorkers(Date.now() + WORKER_SILENCE_MS + 1, undefined, isLocalProviderTurnQueued)).toHaveLength(1);
+  });
+
   it.each(['browser', 'call'] as const)('replaces old assignment metadata before %s revival and retains the old report', (delivery) => {
     startSwarm(1);
     const worker = startWorker('worker-1');

@@ -61,8 +61,10 @@ const MAX_DEEPSEEK_IDLE_RECOVERIES = 2;
 const MAX_TOOL_RESULT_CONTEXT_CHARS = 64_000;
 const MAX_ACTIVE_REQUEST_CHARS = 4_000;
 const MAX_PROVIDER_PAGE_CHARS = 96_000;
-const DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS = 60_000;
+const DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS = 2 * 60_000;
+const DEFAULT_WEB_CHAT_READINESS_MAX_DURATION_MS = 5 * 60_000;
 let webChatReadinessTimeoutMs = DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
+let webChatReadinessMaxDurationMs = DEFAULT_WEB_CHAT_READINESS_MAX_DURATION_MS;
 const DEEPSEEK_CONTEXT_UNAVAILABLE = 'DEEPSEEK_CONTEXT_UNAVAILABLE:';
 const VERIFIED_DEEPSEEK_CONTEXT_TTL_MS = 2 * 60_000;
 const verifiedDeepseekContexts = new Map<string, { conversationId: string; verifiedAt: number }>();
@@ -80,8 +82,10 @@ export function webProviderFlightTurnId(sessionId: string): string | undefined {
 export function configureBrowserChatForTests(options: {
   complete?: (text: string, signal?: AbortSignal, options?: { fresh?: boolean }) => Promise<{ text: string }>;
   readinessTimeoutMs?: number;
+  readinessMaxDurationMs?: number;
 }): void {
   webChatReadinessTimeoutMs = options.readinessTimeoutMs ?? DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
+  webChatReadinessMaxDurationMs = options.readinessMaxDurationMs ?? DEFAULT_WEB_CHAT_READINESS_MAX_DURATION_MS;
   configureProviderPageForTests({
     complete: options.complete
       ? (_provider, _conversationId, text, signal, pageOptions) => options.complete!(text, signal, pageOptions)
@@ -92,6 +96,7 @@ export function configureBrowserChatForTests(options: {
 export function resetBrowserChatForTests(): void {
   resetProviderPageForTests();
   webChatReadinessTimeoutMs = DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
+  webChatReadinessMaxDurationMs = DEFAULT_WEB_CHAT_READINESS_MAX_DURATION_MS;
   verifiedDeepseekContexts.clear();
   for (const flight of flights.values()) flight.abort.abort(new Error('test reset'));
   flights.clear();
@@ -228,6 +233,15 @@ function webProviderRoundFollowup(
   return pageText.length <= MAX_PROVIDER_PAGE_CHARS ? pageText : boundedText(pageText, MAX_PROVIDER_PAGE_CHARS);
 }
 
+function webProviderCompletionReview(entry: InputEntry): string {
+  const activeRequest = boundedText(entry.text.trim(), MAX_ACTIVE_REQUEST_CHARS);
+  return [
+    'COMPLETION REVIEW: Before ending this task, compare the original request with the work and tool results in this conversation. Inspect the actual project files and run focused checks when useful.',
+    `ACTIVE REQUEST: ${activeRequest}`,
+    'If any requested deliverable or verification is missing, continue working with the available tools now. Preserve successful work, avoid repeating completed edits, and do not stop at a status report. If everything is complete, give a concise final response with concrete verification evidence. Never claim an unverified result.'
+  ].join('\n\n');
+}
+
 function rememberDeepseekContext(sessionId: string, conversationId: string): void {
   verifiedDeepseekContexts.set(sessionId, { conversationId, verifiedAt: Date.now() });
 }
@@ -249,34 +263,75 @@ async function requestReadinessComplete(
   deadline: number,
   options?: { fresh?: boolean }
 ): Promise<{ text: string }> {
-  const remaining = deadline - Date.now();
-  if (remaining <= 0) throw new Error(`${WEB_PROVIDERS[provider].label} took too long to prepare this chat. Check the provider tab and retry.`);
+  const timeoutMessage = `${WEB_PROVIDERS[provider].label} took too long to prepare this chat. Check the provider tab and retry.`;
+  async function requestOnce(requestText: string, requestOptions?: { fresh?: boolean }): Promise<{ text: string }> {
+    if (deadline - Date.now() <= 0) throw new Error(timeoutMessage);
 
-  const controller = new AbortController();
-  const relayAbort = () => controller.abort(signal.reason);
-  if (signal.aborted) relayAbort();
-  else signal.addEventListener('abort', relayAbort, { once: true });
+    const controller = new AbortController();
+    const relayAbort = () => controller.abort(signal.reason);
+    if (signal.aborted) relayAbort();
+    else signal.addEventListener('abort', relayAbort, { once: true });
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort(new Error('Chat readiness timed out'));
-      reject(new Error(`${WEB_PROVIDERS[provider].label} took too long to prepare this chat. Check the provider tab and retry.`));
-    }, remaining);
-  });
-  try {
-    return await Promise.race([
-      requestProviderPageComplete(provider, conversationId, text, controller.signal, options),
-      timeout
-    ]);
-  } catch (error) {
-    if (timedOut) throw new Error(`${WEB_PROVIDERS[provider].label} took too long to prepare this chat. Check the provider tab and retry.`);
-    throw error;
-  } finally {
-    if (timer) clearTimeout(timer);
-    signal.removeEventListener('abort', relayAbort);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    let rejectTimeout: (error: Error) => void = () => undefined;
+    const timeout = new Promise<never>((_resolve, reject) => { rejectTimeout = reject; });
+    const armTimeout = () => {
+      if (timer) clearTimeout(timer);
+      const remaining = Math.min(deadline - Date.now(), webChatReadinessTimeoutMs);
+      if (remaining <= 0) {
+        timedOut = true;
+        controller.abort(new Error('Chat readiness timed out'));
+        rejectTimeout(new Error(timeoutMessage));
+        return;
+      }
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort(new Error('Chat readiness timed out'));
+        rejectTimeout(new Error(timeoutMessage));
+      }, remaining);
+    };
+    // Only actual provider generation extends this idle window. The absolute
+    // deadline still bounds all attempts to prepare the chat.
+    const stopWatchingProgress = onProviderPageProgress(progress => {
+      if (progress.conversationId === conversationId && progress.generating) armTimeout();
+    });
+    armTimeout();
+    try {
+      return await Promise.race([
+        requestProviderPageComplete(provider, conversationId, requestText, controller.signal, requestOptions),
+        timeout
+      ]);
+    } catch (error) {
+      if (timedOut) throw new Error(timeoutMessage);
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+      stopWatchingProgress();
+      signal.removeEventListener('abort', relayAbort);
+    }
+  }
+
+  let requestText = text;
+  let requestOptions = options;
+  let idleRecoveries = 0;
+  while (true) {
+    signal.throwIfAborted();
+    try {
+      return await requestOnce(requestText, requestOptions);
+    } catch (error) {
+      if (provider !== 'deepseek' || getConfig().ui.autoContinue === false ||
+          idleRecoveries >= MAX_DEEPSEEK_IDLE_RECOVERIES ||
+          !isVerifiedIdleProviderFailure(error) || signal.aborted || Date.now() >= deadline) throw error;
+      idleRecoveries++;
+      requestText = [
+        'Continue the preparation request already present in this exact chat. Use the project and conversation context supplied there.',
+        'Complete that same preparation work and return its requested readiness or context confirmation. Do not start the user’s queued request yet.'
+      ].join('\n\n');
+      // The first attempt may have created this chat. Continue on its saved page
+      // so the already-sent setup and project context remain available.
+      requestOptions = undefined;
+    }
   }
 }
 
@@ -343,8 +398,10 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   const system = webToolGuide(advertisedBrowserChatTools(registrar), guideCtx);
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
   let messages = withWebProviderSystem(prior?.messages ?? [], system);
-  // A missing local mirror must not turn a bound conversation into a fresh provider chat.
-  const opening = !session?.conversationId && !entry.conversationId && isOpening(messages);
+  // A worker session reserves its local provider id before its first delivery, so
+  // the first worker turn still needs a fresh provider bootstrap. A bound user
+  // chat with a missing local mirror must remain a context check and replay.
+  const opening = isOpening(messages) && ((!session?.conversationId && !entry.conversationId) || session?.origin?.kind === 'worker');
   const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, opening);
   const bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
   const userMessageId = randomUUID();
@@ -378,11 +435,16 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
 
     // Start the readiness budget when the provider is about to be called. Local
     // session setup can take longer than a short test or provider timeout.
-    const warmupDeadline = entry.warmup ? Date.now() + webChatReadinessTimeoutMs : null;
+    const warmupDeadline = entry.warmup ? Date.now() + webChatReadinessMaxDurationMs : null;
     if (bootstrap) {
-      const ready = warmupDeadline
-        ? await requestReadinessComplete(provider, ownedConversation, bootstrap, abort.signal, warmupDeadline, { fresh: true })
-        : await requestProviderPageComplete(provider, ownedConversation, bootstrap, abort.signal, { fresh: true });
+      const ready = await requestReadinessComplete(
+        provider,
+        ownedConversation,
+        bootstrap,
+        abort.signal,
+        warmupDeadline ?? Date.now() + webChatReadinessMaxDurationMs,
+        { fresh: true }
+      );
       if (!validBootstrapReply(ready.text)) {
         throw new Error('The provider did not acknowledge NEURAFLOK setup. Your task was not sent to the page.');
       }
@@ -406,13 +468,13 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     }
     if (entry.warmup) {
       await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
-        warmupDeadline ?? Date.now() + webChatReadinessTimeoutMs, turnId);
+        warmupDeadline ?? Date.now() + webChatReadinessMaxDurationMs, turnId);
       await observe(ownedConversation, [{ kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }]);
       return turnId;
     }
     if (provider === 'deepseek' && !hasRecentDeepseekContext(sessionId, ownedConversation)) {
       await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
-        Date.now() + webChatReadinessTimeoutMs, turnId);
+        Date.now() + webChatReadinessMaxDurationMs, turnId);
     }
     thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: entry.text }]);
     await persistWebProviderThread(thread, provider);
@@ -423,6 +485,8 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     let assistantMessageId = randomUUID();
     let lastObservedClean = '';
     let idleRecoveries = 0;
+    let executedToolCalls = 0;
+    let reviewedToolCalls = 0;
 
     const unsubscribeProgress = onProviderPageProgress(async (progress) => {
       if (progress.conversationId !== ownedConversation) return;
@@ -447,22 +511,26 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         abort.signal.throwIfAborted();
         const live = createBrowserChatToolRegistrar();
         let completion: Awaited<ReturnType<typeof requestProviderPageComplete>>;
-        try {
-          completion = await requestProviderPageComplete(provider, ownedConversation, pageText, abort.signal);
-        } catch (error) {
-          const canContinue = provider === 'deepseek' && !entry.warmup &&
-            getConfig().ui.autoContinue !== false && idleRecoveries < MAX_DEEPSEEK_IDLE_RECOVERIES &&
-            isVerifiedIdleProviderFailure(error);
-          if (canContinue) {
-            idleRecoveries++;
-            pageText = `${recoveryMessage(entry.text)}\n\n${reminder}`;
-            thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: pageText }]);
-            await persistWebProviderThread(thread, provider);
-            abort.signal.throwIfAborted();
-            completion = await requestProviderPageComplete(provider, ownedConversation, pageText, abort.signal);
-          } else {
-            if (provider !== 'deepseek' || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
-            const replay = replayWebProviderTranscript(prior?.messages ?? [], pageText, 96_000, entry.text);
+        let requestText = pageText;
+        let contextRecoveryAttempted = false;
+        while (true) {
+          abort.signal.throwIfAborted();
+          try {
+            completion = await requestProviderPageComplete(provider, ownedConversation, requestText, abort.signal);
+            break;
+          } catch (error) {
+            const canContinue = provider === 'deepseek' && !entry.warmup &&
+              getConfig().ui.autoContinue !== false && idleRecoveries < MAX_DEEPSEEK_IDLE_RECOVERIES &&
+              isVerifiedIdleProviderFailure(error);
+            if (canContinue) {
+              idleRecoveries++;
+              requestText = `${recoveryMessage(entry.text)}\n\n${reminder}`;
+              thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: requestText }]);
+              await persistWebProviderThread(thread, provider);
+              continue;
+            }
+            if (provider !== 'deepseek' || contextRecoveryAttempted || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
+            const replay = replayWebProviderTranscript(prior?.messages ?? [], requestText, 96_000, entry.text);
             if (!replay) {
               throw new Error('DeepSeek perdió el historial remoto y NeuraFlok no tiene suficiente transcripción local para reconstruir el contexto. No se envió el mensaje.');
             }
@@ -472,8 +540,9 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
             if (!validBootstrapReply(ready.text)) {
               throw new Error('DeepSeek no confirmó la restauración del contexto. No se envió el mensaje.');
             }
-            if (provider === 'deepseek') rememberDeepseekContext(sessionId, ownedConversation);
-            completion = await requestProviderPageComplete(provider, ownedConversation, replay, abort.signal);
+            rememberDeepseekContext(sessionId, ownedConversation);
+            contextRecoveryAttempted = true;
+            requestText = replay;
           }
         }
         const raw = completion.text ?? '';
@@ -493,6 +562,13 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
           if (incompleteWebChatTool(raw) && incompleteTries < MAX_INCOMPLETE_TOOL) {
             incompleteTries++;
             pageText = incompleteToolNotice(guideCtx);
+            continue;
+          }
+          if (executedToolCalls > reviewedToolCalls) {
+            reviewedToolCalls = executedToolCalls;
+            pageText = webProviderCompletionReview(entry);
+            thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: pageText }]);
+            await persistWebProviderThread(thread, provider);
             continue;
           }
           assistantText = stripWebChatTools(raw);
@@ -518,6 +594,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         for (const call of calls) {
           abort.signal.throwIfAborted();
           const content = await invokeBrowserChatTool(live, call, requestId, ownedConversation, sessionId);
+          executedToolCalls++;
           results.push({ name: call.function.name, content });
           thread.messages = trimWebProviderThread([...thread.messages, {
             role: 'tool',

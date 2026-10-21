@@ -8,6 +8,7 @@ import { isApiConversationId, usesApiProvider } from '../../../../contracts/chat
 import { enqueueInput, cancelInput, listInputs, noteInputStartupError, failLocalExecutorInput, nextAfterTurnLocalInput, type InputArgs, type InputEntry } from './input.js';
 import { isProviderTextAttachment } from './attachments/index.js';
 import { getSession } from '../history/store.js';
+import { setLocalProviderTurnQueued } from './local-executor-activity.js';
 // Only transient startup work lives here; the outbox owns accepted messages.
 const starting = new Map<string, AbortController>();
 /** Local providers cannot inject a new user message into a completion already in flight. */
@@ -40,15 +41,30 @@ async function runLocalExecutorInput(entry: InputEntry, apiExecutor: boolean, pr
   const sessionId = entry.sessionId ?? entry.id;
   if (localRuns.has(sessionId)) throw new Error('A response is already running in this chat. This message will wait for it to finish.');
   localRuns.set(sessionId, entry.id);
+  let queuedConversationId: string | null = null;
+  let queueAbortListener: (() => void) | null = null;
+  const clearProviderQueueWait = () => {
+    if (queuedConversationId) setLocalProviderTurnQueued(queuedConversationId, false);
+    queuedConversationId = null;
+    if (queueAbortListener) signal.removeEventListener('abort', queueAbortListener);
+    queueAbortListener = null;
+  };
   let completedTurnId: string | null = null;
   let failure: Error | null = null;
   try {
     if (apiExecutor) {
       completedTurnId = await (await import('../../providers/api-chat.js')).runApiProviderInput(entry, signal);
     } else {
+      queuedConversationId = entry.conversationId ?? (await getSession(sessionId))?.conversationId ?? null;
+      if (queuedConversationId && !signal.aborted) {
+        setLocalProviderTurnQueued(queuedConversationId, true);
+        queueAbortListener = clearProviderQueueWait;
+        signal.addEventListener('abort', queueAbortListener, { once: true });
+      }
       const turn = providerTurnQueue.then(async () => {
-        if (!await startBridge()) throw new Error('The browser bridge could not start.');
+        clearProviderQueueWait();
         signal.throwIfAborted();
+        if (!await startBridge()) throw new Error('The browser bridge could not start.');
         const browser = await (await import('../../browser/embedded/selection.js')).loadIntegratedBrowser();
         await browser.openProvider(provider, { reveal: false });
         signal.throwIfAborted();
@@ -61,6 +77,7 @@ async function runLocalExecutorInput(entry: InputEntry, apiExecutor: boolean, pr
     failure = error instanceof Error ? error : new Error(String(error));
     throw error;
   } finally {
+    clearProviderQueueWait();
     if (localRuns.get(sessionId) === entry.id) localRuns.delete(sessionId);
     const session = await getSession(sessionId).catch(() => null);
     const conversationId = session?.conversationId ?? entry.conversationId;

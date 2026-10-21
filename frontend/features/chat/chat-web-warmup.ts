@@ -16,7 +16,9 @@ import {
 
 export const WEB_CHAT_WARMUP_TEXT = 'NEURAFLOK_WARMUP';
 const POLL_INTERVAL_MS = 750;
-export const WEB_CHAT_PREPARATION_TIMEOUT_MS = 75_000;
+// Keep the renderer waiting long enough for the backend's bounded, progress-aware
+// provider handshake to finish and record its final state.
+export const WEB_CHAT_PREPARATION_TIMEOUT_MS = 6 * 60_000;
 
 async function beforeDeadline<T>(deadline: number, message: string, work: () => Promise<T>): Promise<T> {
   const remaining = deadline - Date.now();

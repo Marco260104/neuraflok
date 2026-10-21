@@ -266,6 +266,43 @@ it('sets the native textarea value and reports Stop while generating', () => {
   expect(api.generating()).toBe(true);
 });
 
+it('waits for a long DeepSeek generation to finish before sending the next tool round', async () => {
+  vi.useFakeTimers();
+  try {
+    const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+    const { listeners, send, stop } = load([assistant]);
+    send.hidden = true;
+    stop.hidden = false;
+    setTimeout(() => {
+      stop.hidden = true;
+      send.hidden = false;
+    }, 30_000);
+    send.click = function click() {
+      this.events.push('click');
+      assistant.innerText = 'Tool round completed';
+      assistant.textContent = assistant.innerText;
+    };
+
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete',
+      id: '00000000-0000-4000-8000-000000000005',
+      conversationId: SESSION_ID,
+      text: 'continue the task'
+    }, {}, value => { reply = value; });
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(send.events).not.toContain('click');
+    expect(reply).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(send.events).toContain('click');
+    expect(reply).toMatchObject({ text: 'Tool round completed' });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('detects the provider Continue control used after a response reaches its output limit', () => {
   const continueButton = node('button', { text: 'Continue generating' });
   const { api } = load([continueButton]);

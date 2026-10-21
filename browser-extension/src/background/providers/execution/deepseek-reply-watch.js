@@ -19,11 +19,12 @@ function quietNeed(text) {
 export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabReply, postDeepseekPage, timings = {} }) {
   const DEEPSEEK_READ_MS = timings.readMs ?? 8_000;
   const DEEPSEEK_WATCH_MS = timings.watchMs ?? 540_000;
-  const DEEPSEEK_MAX_WATCH_MS = timings.maxWatchMs ?? 1_800_000;
   const DEEPSEEK_READ_STALE_MS = timings.readStaleMs ?? 30_000;
   const DEEPSEEK_POLL_MS = timings.pollMs ?? 2_000;
   const DEEPSEEK_MAX_AUTOMATIC_CONTINUES = timings.maxAutomaticContinues ?? 6;
-  const DEEPSEEK_EMPTY_IDLE_POLLS = timings.emptyIdlePolls ?? 180;
+  const DEEPSEEK_EMPTY_IDLE_MS = timings.emptyIdleMs ?? 90_000;
+  const DEEPSEEK_STALLED_GENERATION_MS = timings.stalledGenerationMs ?? 4 * 60_000;
+  const DEEPSEEK_STOP_CONFIRM_MS = timings.stopConfirmMs ?? 12_000;
 
   return async function watchDeepseekReply(tabId, offer, before, beforeThink, initial) {
     // The immediate reply can contain DeepSeek's private reasoning. Re-read the
@@ -31,7 +32,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
     void initial;
     let lastText = '';
     let reportedText = '';
-    let emptyIdle = 0;
+    let emptySince = null;
     let stableText = '';
     let stableIdle = 0;
     let quietText = '';
@@ -45,11 +46,12 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
     let continuationIdle = 0;
     let continuationAttempts = 0;
     let turnActivitySeen = false;
+    let lastObservableActivity = '';
+    let lastObservableProgressAt = Date.now();
     let completeText = isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '';
     let deadline = Date.now() + DEEPSEEK_WATCH_MS;
-    const hardDeadline = Date.now() + DEEPSEEK_MAX_WATCH_MS;
 
-    while (Date.now() < deadline && Date.now() < hardDeadline) {
+    while (Date.now() < deadline) {
       if (stoppedProviderOffers.has(offer.id)) {
         stoppedProviderOffers.delete(offer.id);
         await postDeepseekPage(offer, { stopped: true });
@@ -104,6 +106,51 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
       if (publicAnswer) lastText = publicAnswer;
       completeText = publicAnswer || (isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '');
 
+      // A spinner alone is not evidence of progress: DeepSeek can leave its
+      // generating flag set after the answer and private reasoning stop moving.
+      // Keep long replies alive while observable text changes, but recover a
+      // genuinely stalled generation instead of extending the page lease forever.
+      // Private reasoning can move for a long time without any visible answer or
+      // project work. It is not progress the user can verify and must not keep a
+      // provider request alive indefinitely.
+      const observableActivity = publicAnswer;
+      if (publicAnswer && observableActivity !== lastObservableActivity) {
+        lastObservableActivity = observableActivity;
+        lastObservableProgressAt = Date.now();
+      }
+      if (snap?.generating === true && Date.now() - lastObservableProgressAt >= DEEPSEEK_STALLED_GENERATION_MS) {
+        let stopConfirmed = false;
+        const stopReply = await tabReply(tabId, {
+          type: 'neuraflok-deepseek-complete',
+          id: offer.id,
+          conversationId: offer.conversationId,
+          stop: true,
+          text: ''
+        }, undefined, DEEPSEEK_READ_MS).catch(() => null);
+        if (stopReply?.ok === true) {
+          const stopDeadline = Date.now() + DEEPSEEK_STOP_CONFIRM_MS;
+          while (Date.now() < stopDeadline) {
+            const afterStop = await tabReply(tabId, {
+              type: 'neuraflok-deepseek-read',
+              before,
+              beforeThink
+            }, undefined, DEEPSEEK_READ_MS).catch(() => null);
+            if (afterStop?.generating === false) {
+              stopConfirmed = true;
+              break;
+            }
+            await new Promise(resolve => setTimeout(resolve, DEEPSEEK_POLL_MS));
+          }
+        }
+        await postDeepseekPage(offer, {
+          error: stopConfirmed
+            ? 'DeepSeek stopped making observable progress. The existing chat was kept; NeuraFlok will resume the unfinished request automatically.'
+            : 'DeepSeek did not confirm that generation stopped. The existing chat was kept; automatic resume was withheld to avoid sending a duplicate request. Check the same provider session before retrying.',
+          ...(stopConfirmed ? { providerIdle: true } : {})
+        }, tabId);
+        return;
+      }
+
       const continueIsStable = snap && snap.generating !== true && snap.continueAvailable === true &&
         turnActivitySeen && continuationAttempts < DEEPSEEK_MAX_AUTOMATIC_CONTINUES;
       if (continueIsStable) {
@@ -154,9 +201,8 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         quietIdle = 0;
       }
 
-      if (snap && (snap.generating === true || hasReasoningActivity)) {
+      if (snap?.generating === true) {
         deadline = Date.now() + DEEPSEEK_WATCH_MS;
-        if (hasReasoningActivity) emptyIdle = 0;
         if (lastText !== reportedText || thinkChanged || Date.now() - lastProgressAt > 15_000) {
           reportedText = lastText;
           lastProgressAt = Date.now();
@@ -180,24 +226,35 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         stableIdle = 0;
       }
 
-      if (snap && snap.generating !== true && !lastText && !hasReasoningActivity) {
-        emptyIdle++;
-        if (emptyIdle >= 4) {
+      if (snap && snap.generating !== true && !completeText) {
+        if (emptySince === null) emptySince = Date.now();
+        if (Date.now() - emptySince >= DEEPSEEK_EMPTY_IDLE_MS) {
           const fallback = await tabReply(tabId, { type: 'neuraflok-deepseek-snapshot' }, undefined, 4_000).catch(() => null);
           const answer = fallback && typeof fallback.before === 'string' ? fallback.before : '';
           if (answer && answer !== before && !(isDeepseekAck(answer) && isDeepseekAck(before))) {
             lastText = answer;
             if (await postDeepseekPage(offer, { text: lastText }, tabId)) return;
           }
+          // Confirm the provider is still idle immediately before marking the
+          // request safe for same-chat continuation. A fresh answer wins over
+          // timeout recovery, and an uncertain read never permits a resend.
+          const confirm = await tabReply(tabId, {
+            type: 'neuraflok-deepseek-read', before, beforeThink
+          }, undefined, DEEPSEEK_READ_MS).catch(() => null);
+          const confirmedAnswer = typeof confirm?.answer === 'string' ? confirm.answer : '';
+          if (confirm?.generating === false && confirmedAnswer.trim() &&
+              confirmedAnswer !== before && !(isDeepseekAck(confirmedAnswer) && isDeepseekAck(before))) {
+            if (await postDeepseekPage(offer, { text: confirmedAnswer }, tabId)) return;
+          }
+          if (confirm?.generating === false && !confirmedAnswer.trim()) {
+            await postDeepseekPage(offer, {
+              error: 'DeepSeek stopped without returning a reply. The existing chat was kept; NeuraFlok will continue the unfinished request.',
+              providerIdle: true
+            });
+            return;
+          }
         }
-        if (emptyIdle >= DEEPSEEK_EMPTY_IDLE_POLLS) {
-          await postDeepseekPage(offer, {
-            error: 'DeepSeek did not finish this reply in time. Check the same provider session before retrying; if your message is there, do not send it again.',
-            providerIdle: true
-          });
-          return;
-        }
-      } else emptyIdle = 0;
+      } else emptySince = null;
       await new Promise(resolve => setTimeout(resolve, DEEPSEEK_POLL_MS));
     }
 

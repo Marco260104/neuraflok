@@ -76,6 +76,18 @@ describe('durable user input ownership', () => {
     if (held) expect(after?.error).toBe(held);
     else expect(after?.error).toContain('did not pick up this message');
   });
+  it('keeps a local provider message queued while its serialized provider turn is waiting', async () => {
+    const row = await enqueueInput(input(), undefined, 'deepseek');
+    expect(row).toMatchObject({ state: 'queued', localExecutor: 'deepseek', transportIntent: 'browser' });
+
+    fixture.now += 60_001;
+    resetInputForTests();
+
+    expect((await listInputs()).find(entry => entry.id === row.id)).toMatchObject({
+      state: 'queued', localExecutor: 'deepseek', transportIntent: 'browser'
+    });
+    expect((await listInputs()).find(entry => entry.id === row.id)?.error).toBeUndefined();
+  });
   it('requeues one proven pre-Send browser pickup timeout on the same row, then stops retrying', async () => {
     binding.model = 'gpt-5.6-sol'; binding.finishEnabled = false;
     const row = await enqueueInput(input());

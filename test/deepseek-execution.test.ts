@@ -125,7 +125,7 @@ it('keeps waiting when DeepSeek is reasoning without showing a public answer', a
   const watching = watch(7, offer, '', '', 'Initial private reasoning must never become a public progress message.');
   await new Promise(resolve => setTimeout(resolve, 30));
   expect(settle).not.toHaveBeenCalled();
-  expect(progress.length).toBeGreaterThan(0);
+  expect(progress).toHaveLength(0);
   expect(progress.every(item => item.text === '')).toBe(true);
   expect(progress.every(item => !String(item.text).includes('inspecting the project'))).toBe(true);
 
@@ -137,6 +137,39 @@ it('keeps waiting when DeepSeek is reasoning without showing a public answer', a
   };
   await watching;
   expect(settle).toHaveBeenCalledWith(offer, { text: 'The requested changes are complete.' }, 7);
+}, 15_000);
+
+it('uses elapsed time, not slow empty polls, to recover an idle DeepSeek reply', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
+    let readCount = 0;
+    const snapshot = { answer: '', text: 'I am still reasoning privately.', think: 'I am still reasoning privately.', generating: false };
+    const settle = vi.fn(async () => true);
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async (_tabId: number, message: { type: string }) => {
+        await new Promise(resolve => setTimeout(resolve, 8));
+        if (message.type === 'neuraflok-deepseek-read') readCount++;
+        return message.type === 'neuraflok-deepseek-read' ? snapshot : { before: '' };
+      },
+      postDeepseekPage: settle,
+      timings: { readMs: 50, watchMs: 500, maxWatchMs: 5_000, readStaleMs: 5_000, pollMs: 10, emptyIdleMs: 35 }
+    });
+
+    const watching = watch(7, offer, '', '', '');
+    await vi.advanceTimersByTimeAsync(200);
+    await watching;
+
+    expect(readCount).toBeLessThan(10);
+    expect(settle).toHaveBeenCalledWith(offer, {
+      error: expect.stringContaining('stopped without returning a reply'),
+      providerIdle: true
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 }, 15_000);
 
 it('clicks DeepSeek Continue after private reasoning settles even when no public answer appeared', async () => {
@@ -170,4 +203,100 @@ it('clicks DeepSeek Continue after private reasoning settles even when no public
 
   expect(continueCount).toBe(1);
   expect(settle).toHaveBeenCalledWith(offer, { text: 'The requested changes are complete.' }, 7);
+}, 15_000);
+
+it('stops a DeepSeek generation that has no observable progress and marks it safe to resume', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
+    let snapshot = { answer: '', text: '', think: '', generating: true };
+    const stop = vi.fn(async () => {
+      snapshot = { ...snapshot, generating: false };
+      return { ok: true };
+    });
+    const settle = vi.fn(async (..._args: unknown[]) => true);
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async (_tabId: number, message: { type: string; stop?: boolean }) => {
+        if (message.type === 'neuraflok-deepseek-complete' && message.stop) return stop();
+        return message.type === 'neuraflok-deepseek-read' ? snapshot : null;
+      },
+      postDeepseekPage: settle,
+      timings: { readMs: 50, watchMs: 500, maxWatchMs: 5_000, readStaleMs: 5_000, pollMs: 10, stalledGenerationMs: 30, stopConfirmMs: 100 }
+    });
+
+    const watching = watch(7, offer, '', '', '');
+    await vi.advanceTimersByTimeAsync(100);
+    await watching;
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(settle).toHaveBeenCalledWith(offer, {
+      error: expect.stringContaining('stopped making observable progress'),
+      providerIdle: true
+    }, 7);
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('keeps a reply alive beyond its initial deadline while user-visible text progresses', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
+    let snapshot = { answer: '', text: '', think: 'Reading the files.', generating: true };
+    const stop = vi.fn(async () => ({ ok: true }));
+    const settle = vi.fn(async () => true);
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async (_tabId: number, message: { type: string; stop?: boolean }) => {
+        if (message.type === 'neuraflok-deepseek-complete' && message.stop) return stop();
+        return message.type === 'neuraflok-deepseek-read' ? snapshot : null;
+      },
+      postDeepseekPage: settle,
+      timings: { readMs: 50, watchMs: 20, maxWatchMs: 10, readStaleMs: 5_000, pollMs: 5, stalledGenerationMs: 30, stopConfirmMs: 100 }
+    });
+
+    setTimeout(() => { snapshot = { answer: 'I inspected the catalogue and am updating the logic.', text: '', think: 'Updating the catalogue logic.', generating: true }; }, 10);
+    setTimeout(() => { snapshot = { answer: 'The requested changes are complete.', text: 'The requested changes are complete.', think: 'The tests passed.', generating: false }; }, 20);
+    const watching = watch(7, offer, '', '', '');
+    await vi.advanceTimersByTimeAsync(200);
+    await watching;
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(settle).toHaveBeenCalledWith(offer, { text: 'The requested changes are complete.' }, 7);
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('does not mark a DeepSeek request safe to resume unless generation is explicitly confirmed stopped', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
+    const snapshot = { answer: '', text: '', think: '', generating: true };
+    const settle = vi.fn(async (..._args: unknown[]) => true);
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async (_tabId: number, message: { type: string; stop?: boolean }) => {
+        if (message.type === 'neuraflok-deepseek-complete' && message.stop) return { ok: true };
+        return message.type === 'neuraflok-deepseek-read' ? snapshot : null;
+      },
+      postDeepseekPage: settle,
+      timings: { readMs: 50, watchMs: 500, maxWatchMs: 5_000, readStaleMs: 5_000, pollMs: 10, stalledGenerationMs: 30, stopConfirmMs: 100 }
+    });
+
+    const watching = watch(7, offer, '', '', '');
+    await vi.advanceTimersByTimeAsync(200);
+    await watching;
+
+    expect(settle).toHaveBeenCalledTimes(1);
+    const failure = settle.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(failure).toMatchObject({ error: expect.stringContaining('did not confirm that generation stopped') });
+    expect(failure).not.toHaveProperty('providerIdle');
+  } finally {
+    vi.useRealTimers();
+  }
 }, 15_000);
