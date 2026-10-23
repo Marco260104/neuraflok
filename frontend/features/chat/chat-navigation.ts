@@ -2,6 +2,7 @@ import type { LocalProject } from '../../../contracts/workspace/projects.js';
 import type { SessionSummary } from '../../../contracts/session.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
+import { ensureSelectedChatWarmup } from './chat-composer-ready.js';
 
 interface Runtime {
   get sessions(): SessionSummary[];
@@ -101,6 +102,7 @@ export function createChatNavigation(runtime: Runtime) {
     }
     runtime.loadDetail();
     runtime.refreshInputQueue();
+    ensureSelectedChatWarmup();
   }
 
   function selectNewChat(projectId: string | null = null): void {
@@ -128,6 +130,7 @@ export function createChatNavigation(runtime: Runtime) {
     ui($<HTMLTextAreaElement>('chatInput'), 'placeholder', () => projectId
       ? t('Message in {0}…', [runtime.projects.find(project => project.id === projectId)?.name ?? 'project'])
       : t('Ask anything…'));
+    ensureSelectedChatWarmup();
     $<HTMLTextAreaElement>('chatInput').focus();
   }
 

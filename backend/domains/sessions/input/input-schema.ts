@@ -30,7 +30,9 @@ export const inputArgs = z.object({
   reasoningEffort: z.enum(REASONING_EFFORTS).nullable(),
   webProvider: z.enum(['deepseek', 'kimi', 'qwen', 'glm']).optional(),
   /** Hidden web-chat setup: bind the session and wait for NEURAFLOK_READY without a user task. */
-  warmup: z.literal(true).optional()
+  warmup: z.literal(true).optional(),
+  /** Keep an authored composer message in the transcript while it waits behind web-chat context setup. */
+  warmupDeferred: z.object({ selectionGeneration: z.number().int().nonnegative() }).strict().optional()
 });
 export type InputArgs = z.infer<typeof inputArgs>;
 export const entrySchema = inputArgs.extend({

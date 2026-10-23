@@ -19,6 +19,19 @@ it('follows the accepted New Chat receipt while preserving a typed follow-up', a
   expect(composer.value).toBe('Follow-up while delivery is pending');
 });
 
+it('keeps an existing web chat on its bound provider when the new-chat default changes', async () => {
+  const existing = { ...summary([]), conversationId: 'qw-00000000-0000-4000-8000-000000000011' };
+  const { w, live } = await boot([], true, [], [], { sessions: [existing] });
+  (w.document.getElementById('webProvider') as HTMLSelectElement).value = 'deepseek';
+  const composer = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  composer.value = 'Continue yesterday’s task';
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
+  await settle();
+
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ sessionId: existing.id, webProvider: undefined, text: 'Continue yesterday’s task' });
+});
+
 it.each(['goal', 'loop'] as const)('keeps a provider-reported Astra model selected when changing %s delivery', async mode => {
   const existing = { ...summary([]), selectedModel: {
     conversationId: 'chat-b', model: 'astra', reasoningEffort: 'pro' as const, observedAt: Date.now()

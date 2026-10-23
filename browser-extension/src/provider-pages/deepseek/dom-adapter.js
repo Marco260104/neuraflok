@@ -5,6 +5,7 @@ var NEURAFLOK_DEEPSEEK = (() => {
   const ATTACH_PATH = 'M5.5498';
   const SEND_LABEL = /^(send|enviar|envoyer|senden|送信|发送|傳送|보내기)$/i;
   const STOP_LABEL = /^(stop|cancel|detener|parar|停止|중지|arrêt|остановить)$/i;
+  const CONTINUE_LABEL = /^(continue(?:\s+(?:generating|response|answer))?|keep going|continuar(?:\s+(?:generando|respuesta))?|seguir(?:\s+generando)?|continuer(?:\s+la génération)?|fortsetzen|weiter(?:\s+generieren)?|weitermachen|続行|続ける|生成を続ける|계속(?:\s*생성)?|继续(?:生成|回答)?|繼續(?:生成|回答)?|продолжить(?:\s+генерацию)?|devam(?:\s+et)?|tiếp tục)$/i;
   const NEW_CHAT_LABEL = /new chat|nuevo chat|nouvelle conversation|neuer chat|新しいチャット|新对话|新對話|새 채팅/i;
 
   const safe = (fn, fallback) => {
@@ -45,6 +46,12 @@ var NEURAFLOK_DEEPSEEK = (() => {
   }) || null;
 
   const labeledButton = (pattern) => visibleButtons().find((button) => pattern.test(labelOf(button))) || null;
+
+  const continueButton = () => visibleButtons().find((button) => {
+    const labels = [button.getAttribute?.('aria-label'), button.textContent]
+      .filter(Boolean).map(value => String(value).replace(/\s+/g, ' ').trim());
+    return labels.some(label => CONTINUE_LABEL.test(label));
+  }) || null;
 
   const composer = () =>
     document.querySelector('textarea#chat-input') ||
@@ -235,6 +242,7 @@ var NEURAFLOK_DEEPSEEK = (() => {
     composer,
     sendButton,
     stopButton,
+    continueButton,
     generating: () => {
       // Streaming cursor/spinner is the live signal. A leftover Send icon on the page must not
       // end the turn while DeepSeek is still thinking or writing a tool call.

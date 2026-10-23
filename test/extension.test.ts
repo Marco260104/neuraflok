@@ -77,6 +77,72 @@ function chromeFixture(local = memoryStorage(), session = memoryStorage()) {
   };
 }
 
+function deepseekExecutorFixture(options: {
+  local?: Record<string, unknown>;
+  tab?: { id: number; url: string; status: string };
+  status?: Record<string, unknown>;
+  snapshot?: Record<string, unknown>;
+  complete?: (
+    tab: { id: number; url: string; status: string },
+    update: (tab: { id: number; url: string; status: string }) => void
+  ) => Record<string, unknown>;
+} = {}) {
+  let current = options.tab ?? { id: 7, url: 'https://chat.deepseek.com/', status: 'complete' };
+  const local = memoryStorage(options.local ?? {});
+  const session = memoryStorage();
+  const chrome = {
+    storage: { local, session },
+    tabs: {
+      get: vi.fn(async (id: number) => {
+        if (id !== current.id) throw new Error('tab not found');
+        return { ...current };
+      }),
+      update: vi.fn(async (id: number, change: Record<string, unknown>) => {
+        if (id !== current.id) throw new Error('tab not found');
+        current = { ...current, ...change } as typeof current;
+        return { ...current };
+      })
+    }
+  };
+  const call = vi.fn(async () => ({ ok: true, data: { ok: true } }));
+  const tabReply = vi.fn(async (_tabId: number, message: { type: string }) => {
+    if (message.type === 'neuraflok-deepseek-status') return options.status ?? {
+      signedIn: true, generating: false, hasConversation: false, conversationId: null
+    };
+    if (message.type === 'neuraflok-deepseek-snapshot') return options.snapshot ?? {
+      signedIn: true, generating: false, hasConversation: false, conversationId: null, before: '', beforeThink: ''
+    };
+    if (message.type === 'neuraflok-deepseek-complete') {
+      return options.complete
+        ? options.complete({ ...current }, next => { current = next; })
+        : { text: 'DeepSeek reply' };
+    }
+    return null;
+  });
+  const createBrowserTab = vi.fn(async (url: string) => {
+    current = { id: Math.max(8, current.id + 1), url, status: 'complete' };
+    return { ...current };
+  });
+  const queryProviderTabs = vi.fn(async () => [{ ...current }]);
+  const executor = createProviderPageExecutor({
+    chrome: chrome as never,
+    activeTabs: null,
+    call,
+    tabReply,
+    createBrowserTab,
+    queryProviderTabs,
+    restoreDeepseekTab: vi.fn(async () => true),
+    restoreProviderTab: vi.fn(async () => true),
+    waitForTabReady: vi.fn(async () => true),
+    isDeepseekUrl: (value: string) => {
+      try { return new URL(value).hostname === 'chat.deepseek.com'; } catch { return false; }
+    },
+    usableProviderTab: (tab: { id?: number; status?: string }) => tab?.status === 'complete',
+    providerPages: {}
+  });
+  return { executor, local, chrome, call, tabReply, createBrowserTab, currentTab: () => ({ ...current }) };
+}
+
 function installFetch(handler: (url: URL, init?: Record<string, unknown>) => Promise<unknown>) {
   const fetch = vi.fn(async (input: string | URL, init?: Record<string, unknown>) => {
     const url = new URL(String(input));
@@ -236,6 +302,72 @@ describe('NEURAFLOK browser companion', () => {
     expect(chrome.tabs.update).toHaveBeenCalledOnce();
     expect(chrome.tabs.update).toHaveBeenCalledWith(12, { active: true });
     expect(chrome.windows.update).toHaveBeenCalledWith(4, { focused: true });
+  });
+
+  it('stores the DeepSeek conversation address after a fresh chat is created', async () => {
+    const conversationId = 'ds-00000000-0000-4000-8000-000000000031';
+    const conversationUrl = 'https://chat.deepseek.com/a/chat/s/remote-session-31';
+    const h = deepseekExecutorFixture({
+      complete: (tab, update) => {
+        update({ ...tab, url: conversationUrl });
+        return { text: 'NEURAFLOK_READY' };
+      }
+    });
+
+    h.executor.inspect({
+      id: '10000000-0000-4000-8000-000000000031', provider: 'deepseek',
+      conversationId, fresh: true, text: 'Initialize this chat'
+    }, false);
+    await vi.waitFor(() => expect(h.call).toHaveBeenCalledWith('/provider/page', expect.objectContaining({
+      body: expect.stringContaining('NEURAFLOK_READY')
+    })));
+
+    expect(h.local.data.webProviderTabs).toMatchObject({
+      [conversationId]: { provider: 'deepseek', tab: 8, url: conversationUrl }
+    });
+  });
+
+  it('reopens the saved DeepSeek conversation when its old tab id is gone', async () => {
+    const conversationId = 'ds-00000000-0000-4000-8000-000000000032';
+    const conversationUrl = 'https://chat.deepseek.com/a/chat/s/remote-session-32';
+    const h = deepseekExecutorFixture({
+      local: { webProviderTabs: { [conversationId]: { provider: 'deepseek', tab: 99, url: conversationUrl, at: 1 } } },
+      snapshot: { signedIn: true, generating: false, hasConversation: true, conversationId: null, before: 'Yesterday answer' }
+    });
+
+    h.executor.inspect({
+      id: '10000000-0000-4000-8000-000000000032', provider: 'deepseek',
+      conversationId, fresh: false, text: 'Continue yesterday’s task'
+    }, false);
+    await vi.waitFor(() => expect(h.call).toHaveBeenCalledWith('/provider/page', expect.objectContaining({
+      body: expect.stringContaining('DeepSeek reply')
+    })));
+
+    expect(h.createBrowserTab).toHaveBeenCalledWith(conversationUrl, false);
+    expect(h.tabReply).toHaveBeenCalledWith(8, expect.objectContaining({
+      type: 'neuraflok-deepseek-complete', text: 'Continue yesterday’s task', fresh: false
+    }), undefined, 100_000);
+    expect(h.local.data.webProviderTabs).toMatchObject({
+      [conversationId]: { provider: 'deepseek', tab: 8, url: conversationUrl }
+    });
+  });
+
+  it('refuses to send a follow-up into an empty DeepSeek page without chat history', async () => {
+    const conversationId = 'ds-00000000-0000-4000-8000-000000000033';
+    const h = deepseekExecutorFixture({
+      local: { webProviderTabs: { [conversationId]: { provider: 'deepseek', tab: 7, at: 1 } } },
+      snapshot: { signedIn: true, generating: false, hasConversation: false, conversationId: null, before: '' }
+    });
+
+    h.executor.inspect({
+      id: '10000000-0000-4000-8000-000000000033', provider: 'deepseek',
+      conversationId, fresh: false, text: 'Continue yesterday’s task'
+    }, false);
+    await vi.waitFor(() => expect(h.call).toHaveBeenCalledWith('/provider/page', expect.objectContaining({
+      body: expect.stringContaining('no longer contains this chat history')
+    })));
+
+    expect(h.tabReply.mock.calls.some(([, message]) => message.type === 'neuraflok-deepseek-complete')).toBe(false);
   });
 
   it.each(['kimi', 'qwen', 'glm'] as const)('delivers a fresh %s page offer and returns its exact answer', async provider => {

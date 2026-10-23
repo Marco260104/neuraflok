@@ -1,18 +1,77 @@
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { SessionEvent } from '../../../contracts/session.js';
-import { t, ui } from '../../shared/i18n.js';
 
 const HANDSHAKE_ACK = /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/;
 
-export type ComposerReadyPhase = 'models' | 'signin' | 'opening' | 'ready';
+export type ComposerWarmupState =
+  | { phase: 'opening'; generation?: number; priorTurnWorking?: boolean }
+  | { phase: 'failed'; error: string; generation?: number; priorTurnWorking?: boolean };
 
-export interface ComposerReadyInput {
-  apiExecutor: boolean;
-  signedIn: boolean | null | undefined;
+export function visibleWarmupPhase(
+  phase: 'opening' | 'failed' | null,
+  hasPendingMessage: boolean
+): 'opening' | 'failed' | null {
+  return hasPendingMessage ? phase : null;
+}
+
+export function shouldSuppressWarmupActivity(
+  warmup: { phase: 'opening' | 'failed'; priorTurnWorking?: boolean } | null,
+  hasPendingMessage: boolean
+): boolean {
+  return warmup?.phase === 'opening' && warmup.priorTurnWorking !== true && !hasPendingMessage;
 }
 
 const openingSessions = new Set<string>();
+const composerWarmups = new Map<string, ComposerWarmupState>();
 let unboundOpening = false;
+let ensureWarmup: (() => void) | null = null;
+let retryWarmup: (() => void) | null = null;
+
+export function composerWarmupKey(selectedId: string | null, generation: number): string {
+  return selectedId ?? `new:${generation}`;
+}
+
+export function composerWarmupState(key: string): ComposerWarmupState | null {
+  return composerWarmups.get(key) ?? null;
+}
+
+export function markComposerWarmupOpening(key: string, generation?: number, priorTurnWorking?: boolean): void {
+  const existing = composerWarmups.get(key);
+  const previousActivity = existing?.priorTurnWorking;
+  composerWarmups.set(key, {
+    phase: 'opening',
+    ...(generation === undefined ? existing?.generation === undefined ? {} : { generation: existing.generation } : { generation }),
+    ...(priorTurnWorking === undefined
+      ? previousActivity === undefined ? {} : { priorTurnWorking: previousActivity }
+      : { priorTurnWorking })
+  });
+}
+
+export function markComposerWarmupFailed(key: string, error: string, generation?: number): void {
+  const existing = composerWarmups.get(key);
+  composerWarmups.set(key, {
+    phase: 'failed', error,
+    ...(generation === undefined ? existing?.generation === undefined ? {} : { generation: existing.generation } : { generation }),
+    ...(existing?.priorTurnWorking === undefined ? {} : { priorTurnWorking: existing.priorTurnWorking })
+  });
+}
+
+export function clearComposerWarmup(key: string): void {
+  composerWarmups.delete(key);
+}
+
+export function setComposerWarmupHandlers(handlers: { ensure: () => void; retry: () => void }): void {
+  ensureWarmup = handlers.ensure;
+  retryWarmup = handlers.retry;
+}
+
+export function ensureSelectedChatWarmup(): void {
+  ensureWarmup?.();
+}
+
+export function retrySelectedChatWarmup(): void {
+  retryWarmup?.();
+}
 
 export function markUnboundOpening(): void {
   unboundOpening = true;
@@ -64,72 +123,10 @@ export function openingInputInFlight(
   });
 }
 
-export function composerReadyPhase(input: ComposerReadyInput): ComposerReadyPhase {
-  if (input.apiExecutor) return 'ready';
-  if (input.signedIn === true) return 'ready';
-  return input.signedIn === false ? 'signin' : 'models';
-}
-
-export function composerSendBlocked(phase: ComposerReadyPhase, stopAction: boolean): boolean {
-  return phase !== 'ready' && !stopAction;
-}
-
-export function composerReadyLabel(phase: ComposerReadyPhase): string {
-  if (phase === 'models') return t('Loading web models');
-  if (phase === 'signin') return t('Sign in required');
-  if (phase === 'opening') return t('Preparing chat…');
-  return t('Ready');
-}
-
-export function composerReadyDetail(phase: ComposerReadyPhase): string {
-  if (phase === 'opening') return t('Reading the project and connecting the model…');
-  if (phase === 'ready') return t('Chat is ready.');
-  return '';
-}
-
-let readyFlash: number | null = null;
-let lastPhase: ComposerReadyPhase | null = null;
-
-export function paintComposerReadyGate(phase: ComposerReadyPhase): void {
-  const gate = document.getElementById('composerReadyGate');
-  const label = document.getElementById('composerReadyLabel');
-  const detail = document.getElementById('composerReadyDetail');
-  const composer = document.getElementById('composer');
-  if (!gate || !label) return;
-  if (phase === 'opening') {
-    if (readyFlash !== null) {
-      window.clearTimeout(readyFlash);
-      readyFlash = null;
-    }
-    gate.hidden = false;
-    gate.dataset.tone = 'wait';
-    composer?.classList.add('is-waiting');
-  } else if (phase === 'ready' && lastPhase === 'opening') {
-    gate.hidden = false;
-    gate.dataset.tone = 'ready';
-    composer?.classList.remove('is-waiting');
-    if (readyFlash !== null) window.clearTimeout(readyFlash);
-    readyFlash = window.setTimeout(() => {
-      readyFlash = null;
-      gate.hidden = true;
-    }, 900);
-  } else if (readyFlash === null) {
-    gate.hidden = true;
-    composer?.classList.remove('is-waiting');
-  }
-  const display: ComposerReadyPhase = gate.dataset.tone === 'ready' && !gate.hidden ? 'ready'
-    : phase === 'opening' ? 'opening' : phase;
-  ui(label, 'textContent', () => composerReadyLabel(display));
-  if (detail) ui(detail, 'textContent', () => composerReadyDetail(display));
-  const input = document.getElementById('chatInput') as HTMLTextAreaElement | null;
-  if (input) input.readOnly = phase === 'models' || phase === 'signin';
-  lastPhase = phase;
-}
-
-export function resetComposerReadyGateForTests(): void {
-  if (readyFlash !== null) window.clearTimeout(readyFlash);
-  readyFlash = null;
-  lastPhase = null;
+export function resetComposerWarmupForTests(): void {
   openingSessions.clear();
   unboundOpening = false;
+  composerWarmups.clear();
+  ensureWarmup = null;
+  retryWarmup = null;
 }

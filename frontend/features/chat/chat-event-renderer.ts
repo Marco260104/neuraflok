@@ -35,6 +35,7 @@ export interface ChatEventRendererRuntime {
   readonly selectedId: string | null;
   readonly selectionGeneration: number;
   readonly events: readonly SessionEvent[];
+  readonly startingInputs: ReadonlyMap<string, InputEntry>;
   readonly pendingComposerInputs: readonly InputEntry[];
   openTools: Set<string>;
 }
@@ -59,7 +60,7 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
   // The exact outbox input retains preview bytes until optional history storage succeeds.
   function retainedInputImages(event: Extract<SessionEvent, { kind: 'user_message' }>, sessionId: string | null): InputImage[] {
     if (!sessionId || !event.inputId) return [];
-    const root = runtime.pendingComposerInputs.find(entry => entry.id === event.inputId &&
+    const root = [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs].find(entry => entry.id === event.inputId &&
       (entry.sessionId ?? entry.deliveredSessionId) === sessionId &&
       (entry.messageId ? entry.messageId === event.messageId : event.messageId === `input:${entry.id}`));
     if (!root) return [];

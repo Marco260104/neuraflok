@@ -99,6 +99,9 @@ export function initializeChatControllers(bindings: ChatInitializationBindings):
     get events() {
       return bindings.events;
     },
+    get startingInputs() {
+      return bindings.startingInputs;
+    },
     get pendingComposerInputs() {
       return bindings.pendingComposerInputs;
     },

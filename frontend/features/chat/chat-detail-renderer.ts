@@ -3,6 +3,7 @@ import { TURN_OUTCOME_LABELS, type ReasoningEffort, type SessionEvent, type Sess
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { AppState } from '../../../contracts/types.js';
 import type { LocalProject } from '../../../contracts/workspace/projects.js';
+import { optimisticWarmupEvents } from './chat-warmup-inputs.js';
 import { foldAgentCommunication, participatingWorkers } from '../agents/agent-communication.js';
 import { $, compactNumber } from '../../shared/dom.js';
 import { currentLanguage, t, ui } from '../../shared/i18n.js';
@@ -13,6 +14,7 @@ import type { CompactionBlock, TimelineItem, createTimelinePresentation } from '
 export interface ChatDetailRendererRuntime {
   sessions: SessionSummary[];
   selectedId: string | null;
+  startingInputs: Map<string, InputEntry>;
   pendingComposerInputs: InputEntry[];
   events: SessionEvent[];
   historyBefore: number | null;
@@ -72,6 +74,7 @@ export function createChatDetailRenderer(runtime: Runtime) {
     const {
       sessions,
       selectedId,
+      startingInputs,
       pendingComposerInputs,
       events,
       historyBefore,
@@ -109,7 +112,9 @@ export function createChatDetailRenderer(runtime: Runtime) {
     $('timeline').removeAttribute('aria-busy');
     $('inputQueue').removeAttribute('inert');
     const filtered = runtime.visibleEvents();
-    const shown = foldAgentCommunication(filtered);
+    const optimistic = optimisticWarmupEvents(events,
+      [...startingInputs.values(), ...pendingComposerInputs], selectedId, runtime.selectionGeneration);
+    const shown = foldAgentCommunication([...filtered, ...optimistic]);
     const pane = $('chatBody');
     const restoreViewport = preserveTimelineViewport(pane, $('timelineContent'), followBottom && !runtime.readingAfterSend,
       runtime.followOutput() ? runtime.readerAtEnd : undefined);
@@ -188,7 +193,7 @@ export function createChatDetailRenderer(runtime: Runtime) {
       runtime.turnWorking, selectedId, toolGroups, true)));
     runtime.setRoundsEnter(timelineRows.length > 0);
     runtime.paintPendingInputs();
-    $('timelineEmpty').hidden = selectedId !== null || timelineRows.length > 0 || $('inputQueue').childElementCount > 0;
+    $('timelineEmpty').hidden = timelineRows.length > 0 || $('inputQueue').childElementCount > 0;
     if (runtime.timelineShown() && !runtime.holdSentMessage()) restoreViewport();
     runtime.paintJumpLatest();
 

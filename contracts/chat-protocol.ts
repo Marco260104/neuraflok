@@ -96,6 +96,7 @@ export interface WebChatCompletion {
 }
 
 const MAX_TOOL_JSON = 80_000;
+const DSML_MARK = '[|｜]{2}DSML[|｜]{2}';
 
 function readJsonObject(source: string, from: number): { json: string; end: number } | null {
   const start = source.indexOf('{', from);
@@ -168,6 +169,32 @@ function taggedToolBlocks(source: string, tag: string): Array<{ start: number; e
   return out;
 }
 
+function neuraflokToolBlocks(source: string): Array<{ start: number; end: number; body: string | null }> {
+  const out: Array<{ start: number; end: number; body: string | null }> = [];
+  const open = /<neuraflok-tool\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(source))) {
+    const object = readJsonObject(source, match.index + match[0].length);
+    const closePattern = /^[ \t]*(?:\r?\n[ \t]*)?<\/neuraflok-tool\s*>/i;
+    const close = object ? source.slice(object.end).match(closePattern) : null;
+    const end = object ? object.end + (close?.[0].length ?? 0) : (() => {
+      const closing = source.slice(open.lastIndex).match(/<\/neuraflok-tool\s*>/i);
+      return closing ? open.lastIndex + closing.index! + closing[0].length : source.length;
+    })();
+    let body: string | null = null;
+    if (object) {
+      try {
+        const parsed = JSON.parse(object.json) as { name?: unknown };
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+            typeof parsed.name === 'string' && parsed.name.trim()) body = object.json;
+      } catch {}
+    }
+    out.push({ start: match.index, end, body });
+    open.lastIndex = Math.max(end, open.lastIndex);
+  }
+  return out;
+}
+
 const XML_TOOL_OPEN = new RegExp(`<(${WEB_CHAT_CORE_TOOLS.join('|')})\\b[^>]*>`, 'gi');
 
 function xmlToolBody(name: string, raw: string): string | null {
@@ -210,6 +237,62 @@ function xmlToolOpens(source: string): number {
   return count;
 }
 
+function dsmlToolBlocks(source: string): Array<{ start: number; end: number; body: string | null }> {
+  const out: Array<{ start: number; end: number; body: string | null }> = [];
+  const open = new RegExp(`<${DSML_MARK}\\s*invoke\\s+name=(?:"([^"]+)"|'([^']+)')\\s*>`, 'gi');
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(source))) {
+    const name = match[1] ?? match[2] ?? '';
+    if (!WEB_CHAT_CORE_TOOLS.includes(name as WebChatCoreTool)) continue;
+    const close = new RegExp(`</${DSML_MARK}\\s*invoke\\s*>`, 'gi');
+    close.lastIndex = open.lastIndex;
+    const endMatch = close.exec(source);
+    const end = endMatch ? close.lastIndex : source.length;
+    const bodyText = source.slice(open.lastIndex, endMatch?.index ?? source.length);
+    const parameter = new RegExp(
+      `<${DSML_MARK}\\s*parameter\\s+name=(?:"([^"]+)"|'([^']+)')(?:\\s+string=(?:"(true|false)"|'(true|false)'))?\\s*>([\\s\\S]*?)</${DSML_MARK}\\s*parameter\\s*>`,
+      'gi'
+    );
+    let argumentText: string | null = null;
+    let declaredName: string | null = null;
+    let argumentCount = 0;
+    let parameterMatch: RegExpExecArray | null;
+    while ((parameterMatch = parameter.exec(bodyText))) {
+      const parameterName = parameterMatch[1] ?? parameterMatch[2];
+      const value = parameterMatch[5] ?? '';
+      if (parameterName === 'arguments') {
+        argumentCount++;
+        argumentText = value.trim();
+      } else if (parameterName === 'name') {
+        declaredName = value.trim();
+      }
+    }
+
+    let body: string | null = null;
+    if (endMatch && argumentCount === 1 && (!declaredName || declaredName === name) &&
+        argumentText && argumentText.length <= MAX_TOOL_JSON) {
+      try {
+        let args: unknown = JSON.parse(argumentText);
+        if (typeof args === 'string') args = JSON.parse(args);
+        if (args && typeof args === 'object' && !Array.isArray(args)) {
+          body = JSON.stringify({ name, arguments: args });
+        }
+      } catch {}
+    }
+    out.push({ start: match.index, end, body });
+    open.lastIndex = end;
+  }
+  return out;
+}
+
+function dsmlToolOpens(source: string): number {
+  const tools = WEB_CHAT_CORE_TOOLS.join('|');
+  const open = new RegExp(`<${DSML_MARK}\\s*invoke\\s+name=(?:"(?:${tools})"|'(?:${tools})')\\s*>`, 'gi');
+  let count = 0;
+  while (open.exec(source)) count++;
+  return count;
+}
+
 function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder: string } {
   const source = text ?? '';
   const calls: WebChatToolCall[] = [];
@@ -220,6 +303,14 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
     if (!acceptToolJson(body, calls, seen)) return;
     consumed.push([start, end]);
   };
+  for (const block of neuraflokToolBlocks(source)) {
+    if (block.body) take(block.start, block.end, block.body);
+    else if (!overlaps(consumed, block.start, block.end)) consumed.push([block.start, block.end]);
+  }
+  for (const block of dsmlToolBlocks(source)) {
+    if (block.body) take(block.start, block.end, block.body);
+    else if (!overlaps(consumed, block.start, block.end)) consumed.push([block.start, block.end]);
+  }
   for (const block of taggedToolBlocks(source, 'neuraflok-tool')) take(block.start, block.end, block.body);
   for (const block of taggedToolBlocks(source, 'json')) take(block.start, block.end, block.body);
   for (const block of xmlToolBlocks(source)) take(block.start, block.end, block.body);
@@ -231,6 +322,20 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
     take(match.index === 0 ? 0 : match.index + 1, obj.end, obj.json);
     banner.lastIndex = obj.end;
   }
+  const firstContent = source.search(/\S/);
+  if (firstContent >= 0 && source[firstContent] === '{') {
+    const candidate = source.slice(firstContent);
+    const object = readJsonObject(candidate, 0);
+    if (object && !candidate.slice(object.end).trim()) {
+      try {
+        const parsed = JSON.parse(object.json) as { name?: unknown };
+        const name = parsed && typeof parsed === 'object' ? parsed.name : undefined;
+        if (typeof name === 'string' && (WEB_CHAT_CORE_TOOLS.includes(name as WebChatCoreTool) || name === 'agents')) {
+          take(firstContent, firstContent + object.end, object.json);
+        }
+      } catch {}
+    }
+  }
   consumed.sort((a, b) => a[0] - b[0]);
   const parts: string[] = [];
   let cursor = 0;
@@ -240,7 +345,11 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
     cursor = end;
   }
   parts.push(source.slice(cursor));
-  return { calls, remainder: parts.join('').trim() };
+  const remainder = parts.join('')
+    .replace(new RegExp(`<${DSML_MARK}\\s*calls\\s*>\\s*</${DSML_MARK}\\s*calls\\s*>`, 'gi'), '')
+    .replace(new RegExp(`<${DSML_MARK}\\s*calls\\s*>(?![\\s\\S]*?</${DSML_MARK}\\s*calls\\s*>)[\\s\\S]*$`, 'gi'), '')
+    .trim();
+  return { calls, remainder };
 }
 
 export function parseWebChatTools(text: string): WebChatToolCall[] {
@@ -259,7 +368,10 @@ export function incompleteWebChatTool(text: string): boolean {
   while (fence.exec(source)) opens++;
   const banner = /(?:^|\n)neuraflok-tool[ \t]*\r?\n/gi;
   while (banner.exec(source)) opens++;
+  const brandedXml = /<neuraflok-tool\b[^>]*>/gi;
+  while (brandedXml.exec(source)) opens++;
   opens += xmlToolOpens(source);
+  opens += dsmlToolOpens(source);
   if (!opens) return false;
   return parseWebChatTools(source).length < opens;
 }
@@ -322,18 +434,43 @@ export function webToolGuide(
   ctx?: WebChatGuideContext
 ): string {
   const root = webChatWriteRoot(ctx);
+  const hasAgentsTool = declarations.some(entry => entry.name === 'agents');
   const readExample = JSON.stringify({ name: 'read', arguments: { paths: [`${root}/example.txt`] } });
   const execExample = JSON.stringify({ name: 'exec_command', arguments: { cmd: 'Get-ChildItem -Name', workdir: root } });
   const patchExample = JSON.stringify({
     name: 'apply_patch',
     arguments: { patch: `*** Begin Patch\n*** Add File: ${root}/hello.txt\n+hello\n*** End Patch` }
   });
+  const agentGuidance = hasAgentsTool
+    ? [
+        'The agents tool is available. For spawn use action="spawn" with workers:[{label,task}]; do not use agents or prompt as argument field names.',
+        'Example: spawn two independent read-only checks, then collect their reports once:',
+        '```neuraflok-tool',
+        JSON.stringify({
+          name: 'agents',
+          arguments: {
+            action: 'spawn',
+            workers: [
+              { label: 'Estado', task: `Read ${root}/notes.md and report only its Estado value. Do not edit files.` },
+              { label: 'Dato clave', task: `Read ${root}/notes.md and report only its Dato clave value. Do not edit files.` }
+            ]
+          }
+        }),
+        '```',
+        'After the spawn result, collect reports with this exact status call:',
+        '```neuraflok-tool',
+        JSON.stringify({ name: 'agents', arguments: { action: 'status' } }),
+        '```'
+      ]
+    : ['The agents tool is not available on this executor.'];
   return [
     'You are working in this local workspace. Local Core tools run only when you emit a tool block.',
-    'Only these listed Core tools exist here. Desktop, agents, session_finish and code-mode exec are not available on this executor.',
+    'Only these listed Core tools exist here. Desktop, session_finish and code-mode exec are not available on this executor.',
+    hasAgentsTool ? 'The agents tool is available and listed below.' : 'The agents tool is not exposed in this chat.',
     webChatRoundReminder(ctx),
     'Available tools:',
     declarations.map(compactToolLine).join('\n'),
+    ...agentGuidance,
     'Patch grammar (apply_patch argument "patch"):',
     '*** Begin Patch',
     `*** Add File: ${root}/name.ext`,

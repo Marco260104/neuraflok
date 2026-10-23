@@ -18,6 +18,7 @@ import {
 } from '../../../domains/sessions/history/store.js';
 import { logWarn } from '../../settings/logger.js';
 import { runningToolProgress, type CallContext } from './call-context.js';
+import { isLocalProviderTurnQueued } from '../../../domains/sessions/input/local-executor-activity.js';
 
 type AgentLivenessInput = {
   context: CallContext;
@@ -67,7 +68,7 @@ export async function maintainAgentLiveness(input: AgentLivenessInput): Promise<
   const quietWorkers = supersededConversation || accessRefused ? [] : sleepSilentWorkers(
     Date.now(),
     undefined,
-    id => runningToolProgress(id) !== null,
+    id => runningToolProgress(id) !== null || isLocalProviderTurnQueued(id),
     id => callerSession?.conversationId === id ? callerSession.activeTurnId ?? null : undefined,
     id => callerSession?.conversationId === id ? callerRequestOriginMax : undefined
   );

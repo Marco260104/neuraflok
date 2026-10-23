@@ -2,6 +2,7 @@ import type { SessionEvent, SessionSummary, SwarmState } from '../../../contract
 import type { GoalWait } from '../../../contracts/automation/goal-progress.js';
 import type { AppState } from '../../../contracts/types.js';
 import type { Badge } from './chat-session-row.js';
+import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 
 export interface ChatProgressRuntime {
   api: Pick<typeof window.api, 'runningProcesses' | 'runningTools' | 'stopProcess'>;
@@ -12,6 +13,8 @@ export interface ChatProgressRuntime {
   controlledTurnId: string | null;
   goalWaitView: GoalWait | null;
   events: SessionEvent[];
+  startingInputs: Map<string, InputEntry>;
+  pendingComposerInputs: InputEntry[];
   sessions: SessionSummary[];
   detailFor: string | null;
   swarm: SwarmState | null;

@@ -2165,5 +2165,9 @@
   "The web model is ready.": "Webモデルの準備ができました。",
   "Preparing chat…": "チャットを準備しています…",
   "Reading the project and connecting the model…": "プロジェクトを読み込み、モデルに接続しています…",
+  "Reading project…": "プロジェクトを読み込み中…",
+  "Your message will be queued until the model is ready.": "モデルの準備ができるまで、メッセージはキューに入ります。",
+  "The model could not confirm this chat context. Retry to release queued messages.": "モデルがチャットのコンテキストを確認できませんでした。再試行すると、キュー内のメッセージが送信されます。",
+  "Chat context not verified": "チャットのコンテキストを確認できませんでした",
   "Chat is ready.": "チャットの準備ができました。"
 }

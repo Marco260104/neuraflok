@@ -1,8 +1,9 @@
 // Owns bounded durable history for browser-backed provider conversations.
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import type { WebChatMessage, WebChatThread } from '../../../contracts/chat-protocol.js';
+import { parseWebChatTools, stripWebChatTools, type WebChatMessage, type WebChatThread } from '../../../contracts/chat-protocol.js';
 import type { WebProviderId } from '../../../contracts/web-providers.js';
+import { LEGACY_WEB_BOOTSTRAP_ACK, WEB_BOOTSTRAP_ACK } from '../sessions/input/provider-context.js';
 import { sessionWebProviderThreadPath, withSessionMutationFence } from '../sessions/history/store.js';
 
 const MAX_THREAD_MESSAGES = 120;
@@ -28,6 +29,76 @@ export function trimWebProviderThread(messages: WebChatMessage[]): WebChatMessag
 export function withWebProviderSystem(messages: WebChatMessage[], system: string): WebChatMessage[] {
   const rest = messages[0]?.role === 'system' ? messages.slice(1) : messages;
   return trimWebProviderThread([{ role: 'system', content: system }, ...rest]);
+}
+
+/** Rebuild the recent conversation in a new provider page when its remote chat history is unavailable. */
+export function replayWebProviderTranscript(
+  messages: WebChatMessage[],
+  currentPrompt: string,
+  maxChars = 96_000,
+  currentUserText?: string
+): string | null {
+  const header = 'The original provider page for this same NEURAFLOK chat is unavailable. Continue from this saved transcript and answer the current request. Do not redo completed work unless the current request asks for it.';
+  const current = `CURRENT REQUEST:\n${currentPrompt}`;
+  const budget = maxChars - header.length - current.length - 8;
+  if (budget < 160) return null;
+
+  const setupMessage = messages.findIndex(row => row.role === 'user' &&
+    String(row.content || '').includes('Initialize this NEURAFLOK conversation using the instructions below.'));
+  const setupAck = messages.findIndex((row, index) => {
+    const content = String(row.content || '').trim();
+    return row.role === 'assistant' && (setupMessage < 0 || index > setupMessage) &&
+      (content === WEB_BOOTSTRAP_ACK || content === LEGACY_WEB_BOOTSTRAP_ACK);
+  });
+  const historyStart = setupAck >= 0 ? setupAck + 1 : setupMessage >= 0 ? setupMessage + 1 : 0;
+  const repeatedRequest = currentUserText?.replace(/\s+/g, ' ').trim();
+  const history = messages.slice(historyStart)
+    .filter(row => row.role !== 'system')
+    .filter(row => !(row.role === 'user' && repeatedRequest &&
+      typeof row.content === 'string' && row.content.replace(/\s+/g, ' ').trim() === repeatedRequest))
+    .map((row, index, rows) => {
+      const role = row.role === 'tool' ? 'TOOL RESULT' : row.role.toUpperCase();
+      const original = typeof row.content === 'string' ? row.content : '';
+      const parsed = row.role === 'assistant' ? parseWebChatTools(original) : [];
+      const calls = row.tool_calls?.length ? row.tool_calls : parsed;
+      const content = parsed.length ? stripWebChatTools(original) : original;
+      const resultIds = new Set<string>();
+      for (const next of rows.slice(index + 1)) {
+        if (next.role === 'assistant' || next.role === 'user') break;
+        if (next.role === 'tool' && next.tool_call_id) resultIds.add(next.tool_call_id);
+      }
+      const results = calls.filter(call => resultIds.has(call.id)).length;
+      const callLabel = results === 0 ? 'UNEXECUTED TOOL CALL REQUESTS'
+        : results === calls.length ? 'TOOL CALLS WITH RESULTS' : 'PARTIAL TOOL CALL RESULTS';
+      const callSummary = calls.length ? `\n${callLabel}: ${calls.map(call => call.function.name).join(', ')}` : '';
+      const body = `${content}${callSummary}`.trim();
+      return body ? `${role}:\n${body}` : '';
+    })
+    .filter(Boolean);
+
+  let used = 0;
+  const selected: string[] = [];
+  for (const row of history.reverse()) {
+    const separator = selected.length ? 2 : 0;
+    const room = budget - used - separator;
+    if (room < 160) break;
+    if (row.length <= room) {
+      selected.push(row);
+      used += row.length + separator;
+    } else if (!selected.length) {
+      const splitAt = row.indexOf('\n');
+      const label = splitAt >= 0 ? row.slice(0, splitAt) : 'PREVIOUS MESSAGE';
+      const marker = '\n[Earlier content omitted]\n';
+      const contentRoom = Math.max(0, room - label.length - marker.length - 1);
+      const content = row.slice(splitAt + 1);
+      const beginning = Math.ceil(contentRoom / 2);
+      const ending = Math.floor(contentRoom / 2);
+      selected.push(`${label}\n${content.slice(0, beginning)}${marker}${ending ? content.slice(-ending) : ''}`);
+      used = room;
+    }
+  }
+  if (!selected.length) return null;
+  return `${header}\n\n${selected.reverse().join('\n\n')}\n\n${current}`;
 }
 
 function parseThread(raw: unknown, sessionId: string, conversationId: string): WebChatThread | null {

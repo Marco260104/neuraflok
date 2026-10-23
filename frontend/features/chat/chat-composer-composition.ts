@@ -7,6 +7,7 @@ import { imageDrafts } from './chat-composer-attachments.js';
 import { createChatSessionControls } from './chat-session-controls.js';
 import { createChatDraftState } from './chat-draft-state.js';
 import { createChatDeliveryControls } from './chat-delivery-controls.js';
+import { createWebChatWarmup } from './chat-web-warmup.js';
 import { localizedGoalError, type GoalDraftPresentation, type GoalProgressView } from './chat-goal-progress.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
 import type { RecoveryCountdown } from '../../../contracts/recovery.js';
@@ -72,6 +73,27 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
 
   const chatInputQueue = createChatInputQueue(chatInputQueueRuntime);
 
+  createWebChatWarmup({
+    api: bindings.api,
+    state: () => bindings.deps.state(),
+    get newChatSelected() { return bindings.newChatSelected; },
+    get selectedId() { return bindings.selectedId; },
+    get selectedProjectId() { return bindings.selectedProjectId; },
+    get selectionGeneration() { return bindings.selectionGeneration; },
+    get sessions() { return bindings.sessions; },
+    turnWorking: dependencies.turnWorking,
+    get pendingNewInput() { return bindings.pendingNewInput; },
+    get startingInputs() { return bindings.startingInputs; },
+    get pendingComposerInputs() { return bindings.pendingComposerInputs; },
+    set pendingComposerInputs(value: typeof bindings.pendingComposerInputs) { bindings.pendingComposerInputs = value; },
+    adoptAcceptedOpening: entry => chatInputQueue.adoptAcceptedOpening(entry),
+    selectSession: bindings.selectSession,
+    paintDeliveryControls: bindings.paintDeliveryControls,
+    refreshInputQueue: () => bindings.refreshInputQueue(),
+    setPendingNewInput: value => { bindings.pendingNewInput = value; },
+    paintPreparationStatus: () => dependencies.parkTurnStatus(dependencies.turnWorking())
+  });
+
   const chatComposerDeliveryRuntime = {
     api: bindings.api,
     draftKey: bindings.draftKey,
@@ -114,6 +136,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get inputQueueGeneration() { return bindings.inputQueueGeneration; },
     set inputQueueGeneration(value: number) { bindings.inputQueueGeneration = value; },
     showAutoSkillReceipt: bindings.showAutoSkillReceipt,
+    paintDetail: bindings.paintDetail,
     adoptAcceptedOpening: bindings.adoptAcceptedOpening
   };
 
@@ -184,8 +207,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     currentPreparedPlan: bindings.currentPreparedPlan,
     authoredComposerText: bindings.authoredComposerText,
     pendingComposerInput: () => chatInputQueue.pendingComposerInput(),
-    taskPlans: taskPlanController,
-    state: () => bindings.deps.state()
+    taskPlans: taskPlanController
   });
 
   const chatComposerInputRuntime = {
