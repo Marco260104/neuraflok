@@ -10,7 +10,7 @@ import { $ } from '../../shared/dom.js';
 import { t } from '../../shared/i18n.js';
 import { createQueuedTaskList } from './queued-task-list.js';
 import { createChatInputRows } from './chat-input-rows.js';
-import { adoptOpeningSession } from './chat-composer-ready.js';
+import { adoptOpeningSession, markComposerWarmupOpening } from './chat-composer-ready.js';
 import { isWarmupInput } from './chat-web-warmup.js';
 
 export interface ChatInputQueueRuntime {
@@ -60,6 +60,15 @@ export interface ChatInputQueueRuntime {
 
 type Runtime = ChatInputQueueRuntime;
 
+export function visibleStartingComposerInputs(
+  startingInputs: Iterable<InputEntry>,
+  belongsToSelection: (entry: InputEntry) => boolean,
+  existingIds: ReadonlySet<string>,
+): InputEntry[] {
+  return [...startingInputs].filter(entry =>
+    !isWarmupInput(entry) && !entry.warmupDeferred && belongsToSelection(entry) && !existingIds.has(entry.id));
+}
+
 // Owns pending delivery rows, queued follow-ups, retries, and queue reconciliation.
 export function createChatInputQueue(runtime: Runtime) {
   const queuedTaskList = createQueuedTaskList(runtime);
@@ -96,6 +105,7 @@ export function createChatInputQueue(runtime: Runtime) {
       runtime.selectedId !== null
     )
       return false;
+    if (entry.warmup) markComposerWarmupOpening(id, runtime.selectionGeneration);
     runtime.pendingNewInput = null;
     runtime.mergeSessionRows([summary]);
     const from = runtime.draftKey();
@@ -158,14 +168,17 @@ export function createChatInputQueue(runtime: Runtime) {
           runtime.selectedId !== null ||
           runtime.projectGroup(entry.projectId) ===
             runtime.selectedProjectId) &&
-        (!isWarmupInput(entry) || notice(entry)) &&
+        !isWarmupInput(entry) &&
+        (!entry.warmupDeferred || notice(entry)) &&
         (notice(entry) ||
           !['sent', 'cancelled'].includes(entry.state) ||
           (entry.state === 'sent' && entry.messageId && !anchored(entry))),
     );
-    for (const entry of runtime.startingInputs.values())
-      if (belongsToSelection(entry) && !all.some((row) => row.id === entry.id))
-        rows.push(entry);
+    rows.push(...visibleStartingComposerInputs(
+      runtime.startingInputs.values(),
+      belongsToSelection,
+      new Set(all.map(entry => entry.id)),
+    ));
     const host = $('inputQueue');
     const previous = new Map(
       [...host.querySelectorAll<HTMLElement>(':scope > .pending-message')].map(
@@ -323,6 +336,7 @@ export function createChatInputQueue(runtime: Runtime) {
   function pendingComposerInput(): InputEntry | undefined {
     return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs].find(
       (entry) =>
+        !isWarmupInput(entry) &&
         (!queuedFollowup(entry) || entry.state === 'browser') &&
         ['queued', 'browser'].includes(entry.state) &&
         (runtime.selectedId

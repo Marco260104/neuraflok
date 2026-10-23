@@ -2165,5 +2165,9 @@
   "The web model is ready.": "Web modeli hazır.",
   "Preparing chat…": "Sohbet hazırlanıyor…",
   "Reading the project and connecting the model…": "Proje okunuyor ve model bağlanıyor…",
+  "Reading project…": "Proje okunuyor…",
+  "Your message will be queued until the model is ready.": "Model hazır olana kadar mesajınız sıraya alınacak.",
+  "The model could not confirm this chat context. Retry to release queued messages.": "Model sohbet bağlamını doğrulayamadı. Kuyruktaki mesajları göndermek için yeniden deneyin.",
+  "Chat context not verified": "Sohbet bağlamı doğrulanmadı",
   "Chat is ready.": "Sohbet hazır."
 }

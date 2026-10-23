@@ -201,7 +201,8 @@ export function createChatAutomationControls(runtime: Runtime) {
           runtime.goalProgress = { requestId, selection, inputId, phase: 'queued', text: '' };
           runtime.paintDeliveryControls();
           try {
-            const accepted = await run(api.sendInput(entry));
+            const sent = await run(api.sendInput(entry));
+            const accepted = sent ?? (await run(api.listInputs()))?.find(row => row.id === inputId);
             if (accepted) {
               runtime.inputQueueGeneration++;
               runtime.pendingComposerInputs = [...runtime.pendingComposerInputs.filter(row => row.id !== inputId), accepted];
@@ -215,6 +216,8 @@ export function createChatAutomationControls(runtime: Runtime) {
               runtime.goalProgress.phase = 'failed';
               runtime.goalProgress.error = 'Opening message could not be queued';
             }
+            if (!accepted && runtime.pendingNewInput?.id === inputId && runtime.pendingNewInput.generation === selection)
+              runtime.pendingNewInput = null;
           } finally {
             runtime.startingInputs.delete(inputId);
             runtime.paintDeliveryControls();

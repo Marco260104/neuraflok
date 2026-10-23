@@ -22,6 +22,9 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
   }
   // Recent tool activity can indicate work when a provider turn boundary is missing.
   const BLIND_CAPTION_MS = 90_000;
+  // An open provider turn is not proof of progress. Stop displaying a growing
+  // elapsed clock when the chat has produced no visible output or tool activity.
+  const PROVIDER_SILENCE_MS = 90_000;
 
   function stateLine(): ProgressStatus {
     if (!runtime.state()?.config.ui.developerMode) {
@@ -71,6 +74,23 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       if (!active && endedAt === undefined)
         return blind ?? { text: '', tone: '' };
       if (blind) return blind;
+      if (active) {
+        let lastVisibleActivityAt = startedAt;
+        for (const event of runtime.events) {
+          if (event.time < startedAt || (event.turnId && event.turnId !== turnId)) continue;
+          if (event.kind === 'tool_call' || event.kind === 'page_tool' ||
+              event.kind === 'assistant_message' ||
+              (event.kind === 'progress' && event.source === 'extension')) {
+            lastVisibleActivityAt = Math.max(lastVisibleActivityAt, event.time);
+          }
+        }
+        if (summary.lastToolCallAt !== null && summary.lastToolCallAt >= startedAt)
+          lastVisibleActivityAt = Math.max(lastVisibleActivityAt, summary.lastToolCallAt);
+        if (summary.lastAssistantFinalAt && summary.lastAssistantFinalAt >= startedAt)
+          lastVisibleActivityAt = Math.max(lastVisibleActivityAt, summary.lastAssistantFinalAt);
+        if (Date.now() - lastVisibleActivityAt >= PROVIDER_SILENCE_MS)
+          return { text: t('Waiting for provider…'), tone: '', working: true };
+      }
       const seconds = Math.max(
         0,
         Math.floor(((active ? Date.now() : endedAt!) - startedAt) / 1000),

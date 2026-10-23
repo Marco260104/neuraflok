@@ -23,6 +23,7 @@ import {
   sessionDurableModifiedAt
 } from '../sessions/history/store.js';
 import { liveConversations, recordAgentMessage } from '../sessions/history/recorder.js';
+import { isLocalProviderTurnQueued } from '../sessions/input/local-executor-activity.js';
 
 export const STALE_SWARM_MS = 2 * 60_000;
 
@@ -146,7 +147,7 @@ export function createBridgeWorkerSweep(runtime: Runtime) {
     for (const slept of sleepSilentWorkers(
       now,
       runId,
-      id => runningToolProgress(id) !== null,
+      id => runningToolProgress(id) !== null || isLocalProviderTurnQueued(id),
       id => unresolvedTurns.get(id)?.turnId,
       id => unresolvedTurns.get(id)?.requestOriginMax
     )) {

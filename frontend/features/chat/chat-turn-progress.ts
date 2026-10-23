@@ -4,6 +4,14 @@ import { $, el, icon } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
 import type { ProgressStatus } from './chat-progress-status.js';
+import {
+  composerWarmupKey,
+  composerWarmupState,
+  retrySelectedChatWarmup,
+  shouldSuppressWarmupActivity,
+  visibleWarmupPhase
+} from './chat-composer-ready.js';
+import { warmupDeferredEntries, warmupDeferredProgress } from './chat-warmup-inputs.js';
 
 export function createChatTurnProgress(
   runtime: ChatProgressRuntime,
@@ -13,14 +21,21 @@ export function createChatTurnProgress(
   let turnWorking = false;
 
   // Keeps the current activity beside the turn that owns it.
-  const turnNow = el('p', 'meta is-progress thinking-line turn-now');
+  const turnNow = el('div', 'meta is-progress thinking-line turn-now');
+  turnNow.setAttribute('role', 'status');
+  turnNow.setAttribute('aria-live', 'polite');
+  turnNow.setAttribute('aria-atomic', 'true');
   const turnNowIcon = el('span', 'turn-now-icon');
   const turnNowSpinner = el('span', 'thinking-spinner');
   turnNowSpinner.setAttribute('aria-hidden', 'true');
   const turnNowText = el('span', 'turn-now-text');
   const turnNowTime = el('span', 'turn-now-time');
+  const turnNowRetry = el('button', 'turn-now-retry') as HTMLButtonElement;
+  turnNowRetry.type = 'button';
+  turnNowRetry.hidden = true;
+  turnNowRetry.addEventListener('click', () => retrySelectedChatWarmup());
   const turnNowBody = el('span', 'turn-now-body');
-  turnNowBody.append(turnNowText, turnNowTime);
+  turnNowBody.append(turnNowText, turnNowTime, turnNowRetry);
   turnNow.append(turnNowIcon, turnNowBody);
   turnNow.hidden = true;
   let runningTools: RunningToolActivity[] = [];
@@ -44,6 +59,24 @@ export function createChatTurnProgress(
   // Only progressive English step labels indicate activity; completed labels remain historical.
   const NATIVE_STEP_NOW = /^\S+ing\b/i;
 
+  function preparation() {
+    return composerWarmupState(composerWarmupKey(runtime.selectedId, runtime.selectionGeneration));
+  }
+
+  function composerInputs() {
+    return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs];
+  }
+
+  function deferredProgress() {
+    return warmupDeferredProgress(composerInputs(), runtime.selectedId, runtime.selectionGeneration,
+      preparation()?.phase ?? null, runtime.events);
+  }
+
+  function hasPendingAuthoredMessage(): boolean {
+    return !!$('inputQueue').querySelector('.pending-message') ||
+      warmupDeferredEntries(composerInputs(), runtime.selectedId, runtime.selectionGeneration).length > 0;
+  }
+
   // Prefer the current turn note, then active local tools, then a neutral thinking state.
   function liveActivity(): {
     text: string;
@@ -51,6 +84,13 @@ export function createChatTurnProgress(
     working: boolean;
     since?: number;
   } | null {
+    const warmup = preparation();
+    const preparationPhase = visibleWarmupPhase(warmup?.phase ?? null, hasPendingAuthoredMessage());
+    if (preparationPhase === 'failed') return { text: t('Chat context not verified'), icon: '', working: false };
+    const deferred = deferredProgress();
+    if (deferred === 'reading') return { text: t('Reading project…'), icon: 'thinking', working: false };
+    if (preparationPhase === 'opening') return { text: t('Reading project…'), icon: 'thinking', working: false };
+    if (deferred === 'thinking') return { text: t('Thinking…'), icon: 'thinking', working: false };
     const call =
       runningToolsFor === runtime.selectedId ? runningTools.at(-1) : undefined;
     if (call)
@@ -60,7 +100,7 @@ export function createChatTurnProgress(
         working: true,
         since: call.since,
       };
-    const thinking = { text: t('Thinking…'), icon: '', working: false };
+    const thinking = { text: t('Thinking…'), icon: 'thinking', working: false };
     // A pending message indicates work before its first event is recorded.
     if ($('inputQueue').querySelector('.pending-message, .queued-input'))
       return thinking;
@@ -92,20 +132,24 @@ export function createChatTurnProgress(
 
   function paintTurnNow(): void {
     const isWorking = turnStatusLine.classList.contains('is-working');
-    const hasPending = !!$('inputQueue').querySelector(
-      '.pending-message, .queued-input',
-    );
-    const now = isWorking || hasPending ? liveActivity() : null;
+    const hasPending = !!$('inputQueue').querySelector('.pending-message, .queued-input') || deferredProgress() !== null;
+    const warmup = preparation();
+    const suppressWarmupActivity = shouldSuppressWarmupActivity(warmup, hasPendingAuthoredMessage());
+    const now = suppressWarmupActivity ? null : isWorking || hasPending ? liveActivity() : null;
     const text = now?.text ?? '';
-    const cue = now && !now.working ? 'thinking' : (now?.icon ?? '');
+    const cue = now?.icon ?? '';
     if (now && turnNowIcon.dataset.icon !== cue) {
       turnNowIcon.dataset.icon = cue;
       turnNowIcon.replaceChildren(
         ...(cue === 'thinking' ? [turnNowSpinner] : cue ? [icon(cue)] : []),
       );
     }
-    turnNow.classList.toggle('is-thinking', now !== null && !now.working);
+    turnNow.classList.toggle('is-thinking', now?.icon === 'thinking');
     turnNow.classList.toggle('is-executing', now !== null && now.working);
+    const showWarmupError = visibleWarmupPhase(warmup?.phase === 'failed' ? 'failed' : null, hasPendingAuthoredMessage()) === 'failed';
+    turnNow.classList.toggle('is-error', showWarmupError);
+    turnNowRetry.hidden = !showWarmupError;
+    ui(turnNowRetry, 'textContent', () => t('Retry'));
     if (turnNow.dataset.text !== text) {
       turnNow.dataset.text = text;
       turnNowText.textContent = text;
@@ -220,6 +264,8 @@ export function createChatTurnProgress(
       : getStateLine();
     const working = status?.working === true;
     turnWorking = working;
+    const suppressWarmup = shouldSuppressWarmupActivity(preparation(), hasPendingAuthoredMessage());
+    const deferred = deferredProgress();
     const asks = rows
       .map((row, index) => ({ row, index, asked: Number(row.dataset.askedAt) }))
       .filter(
@@ -234,7 +280,11 @@ export function createChatTurnProgress(
     for (let i = asks.length - 1; i >= 0; i--) {
       const { index, asked } = asks[i]!;
       const latest = i === asks.length - 1;
-      if (latest && working && !pending) {
+      if (latest && deferred) {
+        rows.splice(index + 1, 0, turnNow);
+        continue;
+      }
+      if (latest && working && !pending && !suppressWarmup) {
         rows.splice(index + 1, 0, turnStatusLine);
         rows.push(turnNow);
         continue;
@@ -257,9 +307,33 @@ export function createChatTurnProgress(
 
   // Parks the live status beside the pending message or latest timeline entry.
   function parkTurnStatus(working: boolean): void {
+    const warmup = preparation();
+    const deferred = deferredProgress();
     const pending = !!$('inputQueue').querySelector(
       '.pending-message, .queued-input',
     );
+    if (deferred) {
+      turnStatusLine.remove();
+      const latestMessage = runtime.detailFor === runtime.selectedId && runtime.selectedId !== null
+        ? [...$('timeline').querySelectorAll<HTMLElement>('.ev-user_message')].at(-1)
+        : undefined;
+      if (latestMessage) latestMessage.after(turnNow);
+      else turnNow.remove();
+      paintTurnNow();
+      return;
+    }
+    if (shouldSuppressWarmupActivity(warmup, hasPendingAuthoredMessage())) {
+      turnStatusLine.remove();
+      turnNow.remove();
+      paintTurnNow();
+      return;
+    }
+    if (warmup?.phase === 'opening' && hasPendingAuthoredMessage()) {
+      turnStatusLine.remove();
+      $('inputQueue').after(turnNow);
+      paintTurnNow();
+      return;
+    }
     const latestMessage =
       runtime.detailFor === runtime.selectedId && runtime.selectedId !== null
         ? [

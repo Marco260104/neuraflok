@@ -124,6 +124,7 @@ export async function recordChatObservationsNow(
             // Keep long answers inline so a continuation does not make the transcript appear truncated.
             message: await storeText(sessionId, item.text ?? '', 256_000),
             messageId: item.messageId,
+            ...(item.inputId ? { inputId: item.inputId } : {}),
             state,
             final: state === 'final',
             ...(item.providerMessageId ? { providerMessageId: item.providerMessageId } : {}),
@@ -231,6 +232,7 @@ export async function recordChatObservationsNow(
           await appendEvent(sessionId, {
             ...base,
             kind: 'chat_error',
+            ...(item.inputId ? { inputId: item.inputId } : {}),
             ...(item.reason === 'thinking_failed' || item.reason === 'stream_gone' ? { reason: item.reason } : {}),
             ...(typeof item.recoverable === 'boolean' ? { recoverable: item.recoverable } : {}),
             ...(typeof item.blocking === 'boolean' ? { blocking: item.blocking } : {}),

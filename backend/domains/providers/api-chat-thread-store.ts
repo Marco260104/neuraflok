@@ -36,8 +36,53 @@ export function trimApiThread(messages: ApiMessage[]): ApiMessage[] {
     if (nextTurn < 0) break;
     rest = rest.slice(nextTurn);
   }
-  const result = system ? [system, ...rest] : rest;
-  if (result.length > MAX_THREAD_MESSAGES || threadChars(result) > MAX_THREAD_CHARS) {
+
+  const withinBudget = (rows: ApiMessage[]) => rows.length <= MAX_THREAD_MESSAGES && threadChars(rows) <= MAX_THREAD_CHARS;
+  let result = system ? [system, ...rest] : rest;
+  if (!withinBudget(result)) {
+    let currentUserIndex = -1;
+    for (let index = rest.length - 1; index >= 0; index--) {
+      if (rest[index]!.role === 'user') { currentUserIndex = index; break; }
+    }
+    if (currentUserIndex >= 0) {
+      const currentUser = rest[currentUserIndex]!;
+      const remaining = rest.slice(currentUserIndex + 1);
+      const groups: ApiMessage[][] = [];
+      for (let index = 0; index < remaining.length;) {
+        const row = remaining[index]!;
+        const group = [row];
+        index++;
+        if (row.role === 'assistant' && row.tool_calls?.length) {
+          const pending = new Set(row.tool_calls.map(call => call.id));
+          while (index < remaining.length) {
+            const next = remaining[index]!;
+            if (next.role !== 'tool' || !pending.has(next.tool_call_id ?? '')) break;
+            group.push(next);
+            pending.delete(next.tool_call_id!);
+            index++;
+            if (pending.size === 0) break;
+          }
+        }
+        groups.push(group);
+      }
+
+      let omittedGroups = 0;
+      const build = () => {
+        const note: ApiMessage[] = omittedGroups ? [{
+          role: 'assistant',
+          content: '[Earlier tool results were omitted to keep this run within the model context limit. Continue from the original request and recent results; inspect files again if needed.]'
+        }] : [];
+        return [...(system ? [system] : []), currentUser, ...note, ...groups.flat()];
+      };
+      result = build();
+      while (!withinBudget(result) && groups.length) {
+        groups.shift();
+        omittedGroups++;
+        result = build();
+      }
+    }
+  }
+  if (!withinBudget(result)) {
     throw new Error('This API conversation reached its local context limit. Start a new chat to continue.');
   }
   return result;

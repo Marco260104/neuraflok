@@ -54,8 +54,8 @@ export function createInputQueueExpiration(runtime: Runtime) {
           error: 'Not injected: the selected turn ended before an eligible tool call.' };
       }
       if (row.state === 'tool') return runtime.settleToolInputFromFinal(row);
-      // Only an ordinary browser attempt has an unclaimed startup deadline. Tool intent survives a later terminal observation/restart; legacy bound-chat rows are ambiguous and cannot safely be reclassified from today's activity. A message the app itself holds ("Message queued. Finish Setup to send: …", or after a failed browser start) was never offered to a browser. It stays queued with its reason and Retry; failing it here lost it and blamed the browser instead.
-      if (row.state === 'queued' && row.mode === 'auto' && !row.opening && !row.finishOwner && !row.silenceBoundary &&
+      // Only a browser-owned attempt has an unclaimed startup deadline. Local executors already own their send and may be waiting for the serialized provider-page slot. Tool intent survives a later terminal observation/restart; legacy bound-chat rows are ambiguous and cannot safely be reclassified from today's activity. A message the app itself holds ("Message queued. Finish Setup to send: …", or after a failed browser start) was never offered to a browser. It stays queued with its reason and Retry; failing it here lost it and blamed the browser instead.
+      if (row.state === 'queued' && row.mode === 'auto' && !row.opening && !row.finishOwner && !row.silenceBoundary && !row.localExecutor &&
           (row.transportIntent === 'browser' || (!row.transportIntent && !row.sessionId)) &&
           !row.error?.startsWith('Message queued. ') &&
           Date.now() - Math.max(row.createdAt, row.dueAt) >= 60_000)

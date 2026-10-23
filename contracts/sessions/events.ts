@@ -268,6 +268,8 @@ export type SessionEvent =
       message: StoredText;
       /** Stable provider message identity used by the local canonical store. */
       messageId?: string;
+      /** Exact local input that requested this reply, when the app generated it. */
+      inputId?: string;
       /** Public provider object UUID. Evidence for identity drift; not a canonical key or turn owner. */
       providerMessageId?: string;
       /** Provider-reported model for this reply; model usage attribution remains separate. */
@@ -316,7 +318,7 @@ export type SessionEvent =
   /** `detail` names an app-authored reopening: the page reported this turn ended, and a tool call under the same server turn then proved it had not. Absent on the page's own starts. */
   | (BaseEvent & { kind: 'turn_start'; detail?: string })
   | (BaseEvent & { kind: 'turn_end'; outcome: TurnOutcome; detail?: string; reason?: 'thinking_failed'; providerMessageId?: string })
-  | (BaseEvent & { kind: 'chat_error'; message: StoredText; recoverable?: boolean; blocking?: boolean; reason?: 'thinking_failed' | 'stream_gone' })
+  | (BaseEvent & { kind: 'chat_error'; message: StoredText; inputId?: string; recoverable?: boolean; blocking?: boolean; reason?: 'thinking_failed' | 'stream_gone' })
   | (BaseEvent & { kind: 'tool_call'; call: ToolCallRecord; origin?: number })
   /** An app-authored line. `continuation` names the Compact & Resume it is about, so the timeline can fold the note into that compaction's one row instead of showing it loose. */
   | (BaseEvent & { kind: 'note'; message: StoredText; continuation?: string })

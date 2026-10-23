@@ -11,6 +11,7 @@ interface DeepseekDomApi {
   composer(): FakeNode | null;
   sendButton(): FakeNode | null;
   stopButton(): FakeNode | null;
+  continueButton(): FakeNode | null;
   generating(): boolean;
   lastAnswer(): string;
   lastThink(): string;
@@ -265,6 +266,76 @@ it('sets the native textarea value and reports Stop while generating', () => {
   expect(api.generating()).toBe(true);
 });
 
+it('waits for a long DeepSeek generation to finish before sending the next tool round', async () => {
+  vi.useFakeTimers();
+  try {
+    const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+    const { listeners, send, stop } = load([assistant]);
+    send.hidden = true;
+    stop.hidden = false;
+    setTimeout(() => {
+      stop.hidden = true;
+      send.hidden = false;
+    }, 30_000);
+    send.click = function click() {
+      this.events.push('click');
+      assistant.innerText = 'Tool round completed';
+      assistant.textContent = assistant.innerText;
+    };
+
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete',
+      id: '00000000-0000-4000-8000-000000000005',
+      conversationId: SESSION_ID,
+      text: 'continue the task'
+    }, {}, value => { reply = value; });
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(send.events).not.toContain('click');
+    expect(reply).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(send.events).toContain('click');
+    expect(reply).toMatchObject({ text: 'Tool round completed' });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('detects the provider Continue control used after a response reaches its output limit', () => {
+  const continueButton = node('button', { text: 'Continue generating' });
+  const { api } = load([continueButton]);
+  expect(api.continueButton()).toBe(continueButton);
+});
+
+it('only clicks Continue for the currently bound session and send claim', () => {
+  const continueButton = node('button', { text: 'Continue' });
+  const { listeners, sessionStorage } = load([continueButton]);
+  const requestId = '00000000-0000-4000-8000-000000000009';
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  sessionStorage.setItem('neuraflok.sendClaim', requestId);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-continue', id: requestId, conversationId: SESSION_ID }, {}, value => { reply = value; });
+  expect(reply).toEqual({ continued: true });
+  expect(continueButton.events).toContain('click');
+});
+
+it('keeps a DeepSeek DSML tool call when it follows a planning sentence', () => {
+  const response = [
+    'We need to inspect the project first.',
+    '<｜｜DSML｜｜ calls>',
+    '<｜｜DSML｜｜ invoke name="read">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="false">{"paths":["/commander"]}</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '</｜｜DSML｜｜ calls>'
+  ].join('\n');
+  const { listeners } = load([node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: response })]);
+  let reply: unknown;
+  listeners[0]!({ type: 'neuraflok-deepseek-read', sent: 'Inspect the project', before: '', beforeThink: '' }, {}, value => { reply = value; });
+  expect(reply).toMatchObject({ answer: response });
+});
+
 it('finds a role=button send control by its SVG path', () => {
   const { api, send } = load([], { sendRole: true });
   expect(api.sendButton()).toBe(send);
@@ -291,11 +362,11 @@ it('answers neuraflok-deepseek-status and marks the page so the companion shows 
   let status: unknown;
   const kept = listeners[0]!({ type: 'neuraflok-deepseek-status' }, {}, (value) => { status = value; });
   expect(kept).toBeUndefined();
-  expect(status).toEqual({ signedIn: true, generating: false, conversationId: null });
+  expect(status).toEqual({ signedIn: true, generating: false, hasConversation: false, conversationId: null });
   const { listeners: signedOut, api } = load([], { composer: false });
   expect(api.signedIn()).toBe(false);
   signedOut[0]!({ type: 'neuraflok-deepseek-status' }, {}, (value) => { status = value; });
-  expect(status).toEqual({ signedIn: false, generating: false, conversationId: null });
+  expect(status).toEqual({ signedIn: false, generating: false, hasConversation: false, conversationId: null });
 });
 
 it('migrates a pending DeepSeek send claim into the NEURAFLOK page namespace', async () => {
@@ -452,7 +523,7 @@ it('answers neuraflok-deepseek-read with the grown think text', () => {
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'old public', beforeThink: '' }, {}, (value) => { reply = value; });
   expect(reply).toEqual({
-    signedIn: true, generating: false, conversationId: null,
+    signedIn: true, generating: false, hasConversation: true, conversationId: null,
     text: 'new think reply', answer: '', think: 'new think reply'
   });
 });
@@ -532,7 +603,7 @@ it('exposes the public assistant answer separately from think on read', () => {
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: '', beforeThink: '' }, {}, (value) => { reply = value; });
   expect(reply).toEqual({
-    signedIn: true, generating: false, conversationId: null,
+    signedIn: true, generating: false, hasConversation: true, conversationId: null,
     text: 'Este proyecto es Commander.js.',
     answer: 'Este proyecto es Commander.js.',
     think: 'The user asked for a summary.'

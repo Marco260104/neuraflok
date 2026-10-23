@@ -1,18 +1,10 @@
 import { injectableAttachments } from '../../../contracts/input.js';
-import { usesApiProvider } from '../../../contracts/chat-protocol.js';
-import { isWebProviderId } from '../../../contracts/web-providers.js';
-import type { AppState } from '../../../contracts/types.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { GoalDraftPresentation } from './chat-goal-progress.js';
 import type { ComposerAttachment } from './chat-composer-attachments.js';
 import type { createChatTaskPlan } from './chat-task-plan.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
-import {
-  composerReadyPhase,
-  composerSendBlocked,
-  paintComposerReadyGate
-} from './chat-composer-ready.js';
 
 export interface ChatDeliveryControlsRuntime {
   selectedId: string | null;
@@ -35,7 +27,6 @@ export interface ChatDeliveryControlsRuntime {
   authoredComposerText: () => string;
   pendingComposerInput: () => InputEntry | undefined;
   taskPlans: Pick<ReturnType<typeof createChatTaskPlan>, 'hasPlan'>;
-  state: () => AppState | null;
 }
 
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
@@ -86,15 +77,8 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     const send = $<HTMLButtonElement>('chatSend');
     const planMode = runtime.taskPlans.hasPlan(runtime.draftKey());
     const preparedPlan = runtime.currentPreparedPlan();
-    const app = runtime.state();
-    const provider = isWebProviderId(app?.config.ui.webProvider) ? app!.config.ui.webProvider : 'deepseek';
-    const phase = composerReadyPhase({
-      apiExecutor: usesApiProvider(app?.config.ui.chatExecutor),
-      signedIn: app?.bridge.webProviders?.[provider]?.signedIn
-    });
-    paintComposerReadyGate(phase);
     const planDisabled = !!preparedPlan && (preparedPlan.sending || preparedPlan.stages.some(stage => !stage.trim()));
-    send.disabled = planDisabled || composerSendBlocked(phase, stop);
+    send.disabled = planDisabled;
     send.dataset.action = stop ? 'stop' : 'send';
     ui(send, 'aria-label', () => stop ? (runtime.controlledStopPending ? t("Stop requested") : t("Stop turn")) : t("Send message"));
     if (stop && !working && pending) ui(send, 'aria-label', () => t("Cancel delivery"));

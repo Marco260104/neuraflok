@@ -5,7 +5,7 @@ import type { InputEntry } from '../../../backend/domains/sessions/input/input.j
 import { $, run } from '../../shared/dom.js';
 import type { ComposerAttachment } from './chat-composer-attachments.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
-import { markUnboundOpening, noteOpeningSession } from './chat-composer-ready.js';
+import { composerWarmupKey, composerWarmupState, markUnboundOpening, noteOpeningSession } from './chat-composer-ready.js';
 
 export interface ChatComposerDeliveryRuntime {
   api: Pick<typeof window.api, 'cancelInput' | 'listInputs' | 'sendInput' | 'setInputAutomation'>;
@@ -30,6 +30,7 @@ export interface ChatComposerDeliveryRuntime {
   dismissInputNotice: (id: string) => void;
   paintDeliveryControls: () => void;
   refreshInputQueue: () => Promise<void>;
+  paintDetail: (followBottom?: boolean) => void;
   replaceComposerDraft: () => void;
   inputDrafts: Map<string, string>;
   restoreSkills: () => void | undefined;
@@ -48,15 +49,52 @@ export interface ChatComposerDeliveryRuntime {
 
 type Runtime = ChatComposerDeliveryRuntime;
 
+export function composerInputMode(chosenMode: string, preparationPending: boolean, queueAtFinish: boolean): string {
+  if (preparationPending) return 'after-turn';
+  if (chosenMode === 'tool') return 'auto';
+  if (chosenMode === 'after-turn' && queueAtFinish) return 'finish';
+  return chosenMode;
+}
+
+export async function waitForPendingOpeningSession(
+  runtime: Pick<Runtime, 'api' | 'pendingNewInput' | 'selectionGeneration' | 'selectedId' | 'adoptAcceptedOpening'>
+): Promise<boolean> {
+  const pending = runtime.pendingNewInput;
+  if (!pending || pending.generation !== runtime.selectionGeneration || runtime.selectedId !== null) return true;
+  const expectedId = pending.id;
+  const generation = pending.generation;
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (runtime.selectedId === expectedId) return true;
+    if (runtime.selectionGeneration !== generation || runtime.pendingNewInput?.id !== expectedId) return false;
+    const rows = await run(runtime.api.listInputs());
+    const accepted = rows?.find(row => row.id === expectedId);
+    if (accepted && await runtime.adoptAcceptedOpening(accepted)) return runtime.selectedId === expectedId;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  return runtime.selectedId === expectedId;
+}
+
 // Owns composer delivery and its renderer-side outbox handoff.
 export function createChatComposerDelivery(runtime: Runtime) {
+  let openingSessionWait: Promise<boolean> | null = null;
+
+  function waitForOpeningSession(): Promise<boolean> {
+    if (!openingSessionWait) {
+      openingSessionWait = waitForPendingOpeningSession(runtime).finally(() => {
+        openingSessionWait = null;
+      });
+    }
+    return openingSessionWait;
+  }
+
   async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?: string, controlAction = false): Promise<boolean | void> {
+    if ($<HTMLButtonElement>('chatSend').disabled) return;
     const input = $<HTMLTextAreaElement>('chatInput');
     const key = runtime.draftKey();
     const projectId = runtime.selectedId ? runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? null : runtime.selectedProjectId;
     const images = runtime.imageDrafts.get(key) ?? [];
     const text = plan?.[0] ?? (runtime.authoredComposerText().trim() || (images.length ? 'Please look at the attached files.' : ''));
-    if ($<HTMLButtonElement>('chatSend').disabled) return;
     if (!text) {
       if (!controlAction) return;
       const target = runtime.selectedId, selection = runtime.selectionGeneration;
@@ -85,10 +123,15 @@ export function createChatComposerDelivery(runtime: Runtime) {
       return;
     }
     const modelSettings = { model: null, reasoningEffort: null };
-    const sessionId = runtime.selectedId;
+    let sessionId = runtime.selectedId;
     const generation = runtime.selectionGeneration;
+    const pendingOpeningId = runtime.pendingNewInput?.generation === generation ? runtime.pendingNewInput.id : null;
+    const waitForOpening = sessionId === null && pendingOpeningId !== null;
     const chosenMode = delivery ?? $<HTMLSelectElement>('sendMode').value;
-    const mode = chosenMode === 'tool' ? 'auto' : chosenMode === 'after-turn' && runtime.controlledSessionId === runtime.selectedId && runtime.controlledSelection === runtime.selectionGeneration && runtime.controlledQueueAtFinish ? 'finish' : chosenMode;
+    const preparationPending = composerWarmupState(composerWarmupKey(sessionId, generation)) !== null;
+    const queueAtFinish = runtime.controlledSessionId === runtime.selectedId &&
+      runtime.controlledSelection === runtime.selectionGeneration && runtime.controlledQueueAtFinish;
+    const mode = composerInputMode(chosenMode, preparationPending, queueAtFinish);
     const dueAt = Date.now();
     const id = crypto.randomUUID();
     const authoredDraft = runtime.authoredComposerText();
@@ -98,15 +141,19 @@ export function createChatComposerDelivery(runtime: Runtime) {
         runtime.controlledCanInject && images.some(file => 'id' in file) && injectableAttachments(images) ? { attachmentDelivery: 'tool' as const } : {}) };
     const objective = plan ? planObjective : mode === 'finish' ? undefined : $<HTMLTextAreaElement>('sessionObjective').value.trim() || undefined;
     const authoredSource = plan ? 'objective' as const : 'text' as const;
+    const deferredMetadata = preparationPending ? { selectionGeneration: generation } : undefined;
     runtime.startingInputs.set(id, { id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource, mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn',
+      ...(deferredMetadata ? { warmupDeferred: deferredMetadata } : {}),
       dueAt, ...modelSettings, state: 'queued', owner: null, createdAt: dueAt, conversationId: null });
     runtime.replaceComposerDraft();
     input.value = ''; runtime.inputDrafts.delete(key);
     runtime.restoreSkills();
     runtime.imageDrafts.delete(key); runtime.paintComposerImages();
     if (sessionId === null) {
-      runtime.pendingNewInput = { id, generation };
-      markUnboundOpening();
+      if (!waitForOpening) {
+        runtime.pendingNewInput = { id, generation };
+        markUnboundOpening();
+      }
     } else if (!runtime.sessions.find(row => row.id === sessionId)?.conversationId) {
       noteOpeningSession(sessionId);
     }
@@ -114,9 +161,30 @@ export function createChatComposerDelivery(runtime: Runtime) {
     else if (mode !== 'finish') { runtime.sendAnchor = { key: `input:${id}`, inputId: id, before: runtime.userMessageKeys(), session: runtime.selectedId, seen: false, smoothUntil: 0 }; runtime.readingAfterSend = false; }
     void runtime.refreshInputQueue();
     runtime.paintDeliveryControls();
+    runtime.paintDetail(true);
     try {
-      const currentWebProvider = isWebProviderId($<HTMLSelectElement>('webProvider').value) ? $<HTMLSelectElement>('webProvider').value as WebProviderId : undefined;
-      const result = await run(runtime.api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource, automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: runtime.openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, webProvider: currentWebProvider, ...modelSettings }));
+      if (waitForOpening) {
+        const adopted = await waitForOpeningSession();
+        if (!adopted || !runtime.selectedId || runtime.selectedId !== pendingOpeningId) {
+          if (runtime.selectedId === null && runtime.selectionGeneration === generation && !runtime.authoredComposerText()) {
+            runtime.inputDrafts.set(key, authoredDraft); input.value = authoredDraft; runtime.restoreSkills();
+          } else if (!runtime.inputDrafts.get(key)) runtime.inputDrafts.set(key, authoredDraft);
+          if (images.length) runtime.imageDrafts.set(key, [...images, ...(runtime.imageDrafts.get(key) ?? [])]);
+          if (runtime.draftKey() === key) runtime.paintComposerImages();
+          return false;
+        }
+        sessionId = runtime.selectedId;
+        const starting = runtime.startingInputs.get(id);
+        if (starting) runtime.startingInputs.set(id, { ...starting, sessionId });
+        if (runtime.sendAnchor?.inputId === id) runtime.sendAnchor.session = sessionId;
+        runtime.paintDetail(true);
+      }
+      const currentWebProvider = sessionId === null && isWebProviderId($<HTMLSelectElement>('webProvider').value)
+        ? $<HTMLSelectElement>('webProvider').value as WebProviderId
+        : undefined;
+      const result = await run(runtime.api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource,
+        ...(deferredMetadata ? { warmupDeferred: deferredMetadata } : {}),
+        automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: runtime.openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, webProvider: currentWebProvider, ...modelSettings }));
       if (runtime.cancelledStarts.has(id)) return;
       if (!result) {
         const retained = (await run(runtime.api.listInputs()))?.find(row => row.id === id);
@@ -137,6 +205,7 @@ export function createChatComposerDelivery(runtime: Runtime) {
       }
       runtime.inputQueueGeneration++;
       runtime.pendingComposerInputs = [...runtime.pendingComposerInputs.filter(row => row.id !== result.id), result];
+      runtime.paintDetail(true);
       runtime.showAutoSkillReceipt(result);
       if (sessionId === null && runtime.selectionGeneration === generation && runtime.pendingNewInput?.id === id && result.automation &&
           ($<HTMLSelectElement>('chatAutomation').value !== result.automation || runtime.openingLoopDelivery() !== result.loopAfterTurn))
@@ -148,7 +217,7 @@ export function createChatComposerDelivery(runtime: Runtime) {
       $('composerStatus').textContent = '';
       void runtime.refreshInputQueue();
       return true;
-    } finally { runtime.cancelledStarts.delete(id); runtime.startingInputs.delete(id); runtime.paintDeliveryControls(); void runtime.refreshInputQueue(); }
+    } finally { runtime.cancelledStarts.delete(id); runtime.startingInputs.delete(id); runtime.paintDeliveryControls(); runtime.paintDetail(); void runtime.refreshInputQueue(); }
   }
 
   return { sendComposer };

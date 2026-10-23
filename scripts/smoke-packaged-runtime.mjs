@@ -89,6 +89,7 @@ for (const relative of [
   'browser-extension/src/background/connectivity/update-coordinator.js',
   'browser-extension/src/background/providers/session-runtime.js',
   'browser-extension/src/background/providers/session-observer.js',
+  'browser-extension/src/background/providers/deepseek-session.js',
   'browser-extension/src/background/providers/execution/router.js',
   'browser-extension/src/background/providers/delivery-ledger.js',
   'browser-extension/src/background/providers/execution/deepseek.js',

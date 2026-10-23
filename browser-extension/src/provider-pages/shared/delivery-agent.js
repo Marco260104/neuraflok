@@ -70,7 +70,7 @@
     }
 
     function hasToolCall(text) {
-      return /```(?:neuraflok-tool|json)\b/i.test(text) || /<(?:exec_command|read|apply_patch)\b/i.test(text);
+      return /```(?:neuraflok-tool|json)\b/i.test(text) || /<(?:exec_command|read|apply_patch)\b/i.test(text) || /<[|｜]{2}DSML[|｜]{2}\s*invoke\s+name=/i.test(text);
     }
 
     function looksLikeThink(text) {
@@ -132,6 +132,8 @@
         ...(options.includeProvider ? { provider } : {}),
         signedIn: signedIn(),
         generating: generating(),
+        hasConversation: hasConversation(),
+        ...(typeof api.continueButton === 'function' && valueFrom(() => api.continueButton(), null) ? { continueAvailable: true } : {}),
         conversationId: stored(keys.session)
       };
     }
@@ -288,6 +290,24 @@
         }
         if (message.type === `${namespace}-read`) {
           sendResponse(read(message));
+          return;
+        }
+        if (message.type === `${namespace}-continue`) {
+          if (stored(keys.session) !== message.conversationId || stored(keys.claim) !== message.id) {
+            sendResponse({ continued: false });
+            return;
+          }
+          const button = valueFrom(() => api.continueButton?.(), null);
+          if (!button) {
+            sendResponse({ continued: false });
+            return;
+          }
+          try {
+            button.click();
+            sendResponse({ continued: true });
+          } catch {
+            sendResponse({ continued: false });
+          }
           return;
         }
         if (message.type !== `${namespace}-complete`) return;

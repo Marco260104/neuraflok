@@ -14,6 +14,7 @@ import { defaultConfig, initConfigPath, saveConfig } from '../backend/infrastruc
 import { initDurableStore, flushDurable, resetDurableForTests } from '../backend/persistence/durable.js';
 import {
   initSessionStore,
+  createSession,
   getSession,
   readEvents,
   sessionWebProviderThreadPath,
@@ -29,6 +30,7 @@ import {
   runWebProviderInput,
   webProviderFlightTurnId
 } from '../backend/domains/providers/browser-chat.js';
+import { replayWebProviderTranscript } from '../backend/domains/providers/browser-chat-thread.js';
 import {
   pendingProviderPage,
   reportProviderPageProgress,
@@ -48,6 +50,7 @@ import {
   webToolGuide
 } from '../contracts/chat-protocol.js';
 import { isWebProviderConversationId } from '../contracts/web-providers.js';
+import { confirmsWebProviderContext, prepareWebProviderContextCheck } from '../backend/domains/sessions/input/provider-context.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
 const TEST_PROVIDER_CONVERSATION = 'ds-00000000-0000-0000-0000-000000000001';
@@ -66,6 +69,30 @@ function runDeepseekInput(entry: Parameters<typeof runWebProviderInput>[0], sign
 
 it('does not advertise image reading when a browser session cannot pass image bytes to local tools', () => {
   expect(WEB_CHAT_CORE_TOOLS).not.toContain('view_image');
+});
+
+it('advertises browser chat agents with schema-valid spawn and status examples', () => {
+  const declarations = [{
+    name: 'agents',
+    description: 'Run NEURAFLOK worker chats.',
+    inputSchema: {
+      type: 'object',
+      properties: { action: { type: 'string', enum: ['spawn', 'message', 'status', 'finish'] } },
+      required: ['action']
+    }
+  }];
+  const guide = webToolGuide(declarations, { roots: ['/workspace'], project: '/workspace' });
+
+  expect(guide).toContain('The agents tool is available and listed below.');
+  expect(guide).toContain('workers:[{label,task}]');
+  expect(guide).toContain('"name":"agents","arguments":{"action":"spawn","workers":');
+  expect(guide).toContain('"name":"agents","arguments":{"action":"status"}');
+  expect(guide).not.toContain('The agents tool is not exposed in this chat.');
+  expect(guide).not.toContain('agents, session_finish');
+
+  const coreOnly = webToolGuide([]);
+  expect(coreOnly).toContain('The agents tool is not exposed in this chat.');
+  expect(coreOnly).not.toContain('"action":"spawn"');
 });
 
 let directory: string;
@@ -99,6 +126,35 @@ afterAll(async () => {
   resetSessionStoreForTests();
   resetDurableForTests();
   await removeTempDir(directory);
+});
+
+it('bootstraps a new DeepSeek worker chat before sending its assigned task', async () => {
+  const parent = await createSession({ conversationId: `ds-${randomUUID()}` });
+  const worker = await createSession({
+    conversationId: `ds-${randomUUID()}`,
+    origin: { kind: 'worker', fromSessionId: parent.id, agentId: 'worker-1', task: 'Read the project notes.' }
+  });
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    return { text: options?.fresh ? 'NEURAFLOK_READY' : 'Worker completed the read-only check.' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: worker.id, text: 'Read notes.md and report the Estado value.', mode: 'auto', dueAt: 0,
+    model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekInput(input)).resolves.toBeTruthy();
+
+  expect(pages).toHaveLength(2);
+  expect(pages[0]?.fresh).toBe(true);
+  expect(pages[0]?.text).toContain('Initialize this NEURAFLOK conversation');
+  expect(pages[1]?.fresh).toBe(false);
+  expect(pages[1]?.text).toContain('Read notes.md and report the Estado value.');
+  await flushRecorder();
+  const events = await readEvents(worker.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'Worker completed the read-only check.')).toBe(true);
+  expect(events.some(event => event.kind === 'chat_error' && event.inputId === input.id)).toBe(false);
 });
 
 it('parses branded tool blocks, strips them from prose, and mints local conversation ids', () => {
@@ -156,11 +212,57 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
     type: 'function',
     function: { name: 'apply_patch', arguments: '{"patch":"x"}' }
   }]);
+  const bareRead = '{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}';
+  expect(parseWebChatTools(bareRead)).toEqual([{
+    id: 'call_1',
+    type: 'function',
+    function: { name: 'read', arguments: '{"paths":["/workspace/a.txt"]}' }
+  }]);
+  expect(stripWebChatTools(bareRead)).toBe('');
+  expect(parseWebChatTools(`Example only: ${bareRead}`)).toEqual([]);
+  expect(parseWebChatTools('{"name":"session_finish","arguments":{}}')).toEqual([]);
+  const wrappedRead = `<neuraflok-tool> ${bareRead} </neuraflok-tool>`;
+  expect(parseWebChatTools(wrappedRead)).toEqual([{
+    id: 'call_1',
+    type: 'function',
+    function: { name: 'read', arguments: '{"paths":["/workspace/a.txt"]}' }
+  }]);
+  expect(stripWebChatTools(wrappedRead)).toBe('');
+  expect(incompleteWebChatTool('<neuraflok-tool>{"name":"read","arguments":')).toBe(true);
   expect(parseWebChatTools('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toEqual([{
     id: 'call_1',
     type: 'function',
     function: { name: 'exec_command', arguments: '{"cmd":"rg --files","workdir":"/commander"}' }
   }]);
+  const deepseekDsml = [
+    '<｜｜DSML｜｜ calls>',
+    '<｜｜DSML｜｜ invoke name="exec_command">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="false">{"cmd":"Get-ChildItem -Name","workdir":"/commander"}</｜｜DSML｜｜ parameter>',
+    '<｜｜DSML｜｜ parameter name="name" string="true">exec_command</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '<｜｜DSML｜｜ invoke name="apply_patch">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="true">{"patch":"*** Begin Patch\\n*** Add File: /commander/hello.txt\\n+hola\\n*** End Patch"}</｜｜DSML｜｜ parameter>',
+    '<｜｜DSML｜｜ parameter name="name" string="true">apply_patch</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '</｜｜DSML｜｜ calls>'
+  ].join('\n');
+  expect(parseWebChatTools(deepseekDsml)).toEqual([
+    {
+      id: 'call_1',
+      type: 'function',
+      function: { name: 'exec_command', arguments: '{"cmd":"Get-ChildItem -Name","workdir":"/commander"}' }
+    },
+    {
+      id: 'call_2',
+      type: 'function',
+      function: { name: 'apply_patch', arguments: JSON.stringify({ patch: '*** Begin Patch\n*** Add File: /commander/hello.txt\n+hola\n*** End Patch' }) }
+    }
+  ]);
+  expect(stripWebChatTools(deepseekDsml)).toBe('');
+  expect(incompleteWebChatTool(deepseekDsml)).toBe(false);
+  const incompleteDsml = '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="apply_patch">\n<｜｜DSML｜｜ parameter name="arguments" string="true">{"patch":';
+  expect(incompleteWebChatTool(incompleteDsml)).toBe(true);
+  expect(stripWebChatTools(incompleteDsml)).toBe('');
   expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files"\n')).toBe(true);
   expect(incompleteWebChatTool('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toBe(false);
   expect(stripWebChatTools(text)).toBe('Working.');
@@ -172,6 +274,33 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(usesApiProvider('api')).toBe(true);
   expect(usesBrowserProvider(undefined)).toBe(false);
   expect(usesBrowserProvider(null)).toBe(false);
+});
+
+it('replays useful DeepSeek history without duplicating the current request or raw DSML patch payloads', () => {
+  const repeatedRequest = 'Build a learning site for the project files';
+  const dsmlPatch = [
+    '<｜｜DSML｜｜ calls>',
+    '<｜｜DSML｜｜ invoke name="apply_patch">',
+    '<｜｜DSML｜｜ parameter name="arguments" string="true">{"patch":"*** Begin Patch\\n*** Add File: /commander/hello.txt\\n+hola\\n*** End Patch"}</｜｜DSML｜｜ parameter>',
+    '<｜｜DSML｜｜ parameter name="name" string="true">apply_patch</｜｜DSML｜｜ parameter>',
+    '</｜｜DSML｜｜ invoke>',
+    '</｜｜DSML｜｜ calls>'
+  ].join('\n');
+  const replay = replayWebProviderTranscript([
+    { role: 'system', content: 'system setup' },
+    { role: 'user', content: 'We are reviewing a JavaScript project.' },
+    { role: 'assistant', content: 'The command parser has the most complex flow.' },
+    { role: 'user', content: repeatedRequest },
+    { role: 'assistant', content: dsmlPatch },
+    { role: 'user', content: repeatedRequest }
+  ], 'The prepared task and project context.', 96_000, repeatedRequest);
+
+  expect(replay).not.toBeNull();
+  expect(replay).toContain('The command parser has the most complex flow.');
+  expect(replay).toContain('UNEXECUTED TOOL CALL REQUESTS: apply_patch');
+  expect(replay).not.toContain('hello.txt');
+  expect(replay).not.toContain(repeatedRequest);
+  expect(replay).toContain('CURRENT REQUEST:\nThe prepared task and project context.');
 });
 
 it('releases a page offer that outlived its wait so a later send can run', async () => {
@@ -227,6 +356,20 @@ it('settles a page wait that still carries the grown DeepSeek reply', async () =
     text: 'ArbolBinario.h and main.cpp are ready.'
   })).toBe(true);
   await expect(pending).resolves.toEqual({ text: 'ArbolBinario.h and main.cpp are ready.' });
+});
+
+it('preserves verified provider-idle evidence so the task can continue safely', async () => {
+  resetProviderPageForTests();
+  const pending = requestProviderPageComplete('deepseek', TEST_PROVIDER_CONVERSATION, 'hello from the app');
+  const offer = pendingProviderPage();
+  expect(settleProviderPage({
+    id: offer!.id,
+    provider: 'deepseek',
+    conversationId: TEST_PROVIDER_CONVERSATION,
+    error: 'DeepSeek did not finish this reply in time.',
+    providerIdle: true
+  })).toBe(true);
+  await expect(pending).rejects.toMatchObject({ providerIdle: true });
 });
 
 it('publishes one page offer and settles it by id', async () => {
@@ -316,9 +459,85 @@ it('invokes real Core apply_patch from a mocked DeepSeek web turn and records th
   expect(pages[1]).toContain('neuraflok-result');
   expect(pages[1]).toContain('apply_patch');
   expect(pages[1]).toContain('Pasting source in the chat does not write files');
+  expect(pages[1]).toContain('ACTIVE REQUEST: Add hello.txt with that greeting.');
   const thread = JSON.parse(await fs.readFile(sessionWebProviderThreadPath(input.id, 'deepseek'), 'utf8')) as { messages: Array<{ role: string }> };
   expect(thread.messages[0]?.role).toBe('system');
   expect(thread.messages.some(message => message.role === 'tool')).toBe(true);
+});
+
+it('reviews tool-assisted work and keeps going when the requested project is still incomplete', async () => {
+  const pages: string[] = [];
+  const corePatch = '*** Begin Patch\n*** Add File: /workspace/core.js\n+export const ready = true;\n*** End Patch';
+  const appPatch = '*** Begin Patch\n*** Add File: /workspace/app.js\n+import { ready } from "./core.js";\n+export const appReady = ready;\n*** End Patch';
+  const request = 'Build the project with core.js and app.js, then verify both files.';
+  let reply = 0;
+  configureDeepseekForTests({ complete: async (text) => {
+    pages.push(text);
+    switch (reply++) {
+      case 0:
+        return { text: `<neuraflok-tool> ${JSON.stringify({ name: 'apply_patch', arguments: { patch: corePatch } })} </neuraflok-tool>` };
+      case 1:
+        return { text: 'core.js is ready. The project is complete.' };
+      case 2:
+        expect(text).toContain('COMPLETION REVIEW');
+        expect(text).toContain(request);
+        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'apply_patch', arguments: { patch: appPatch } })}\n\`\`\`` };
+      case 3:
+        return { text: 'app.js is ready too.' };
+      case 4:
+        expect(text).toContain('COMPLETION REVIEW');
+        return { text: 'Both requested files are present and app.js imports the completed core.js.' };
+      default:
+        throw new Error('The completion review requested an unexpected provider turn.');
+    }
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: request, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  const turnId = await runDeepseekInput(input);
+
+  if (!turnId) {
+    await flushRecorder();
+    const errors = (await readEvents(input.id)).filter(event => event.kind === 'chat_error');
+    throw new Error(`Tool-assisted completion review failed: ${errors.map(event => event.kind === 'chat_error' ? event.message.text : '').join('; ')}`);
+  }
+  expect(pages).toHaveLength(5);
+  expect(pages[1]).toContain('neuraflok-result');
+  expect(pages[1]).toContain('ACTIVE REQUEST: ' + request);
+  expect(pages[3]).toContain('neuraflok-result');
+  expect(pages[3]).toContain('ACTIVE REQUEST: ' + request);
+  expect(await fs.readFile(path.join(directory, 'core.js'), 'utf8')).toBe('export const ready = true;\n');
+  expect(await fs.readFile(path.join(directory, 'app.js'), 'utf8')).toBe('import { ready } from "./core.js";\nexport const appReady = ready;\n');
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'apply_patch')).toHaveLength(2);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('Both requested files are present'))).toBe(true);
+});
+
+it('keeps later tool results and the original request when earlier output must be shortened', async () => {
+  await fs.writeFile(path.join(directory, 'large-quotes.txt'), '"'.repeat(39_000));
+  await fs.writeFile(path.join(directory, 'large-second.txt'), `SECOND_RESULT_MARKER:${'b'.repeat(39_000)}`);
+  const pages: string[] = [];
+  let round = 0;
+  configureDeepseekForTests({ complete: async (text) => {
+    pages.push(text);
+    if (round++ === 0) return { text: [
+      '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/large-quotes.txt"]}}\n```',
+      '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/large-second.txt"]}}\n```'
+    ].join('\n') };
+    return { text: 'Both files were inspected.' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Inspect both files and compare them.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await runDeepseekInput(input);
+
+  expect(pages[1]!).toContain('SECOND_RESULT_MARKER');
+  expect(pages[1]!).toContain('ACTIVE REQUEST: Inspect both files and compare them.');
+  expect(pages[1]!).toContain('Some tool output was shortened or omitted');
+  expect(pages[1]!.length).toBeLessThan(96_000);
 });
 
 it('retries an incomplete branded tool fence and then apply_patch writes the file', async () => {
@@ -386,6 +605,99 @@ it('sends only new user text on a follow-up because the DeepSeek page keeps hist
   expect(fresh).toEqual([false, false]);
 });
 
+it('continues a task in the same DeepSeek chat through repeated verified idle failures', async () => {
+  const pages: string[] = [];
+  let call = 0;
+  configureDeepseekForTests({
+    complete: async (text) => {
+      pages.push(text);
+      if (call++ < 2) throw Object.assign(new Error('DeepSeek did not finish this reply in time.'), { providerIdle: true });
+      return { text: 'Continued the existing work and completed the request.' };
+    }
+  });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Finish the project changes and verify them.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  const turnId = await runDeepseekInput(input);
+
+  expect(turnId).toBeTruthy();
+  expect(pages).toHaveLength(3);
+  expect(pages[1]).toContain('Original user request still in progress');
+  expect(pages[1]).toContain(input.text);
+  expect(pages[2]).toContain('Original user request still in progress');
+  expect(pages[2]).toContain(input.text);
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'user_message' && event.inputId === input.id)).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('completed the request'))).toBe(true);
+  expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(true);
+});
+
+it('rebuilds a lost DeepSeek page from the saved local transcript', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  let loseNextFollowup = false;
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (loseNextFollowup) {
+      loseNextFollowup = false;
+      throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: saved DeepSeek page is unavailable');
+    }
+    return { text: 'Continued with the restored context.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Yesterday I was implementing the import flow.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  loseNextFollowup = true;
+  const followup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'Continue from where we left off.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(followup);
+
+  expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
+  expect(pages[2]!.text).not.toContain('Yesterday I was implementing the import flow.');
+  expect(pages[3]!.text).toContain('Available tools');
+  expect(pages[4]!.text).toContain('Yesterday I was implementing the import flow.');
+  expect(pages[4]!.text).toContain('Continued with the restored context.');
+  expect(pages[4]!.text).toContain('Continue from where we left off.');
+  expect(pages[4]!.text.length).toBeLessThanOrEqual(96_000);
+});
+
+it('does not reopen an existing provider chat when its local transcript is unavailable', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  const configure = () => configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (text.includes('NEURAFLOK_CONTEXT_CHECK')) return { text: 'NEURAFLOK_READY\nfirst job' };
+    return { text: 'continued' };
+  } });
+  configure();
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'first job', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  const originalConversation = (await getSession(first.id))?.conversationId;
+  expect(originalConversation).toMatch(/^ds-/);
+
+  await fs.rm(sessionWebProviderThreadPath(first.id, 'deepseek'), { force: true });
+  resetBrowserChatForTests();
+  configure();
+  const second = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'continue the same task', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(second);
+
+  expect((await getSession(first.id))?.conversationId).toBe(originalConversation);
+  expect(pages).toHaveLength(4);
+  expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('NEURAFLOK_CONTEXT_CHECK') });
+  expect(pages[3]).toMatchObject({ fresh: false, text: expect.stringContaining('continue the same task') });
+});
+
 it('sends setup once, waits for its acknowledgement, then sends authored messages separately', async () => {
   const pages: Array<{ text: string; fresh: boolean }> = [];
   let acknowledge!: (value: { text: string }) => void;
@@ -410,6 +722,34 @@ it('sends setup once, waits for its acknowledgement, then sends authored message
   expect(pages).toHaveLength(3);
   expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('MY_FOLLOWUP') });
   expect(pages[2]!.text).not.toContain('Available tools');
+});
+
+it('holds the first user message until a stalled new-chat setup is resumed and confirmed', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (pages.length === 1)
+      throw Object.assign(new Error('DeepSeek stopped before confirming setup.'), { providerIdle: true });
+    if (text.includes('Continue the preparation request already present')) return { text: 'NEURAFLOK_READY' };
+    return { text: 'The user task is complete.' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'MY_QUEUED_REQUEST', mode: 'auto', dueAt: 0,
+    model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekInput(input)).resolves.toBeTruthy();
+
+  expect(pages).toHaveLength(3);
+  expect(pages[0]).toMatchObject({ fresh: true });
+  expect(pages[0]!.text).not.toContain('MY_QUEUED_REQUEST');
+  expect(pages[1]).toMatchObject({ fresh: false });
+  expect(pages[1]!.text).not.toContain('MY_QUEUED_REQUEST');
+  expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('MY_QUEUED_REQUEST') });
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'user_message' && event.inputId === input.id)).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('user task is complete'))).toBe(true);
 });
 
 it('warms a new web chat with setup only, then sends the first user task as a follow-up', async () => {
@@ -442,6 +782,216 @@ it('warms a new web chat with setup only, then sends the first user task as a fo
   await flushRecorder();
   const events = await readEvents(warmup.id);
   expect(events.some(event => event.kind === 'user_message' && event.message.text === 'MY_ACTUAL_REQUEST')).toBe(true);
+});
+
+it('resumes project preparation in the same provider chat after a confirmed idle stop', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (pages.length === 1) throw Object.assign(new Error('DeepSeek stopped before confirming readiness.'), { providerIdle: true });
+    return { text: 'NEURAFLOK_READY' };
+  } });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekInput(warmup)).resolves.toBeTruthy();
+
+  expect(pages).toHaveLength(2);
+  expect(pages[0]).toMatchObject({ fresh: true });
+  expect(pages[1]).toMatchObject({ fresh: false });
+  expect(pages[1]!.text).toContain('Continue the preparation request already present in this exact chat');
+  expect(pages[1]!.text).toContain('Do not start the user’s queued request yet');
+  await flushRecorder();
+  const events = await readEvents(warmup.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'NEURAFLOK_READY')).toBe(true);
+  expect(events.some(event => event.kind === 'user_message')).toBe(false);
+});
+
+it('releases a message queued during project preparation after the model confirms readiness', async () => {
+  let releaseReadiness!: (reply: { text: string }) => void;
+  let noteStarted!: () => void;
+  const readinessStarted = new Promise<void>(resolve => { noteStarted = resolve; });
+  configurePageForTests({ complete: async () => {
+    noteStarted();
+    return await new Promise<{ text: string }>(resolve => { releaseReadiness = resolve; });
+  } });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  const preparing = runDeepseekInput(warmup);
+  await readinessStarted;
+  await vi.waitFor(async () => {
+    await flushRecorder();
+    const events = await readEvents(warmup.id);
+    expect(events.some(event => event.kind === 'turn_start')).toBe(true);
+  });
+  const activeEvents = await readEvents(warmup.id);
+  const turnStart = activeEvents.find(event => event.kind === 'turn_start');
+  if (!turnStart || turnStart.kind !== 'turn_start') throw new Error('Project preparation did not start a turn.');
+  const queued = await enqueueInput({
+    id: randomUUID(), sessionId: warmup.id, text: 'MY_QUEUED_REQUEST', mode: 'after-turn', dueAt: Date.now(),
+    model: null, reasoningEffort: null
+  });
+
+  releaseReadiness({ text: 'NEURAFLOK_READY' });
+  const completedTurn = await preparing;
+  expect(completedTurn).toBe(turnStart.turnId);
+  await flushRecorder();
+  const session = await getSession(warmup.id);
+  expect(session?.activeTurnId).toBeNull();
+  const { nextAfterTurnLocalInput } = await import('../backend/domains/sessions/input/input.js');
+  const next = await nextAfterTurnLocalInput(warmup.id, session!.conversationId!, completedTurn!);
+  expect(next).toMatchObject({ id: queued.id, text: 'MY_QUEUED_REQUEST' });
+});
+
+it('confirms the previous authored request before marking an existing DeepSeek chat ready', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  const previousRequest = 'Yesterday I was implementing the import flow.';
+  const check = prepareWebProviderContextCheck(previousRequest);
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (text.includes('NEURAFLOK_CONTEXT_CHECK'))
+      return { text: `NEURAFLOK_READY\n${previousRequest}` };
+    return { text: 'The import flow is ready to continue.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: previousRequest, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(warmup);
+
+  expect(check.expectedWords).toEqual(['yesterday', 'i', 'was', 'implementing', 'the', 'import', 'flow']);
+  expect(pages.map(page => page.fresh)).toEqual([true, false, false]);
+  expect(pages[2]!.text).toContain('NEURAFLOK_CONTEXT_CHECK');
+  expect(pages[2]!.text).toContain('copy the final 7 words');
+  expect(pages[2]!.text).not.toContain('Available tools');
+  expect(pages[2]!.text).not.toContain('WORKSPACE_CONTEXT');
+  expect(pages[2]!.text.length).toBeLessThan(1_500);
+  expect(pages[2]!.text).not.toContain(previousRequest);
+  expect(confirmsWebProviderContext(`NEURAFLOK_READY\n${previousRequest}`, check.expectedWords)).toBe(true);
+  expect(confirmsWebProviderContext('NEURAFLOK_READY\nA different request', check.expectedWords)).toBe(false);
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(true);
+  expect(events.some(event => event.kind === 'user_message' && event.inputId === warmup.id)).toBe(false);
+});
+
+it('times out a stalled readiness check and aborts its provider request', async () => {
+  configurePageForTests({ complete: async (_text, _signal, options) => {
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    return { text: 'Yesterday I fixed the project setup.' };
+  } });
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Yesterday I fixed the project setup.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+
+  let checkSignal: AbortSignal | undefined;
+  configurePageForTests({
+    readinessTimeoutMs: 25,
+    complete: async (_text, signal) => {
+      checkSignal = signal;
+      return await new Promise<never>(() => undefined);
+    }
+  });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekInput(warmup)).resolves.toBeNull();
+  expect(checkSignal?.aborted).toBe(true);
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'chat_error' && event.message.text.includes('too long to prepare'))).toBe(true);
+});
+
+it('keeps DeepSeek context preparation alive while the provider reports generation progress', async () => {
+  const previousRequest = 'Yesterday I fixed the project setup.';
+  configureDeepseekForTests({ complete: async () => ({ text: 'The project setup is ready.' }) });
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: previousRequest, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  const conversationId = (await getSession(first.id))?.conversationId;
+  expect(conversationId).toBeTruthy();
+
+  // Use the real provider-page wait so the test drives the same progress signal
+  // that the browser extension sends while DeepSeek is still reasoning.
+  resetBrowserChatForTests();
+  configurePageForTests({ readinessTimeoutMs: 300, readinessMaxDurationMs: 1_200 });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  const preparing = runDeepseekInput(warmup);
+  await vi.waitFor(() => expect(pendingProviderPage()).not.toBeNull());
+  const offer = pendingProviderPage()!;
+
+  await new Promise(resolve => setTimeout(resolve, 200));
+  expect(reportProviderPageProgress({
+    id: offer.id, provider: 'deepseek', conversationId, text: '', generating: true
+  })).toBe(true);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  expect(pendingProviderPage()?.id).toBe(offer.id);
+  expect(settleProviderPage({
+    id: offer.id, provider: 'deepseek', conversationId, text: `NEURAFLOK_READY\n${previousRequest}`
+  })).toBe(true);
+  await expect(preparing).resolves.toBeTruthy();
+
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(true);
+  expect(events.some(event => event.kind === 'chat_error' && event.inputId === warmup.id)).toBe(false);
+});
+
+it('restores an old DeepSeek transcript before it lets the chat pass readiness', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  let loseContext = false;
+  const previousRequest = 'Yesterday we fixed the broken branch names for NF-15.';
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (loseContext && text.includes('NEURAFLOK_CONTEXT_CHECK')) {
+      loseContext = false;
+      throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: saved DeepSeek page is unavailable');
+    }
+    if (text.startsWith('The original provider page'))
+      return { text: `NEURAFLOK_READY\n${previousRequest}` };
+    return { text: 'The branches are ready.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: previousRequest, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  loseContext = true;
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(warmup);
+
+  expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
+  expect(pages[3]!.text).toContain('Available tools');
+  expect(pages[4]!.text).toContain(previousRequest);
+  expect(pages[4]!.text).toContain('NEURAFLOK_CONTEXT_CHECK');
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(true);
 });
 
 it('does not execute tool examples or send the user task when setup is not acknowledged', async () => {

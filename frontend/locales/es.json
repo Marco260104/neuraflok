@@ -513,6 +513,7 @@
   "Working": "Trabajando",
   "Working for ": "Trabajando durante ",
   "Working…": "Trabajando…",
+  "Waiting for provider…": "Esperando al proveedor…",
   "{0} for {1}{2}s": "{0} durante {1}{2}s",
   "Worked": "Trabajó",
   "{0} working": "{0} trabajando",
@@ -2165,5 +2166,9 @@
   "The web model is ready.": "El modelo web está listo.",
   "Preparing chat…": "Preparando el chat…",
   "Reading the project and connecting the model…": "Leyendo el proyecto y conectando el modelo…",
+  "Reading project…": "Leyendo proyecto…",
+  "Your message will be queued until the model is ready.": "Puedes enviar tu mensaje ahora; quedará en cola hasta que el modelo esté listo.",
+  "The model could not confirm this chat context. Retry to release queued messages.": "El modelo no pudo confirmar el contexto del chat. Reintenta para liberar los mensajes en cola.",
+  "Chat context not verified": "No se pudo verificar el contexto del chat",
   "Chat is ready.": "El chat está listo."
 }

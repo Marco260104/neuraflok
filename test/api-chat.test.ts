@@ -21,10 +21,37 @@ import { stageInputAttachment } from '../backend/domains/sessions/input/attachme
 import { flushRecorder } from '../backend/domains/sessions/history/recorder.js';
 import { resetCorrelationRegistryForTests } from '../backend/domains/sessions/history/correlation.js';
 import { isApiConversationId } from '../contracts/chat-protocol.js';
+import { trimApiThread } from '../backend/domains/providers/api-chat-thread-store.js';
+import type { ApiMessage } from '../backend/domains/providers/api-chat-protocol.js';
 import { abortApiChatSession, apiChatFlightTurnId, resetApiChatForTests, runApiProviderInput } from '../backend/domains/providers/api-chat.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
 let directory: string;
+
+it('keeps the active API request and complete recent tool rounds when long runs need thread compaction', () => {
+  const messages: ApiMessage[] = [
+    { role: 'system', content: 'workspace instructions' },
+    { role: 'user', content: 'Finish the requested project change.' }
+  ];
+  for (let round = 0; round < 70; round++) {
+    const id = `call_${round}`;
+    messages.push({ role: 'assistant', content: null, tool_calls: [{
+      id, type: 'function', function: { name: 'read', arguments: JSON.stringify({ paths: [`/workspace/file-${round}.ts`] }) }
+    }] });
+    messages.push({ role: 'tool', tool_call_id: id, content: `result ${round}` });
+  }
+  const compacted = trimApiThread(messages);
+  expect(compacted.length).toBeLessThanOrEqual(120);
+  expect(compacted[0]).toMatchObject({ role: 'system' });
+  expect(compacted.some(row => row.role === 'user' && row.content === 'Finish the requested project change.')).toBe(true);
+  expect(compacted.some(row => typeof row.content === 'string' && row.content.includes('Earlier tool results were omitted'))).toBe(true);
+  for (let index = 0; index < compacted.length; index++) {
+    const row = compacted[index];
+    if (!row || row.role !== 'tool') continue;
+    expect(compacted.slice(0, index).some(previous => previous.role === 'assistant' &&
+      previous.tool_calls?.some(call => call.id === row.tool_call_id))).toBe(true);
+  }
+});
 
 beforeAll(async () => {
   directory = await makeTempDir('neuraflok-api-chat-');

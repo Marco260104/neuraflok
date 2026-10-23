@@ -115,6 +115,13 @@
   min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   color: var(--ink);
 }
+.turn-now.is-error .turn-now-text { color: var(--red); }
+.turn-now-retry {
+  flex: none; padding: 0; border: 0; background: transparent; color: var(--accent);
+  font: inherit; text-decoration: underline; cursor: pointer;
+}
+.turn-now-retry[hidden] { display: none; }
+.turn-now-retry:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; border-radius: 2px; }
 .turn-now-time { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
 .turn-now-time:empty { display: none; }
 .turn-now.is-new { animation: none; }

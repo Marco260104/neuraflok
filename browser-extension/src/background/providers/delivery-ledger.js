@@ -32,12 +32,19 @@ export function createProviderPageState(chrome) {
     } catch { return null; }
   }
   
-  async function writeProviderTab(conversationId, tabId, provider = 'deepseek') {
+  async function writeProviderTab(conversationId, tabId, provider = 'deepseek', url) {
     if (typeof conversationId !== 'string' || !Number.isInteger(tabId)) return false;
     try {
       const rows = (await chrome.storage.local.get(PROVIDER_TABS_KEY))[PROVIDER_TABS_KEY];
       const next = rows && typeof rows === 'object' ? { ...rows } : {};
-      next[conversationId] = { provider, tab: tabId, at: Date.now() };
+      const previous = next[conversationId];
+      const savedUrl = typeof url === 'string' && url ? url : previous?.url;
+      next[conversationId] = {
+        provider,
+        tab: tabId,
+        ...(typeof savedUrl === 'string' ? { url: savedUrl } : {}),
+        at: Date.now()
+      };
       const recent = Object.entries(next).sort((a, b) => (b[1]?.at || 0) - (a[1]?.at || 0)).slice(0, 2000);
       await chrome.storage.local.set({ [PROVIDER_TABS_KEY]: Object.fromEntries(recent) });
       return true;
