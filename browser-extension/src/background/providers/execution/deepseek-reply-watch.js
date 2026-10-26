@@ -38,6 +38,12 @@ function isFreshAnswer(answer, before, beforeIdentity, answerIdentity, sent = ''
   return (!matchesPriorText && !matchesSentText) || changedMessage;
 }
 
+function freshPublicAnswer(answer, before, beforeIdentity, answerIdentity, sent = '') {
+  if (!isFreshAnswer(answer, before, beforeIdentity, answerIdentity, sent)) return '';
+  if (looksLikeDeepseekThink(answer) && !hasDeepseekToolCall(answer)) return '';
+  return answer;
+}
+
 export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabReply, postDeepseekPage, timings = {} }) {
   const DEEPSEEK_READ_MS = timings.readMs ?? 8_000;
   const DEEPSEEK_WATCH_MS = timings.watchMs ?? 540_000;
@@ -97,7 +103,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           if (fallback) {
             const answer = typeof fallback.before === 'string' ? fallback.before : '';
             const answerIdentity = typeof fallback.beforeIdentity === 'string' ? fallback.beforeIdentity : '';
-            const freshAnswer = isFreshAnswer(answer, before, beforeIdentity, answerIdentity, offer.text) ? answer : '';
+            const freshAnswer = freshPublicAnswer(answer, before, beforeIdentity, answerIdentity, offer.text);
             snap = {
               ...fallback,
               answer: freshAnswer,
@@ -120,8 +126,13 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
       const thinkChanged = hasReasoningActivity && think !== reportedThink;
       if (thinkChanged) reportedThink = think;
       lastGenerationActive = snap?.generating === true;
-      let publicAnswer = snap && typeof snap.answer === 'string' ? snap.answer : '';
-      if (!isFreshAnswer(publicAnswer, before, beforeIdentity, snap?.answerIdentity, offer.text)) publicAnswer = '';
+      let publicAnswer = freshPublicAnswer(
+        snap && typeof snap.answer === 'string' ? snap.answer : '',
+        before,
+        beforeIdentity,
+        snap?.answerIdentity,
+        offer.text
+      );
       if (looksLikeDeepseekThink(publicAnswer) && !hasDeepseekToolCall(publicAnswer)) publicAnswer = '';
       if (think && publicAnswer && normalizedAnswer(publicAnswer) === normalizedAnswer(think)) publicAnswer = '';
       if (think && publicAnswer && publicAnswer.includes(think.trim()) && publicAnswer.length <= think.trim().length + 40) publicAnswer = '';
@@ -258,8 +269,9 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           const fallback = await tabReply(tabId, { type: 'neuraflok-deepseek-snapshot' }, undefined, 4_000).catch(() => null);
           const answer = fallback && typeof fallback.before === 'string' ? fallback.before : '';
           const answerIdentity = typeof fallback?.beforeIdentity === 'string' ? fallback.beforeIdentity : '';
-          if (isFreshAnswer(answer, before, beforeIdentity, answerIdentity, offer.text)) {
-            lastText = answer;
+          const freshAnswer = freshPublicAnswer(answer, before, beforeIdentity, answerIdentity, offer.text);
+          if (freshAnswer) {
+            lastText = freshAnswer;
             if (await postDeepseekPage(offer, { text: lastText }, tabId)) return;
           }
           // Confirm the provider is still idle immediately before marking the
@@ -268,13 +280,17 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           const confirm = await tabReply(tabId, {
             type: 'neuraflok-deepseek-read', before, beforeThink, beforeIdentity
           }, undefined, DEEPSEEK_READ_MS).catch(() => null);
-          const confirmedAnswer = typeof confirm?.answer === 'string' ? confirm.answer : '';
-          if (confirm?.generating === false && isFreshAnswer(
-            confirmedAnswer, before, beforeIdentity, confirm?.answerIdentity, offer.text
-          )) {
+          const confirmedAnswer = freshPublicAnswer(
+            typeof confirm?.answer === 'string' ? confirm.answer : '',
+            before,
+            beforeIdentity,
+            confirm?.answerIdentity,
+            offer.text
+          );
+          if (confirm?.generating === false && confirmedAnswer) {
             if (await postDeepseekPage(offer, { text: confirmedAnswer }, tabId)) return;
           }
-          if (confirm?.generating === false && !confirmedAnswer.trim()) {
+          if (confirm?.generating === false && !confirmedAnswer) {
             await postDeepseekPage(offer, {
               error: 'DeepSeek stopped without returning a reply. The existing chat was kept; NeuraFlok will continue the unfinished request.',
               providerIdle: true

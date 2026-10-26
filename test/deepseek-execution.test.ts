@@ -388,6 +388,46 @@ it('does not publish a whitespace-different old answer from the snapshot recover
   }
 }, 15_000);
 
+it('recovers when an idle provider page keeps showing the previous non-empty answer', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'What changed today?', stop: false, fresh: false };
+    const previousAnswer = 'Yesterday’s answer is still visible in the provider chat.';
+    const settled = vi.fn(async () => true);
+    const snapshot = {
+      answer: previousAnswer,
+      answerIdentity: 'assistant-yesterday',
+      think: '',
+      generating: false
+    };
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async (_tabId: number, message: { type: string }) => message.type === 'neuraflok-deepseek-read'
+        ? snapshot
+        : {
+            before: previousAnswer,
+            beforeIdentity: 'assistant-yesterday',
+            beforeThink: '',
+            generating: false
+          },
+      postDeepseekPage: settled,
+      timings: { readMs: 5, watchMs: 250, readStaleMs: 1_000, pollMs: 5, emptyIdleMs: 20 }
+    });
+
+    const watching = watch(7, offer, previousAnswer, '', '', 'assistant-yesterday');
+    await vi.advanceTimersByTimeAsync(100);
+    await watching;
+
+    expect(settled).toHaveBeenCalledWith(offer, {
+      error: expect.stringContaining('stopped without returning a reply'),
+      providerIdle: true
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
 it('accepts the same answer text when the page identifies a new assistant message', async () => {
   vi.useFakeTimers();
   try {
