@@ -61,12 +61,24 @@
       return String(valueFrom(() => api.lastThink()) || '');
     }
 
+    function lastAnswerIdentity() {
+      return String(valueFrom(() => api.lastAnswerIdentity?.()) || '');
+    }
+
     function snapshot() {
-      return { before: lastAnswer(), beforeThink: lastThink() };
+      return { before: lastAnswer(), beforeThink: lastThink(), beforeIdentity: lastAnswerIdentity() };
     }
 
     function isAck(text) {
       return /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/.test(String(text || '').trim());
+    }
+
+    function identityProvesNewAnswer(beforeIdentity, answerIdentity) {
+      if (!beforeIdentity || !answerIdentity || beforeIdentity === answerIdentity) return false;
+      const beforePage = /^node:([^:]+):/.exec(beforeIdentity)?.[1] || '';
+      const answerPage = /^node:([^:]+):/.exec(answerIdentity)?.[1] || '';
+      if (beforePage || answerPage) return Boolean(beforePage && answerPage && beforePage === answerPage);
+      return true;
     }
 
     function hasToolCall(text) {
@@ -77,7 +89,7 @@
       return /^(Let me|Let's|We need|I will|I'll |The user |Need to |Must not |Pensado|Pensó|Detenido|Voy a |Vamos a |Déjame |Dejame |Necesito |Debo |Hay que )\b/i.test(normalized(text));
     }
 
-    function publicAnswer(sent, before) {
+    function publicAnswer(sent, before, beforeIdentity, currentIdentity) {
       const answer = lastAnswer();
       if (!answer) return '';
       const think = lastThink();
@@ -88,7 +100,10 @@
       if (isAck(answer) && normalized(before)) return '';
       if (looksLikeThink(answer) && !hasToolCall(answer)) return '';
       if (thinkNorm && (answerNorm === thinkNorm || (answerNorm.includes(thinkNorm) && answerNorm.length <= thinkNorm.length + 40))) return '';
-      if (normalized(answer) === normalized(before) || normalized(answer) === normalized(sent)) return '';
+      const sameAsPrevious = normalized(answer) === normalized(before);
+      const newAssistantMessage = identityProvesNewAnswer(beforeIdentity, currentIdentity);
+      if (sameAsPrevious && !newAssistantMessage) return '';
+      if (normalized(answer) === normalized(sent) && !newAssistantMessage) return '';
       return answer;
     }
 
@@ -99,8 +114,8 @@
       return '';
     }
 
-    function responseText(sent, before, beforeThink) {
-      return publicAnswer(sent, before) || thinkText(sent, before, beforeThink);
+    function responseText(sent, before, beforeThink, beforeIdentity, currentIdentity) {
+      return publicAnswer(sent, before, beforeIdentity, currentIdentity) || thinkText(sent, before, beforeThink);
     }
 
     function generating() {
@@ -142,9 +157,11 @@
       const sent = typeof message.sent === 'string' ? message.sent : active?.sent || '';
       const before = typeof message.before === 'string' ? message.before : active?.before || '';
       const beforeThink = typeof message.beforeThink === 'string' ? message.beforeThink : active?.beforeThink || '';
-      const answer = publicAnswer(sent, before);
+      const beforeIdentity = typeof message.beforeIdentity === 'string' ? message.beforeIdentity : active?.beforeIdentity || '';
+      const answerIdentity = lastAnswerIdentity();
+      const answer = publicAnswer(sent, before, beforeIdentity, answerIdentity);
       const think = thinkText(sent, before, beforeThink);
-      return { ...pageStatus(), text: answer || think, answer, think };
+      return { ...pageStatus(), text: answer || think, answer, think, answerIdentity };
     }
 
     function sessionError(conversationId) {
@@ -216,7 +233,8 @@
       const previous = snapshot();
       const before = typeof message.before === 'string' ? message.before : previous.before;
       const beforeThink = typeof message.beforeThink === 'string' ? message.beforeThink : previous.beforeThink;
-      active = { sent, before, beforeThink };
+      const beforeIdentity = typeof message.beforeIdentity === 'string' ? message.beforeIdentity : previous.beforeIdentity;
+      active = { sent, before, beforeThink, beforeIdentity };
       api.setValue(composer, sent);
       const accepted = await until(() => {
         const current = api.composer();
@@ -233,15 +251,16 @@
       } catch {
         return { error: `${provider.toUpperCase()} send could not be dispatched. Check this conversation before retrying.` };
       }
-      const publicNow = () => publicAnswer(sent, before);
+      const publicNow = () => publicAnswer(sent, before, beforeIdentity, lastAnswerIdentity());
       const ackRepeat = (text) => isAck(text) && isAck(before);
       const staleAck = (text) => isAck(text) && Boolean(normalized(before));
       await until(() => generating() || publicNow() || thinkText(sent, before, beforeThink), options.startMs);
       const finished = await until(() => !generating() && publicNow() && !ackRepeat(publicNow()) && !staleAck(publicNow()), options.finishMs);
       await wait(400);
       const text = publicNow();
-      if (finished && text && !ackRepeat(text) && !staleAck(text)) return { text, before, beforeThink };
-      return { pending: true, text: text || thinkText(sent, before, beforeThink), before, beforeThink, generating: generating() };
+      const answerIdentity = lastAnswerIdentity();
+      if (finished && text && !ackRepeat(text) && !staleAck(text)) return { text, before, beforeThink, beforeIdentity, answerIdentity };
+      return { pending: true, text: text || thinkText(sent, before, beforeThink), before, beforeThink, beforeIdentity, answerIdentity, generating: generating() };
     }
 
     function showMark() {

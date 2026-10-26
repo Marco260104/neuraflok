@@ -128,7 +128,7 @@ var NEURAFLOK_DEEPSEEK = (() => {
   const thinkChild = (node) =>
     node.querySelector?.('.ds-think-content, [class*="think-content"], [class*="thinking-content"]');
 
-  const pickAnswer = (nodes, options) => {
+  const pickAnswerNode = (nodes, options) => {
     const allowThink = options && options.think === true;
     for (let i = nodes.length - 1; i >= 0; i--) {
       const node = nodes[i];
@@ -136,17 +136,20 @@ var NEURAFLOK_DEEPSEEK = (() => {
       if (!allowThink && thinkChild(node)) {
         const pub = node.querySelector?.('.ds-assistant-message-main-content');
         if (!pub) continue;
-        const nested = serializeAnswer(pub);
-        if (nested) return nested;
+        if (serializeAnswer(pub)) return pub;
         continue;
       }
       if (node.closest('._9663006, [data-role="user"], .ds-message--user, .chat-message-user, [class*="user-message"], [class*="message-user"]')) continue;
       if (node.closest('textarea, #chat-input')) continue;
       if (classNames(node).includes('md-code-block-banner')) continue;
-      const text = serializeAnswer(node);
-      if (text) return text;
+      if (serializeAnswer(node)) return node;
     }
-    return '';
+    return null;
+  };
+
+  const pickAnswer = (nodes, options) => {
+    const node = pickAnswerNode(nodes, options);
+    return node ? serializeAnswer(node) : '';
   };
 
   const ACK = /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/;
@@ -157,24 +160,58 @@ var NEURAFLOK_DEEPSEEK = (() => {
     return ACK.test(title) ? title : '';
   };
 
-  const lastAnswer = () => safe(() => {
-    const assistant = pickAnswer([
+  const answerCandidates = () => [
       ...document.querySelectorAll('.ds-assistant-message-main-content .ds-markdown, .ds-assistant-message-main-content'),
       ...document.querySelectorAll('.ds-message--assistant .ds-markdown, .ds-message--assistant'),
       ...document.querySelectorAll('[data-role="assistant"] .ds-markdown, [data-role="assistant"]'),
       ...document.querySelectorAll('.chat-message-assistant .ds-markdown, .chat-message-assistant'),
       ...document.querySelectorAll('[class*="assistant-message"] .ds-markdown, [class*="assistant-message"]'),
       ...document.querySelectorAll('div[class*="assistant"] div[class*="markdown"], div[class*="assistant"] div[class*="content"]')
-    ]);
+  ];
+
+  const answerMessageRoot = (node) => node?.closest?.('[data-virtual-list-item-key], [data-message-id]') ||
+    node?.closest?.('.ds-message--assistant, [data-role="assistant"], .chat-message-assistant, .ds-assistant-message-main-content') ||
+    node || null;
+  const answerNodeIds = new WeakMap();
+  const answerIdentityEpoch = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  let nextAnswerNodeId = 0;
+
+  const lastAnswerNode = () => safe(() => {
+    const assistant = pickAnswerNode(answerCandidates());
     if (assistant) return assistant;
-    const message = pickAnswer([...document.querySelectorAll('.ds-message .ds-markdown, .ds-message')]);
+    const message = pickAnswerNode([...document.querySelectorAll('.ds-message .ds-markdown, .ds-message')]);
     if (message) return message;
-    const listed = pickAnswer([
+    return pickAnswerNode([
       ...document.querySelectorAll('.ds-virtual-list-visible-items .ds-markdown, .ds-virtual-list-visible-items .ds-message'),
       ...document.querySelectorAll('[data-virtual-list-item-key] .ds-markdown, .ds-markdown')
     ]);
-    if (listed) return listed;
-    return titleAck();
+  }, null);
+
+  const lastAnswer = () => safe(() => {
+    const node = lastAnswerNode();
+    return node ? serializeAnswer(node) : titleAck();
+  }, '');
+
+  const lastAnswerIdentity = () => safe(() => {
+    const answerNode = lastAnswerNode();
+    if (!answerNode) {
+      const ack = titleAck();
+      return ack ? `ack:${ack}` : '';
+    }
+    const root = answerMessageRoot(answerNode);
+    const stableId = root?.getAttribute?.('data-message-id') ||
+      root?.getAttribute?.('data-virtual-list-item-key');
+    if (stableId) return `message:${stableId}`;
+
+    // Keep a stable identity for this rendered message even if its text changes
+    // while streaming. A changed list index is not enough: virtualization can
+    // shift indices and make an old answer look new.
+    let identity = answerNodeIds.get(root);
+    if (!identity) {
+      identity = `node:${answerIdentityEpoch}:${++nextAnswerNodeId}`;
+      answerNodeIds.set(root, identity);
+    }
+    return identity;
   }, '');
 
   const lastThink = () => safe(() => pickAnswer(
@@ -244,19 +281,24 @@ var NEURAFLOK_DEEPSEEK = (() => {
     stopButton,
     continueButton,
     generating: () => {
-      // Streaming cursor/spinner is the live signal. A leftover Send icon on the page must not
-      // end the turn while DeepSeek is still thinking or writing a tool call.
-      if (document.querySelector('.ds-assistant-message-main-content .ds-loading, .ds-message--assistant .ds-loading, [class*="assistant-message"] .ds-loading, .ds-cursor, .ds-think-content .ds-loading')) return true;
       const box = composer();
       if (box && (box.disabled || box.readOnly)) return true;
       const send = sendButton();
-      const stop = stopButton();
+      // DeepSeek can show the animated cursor while keeping Send visible. The
+      // generic loading nodes are weaker signals and sometimes remain mounted.
+      if (document.querySelector('.ds-cursor')) return true;
       // An enabled Send button proves generation is not active, even if a decoy/leftover Stop icon exists
       if (send) return false;
+      // Spinners can remain mounted after the reply finishes, so consult the
+      // enabled send control first. With no send button, the live stream marker
+      // is useful evidence that generation is still active.
+      if (document.querySelector('.ds-assistant-message-main-content .ds-loading, .ds-message--assistant .ds-loading, [class*="assistant-message"] .ds-loading, .ds-think-content .ds-loading')) return true;
+      const stop = stopButton();
       if (stop) return true;
       return false;
     },
     lastAnswer,
+    lastAnswerIdentity,
     lastThink,
     hasConversation,
     setValue,

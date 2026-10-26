@@ -1,7 +1,7 @@
 import { createDeepseekSessionResolver } from '../deepseek-session.js';
 import { createDeepseekReplyWatcher, hasDeepseekToolCall, isDeepseekAck, looksLikeDeepseekThink } from './deepseek-reply-watch.js';
 
-export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, usableProviderTab, state }) {
+export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, usableProviderTab, state, replyWatchTimings = {} }) {
   const { stoppedProviderOffers, readDeepseekSent, writeDeepseekSent, readProviderTab, writeProviderTab } = state;
   let deepseekPageFlight = null;
   const DEEPSEEK_SEND_MS = 100_000;
@@ -27,7 +27,9 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
     return false;
   }
 
-  const watchDeepseekReply = createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabReply, postDeepseekPage });
+  const watchDeepseekReply = createDeepseekReplyWatcher({
+    stoppedProviderOffers, call, tabReply, postDeepseekPage, timings: replyWatchTimings
+  });
 
   function inspectDeepseekPage(offer, background) {
     if (!offer || typeof offer.id !== 'string' || typeof offer.conversationId !== 'string') return;
@@ -59,7 +61,8 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
             offer,
             typeof sent.before === 'string' ? sent.before : '',
             typeof sent.beforeThink === 'string' ? sent.beforeThink : '',
-            ''
+            '',
+            typeof sent.beforeIdentity === 'string' ? sent.beforeIdentity : ''
           );
           return;
         }
@@ -120,6 +123,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, tab: tab.id,
           before: typeof snapshot.before === 'string' ? snapshot.before : '',
           beforeThink: typeof snapshot.beforeThink === 'string' ? snapshot.beforeThink : '',
+          beforeIdentity: typeof snapshot.beforeIdentity === 'string' ? snapshot.beforeIdentity : '',
           at: Date.now(), phase: 'claimed'
         };
         if (!await writeDeepseekSent(claim)) throw new Error('Could not record the send claim. No message was sent; retry after restarting the extension.');
@@ -131,7 +135,8 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           stop: offer.stop === true,
           fresh: offer.fresh === true,
           before: claim.before,
-          beforeThink: claim.beforeThink
+          beforeThink: claim.beforeThink,
+          beforeIdentity: claim.beforeIdentity
         }, undefined, DEEPSEEK_SEND_MS);
         if (offer.stop) {
           await postDeepseekPage(offer, { stopped: true });
@@ -144,10 +149,19 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         const immediate = reply && typeof reply.text === 'string' ? reply.text : '';
         const before = claim.before;
         const beforeThink = claim.beforeThink;
+        const beforeIdentity = claim.beforeIdentity;
+        const answerIdentity = typeof reply?.answerIdentity === 'string' ? reply.answerIdentity : '';
+        const normalized = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+        const sameAsPrior = normalized(immediate) === normalized(before) || normalized(immediate) === normalized(offer.text);
+        const beforePage = /^node:([^:]+):/.exec(beforeIdentity)?.[1] || '';
+        const answerPage = /^node:([^:]+):/.exec(answerIdentity)?.[1] || '';
+        const newAssistantMessage = Boolean(beforeIdentity && answerIdentity && beforeIdentity !== answerIdentity &&
+          (!(beforePage || answerPage) || (beforePage && answerPage && beforePage === answerPage)));
+        const staleAnswer = sameAsPrior && !newAssistantMessage;
         const ackRepeat = isDeepseekAck(immediate) && isDeepseekAck(before);
         const staleAck = isDeepseekAck(immediate) && String(before || '').trim() !== '';
         const planningOnly = looksLikeDeepseekThink(immediate) && !hasDeepseekToolCall(immediate);
-        if (immediate && reply.pending !== true && !ackRepeat && !staleAck && !planningOnly) {
+        if (immediate && reply.pending !== true && !staleAnswer && !ackRepeat && !staleAck && !planningOnly) {
           await postDeepseekPage(offer, { text: immediate }, tab.id);
           return;
         }
@@ -155,11 +169,11 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           await fail('DeepSeek page did not answer.');
           return;
         }
-        if (immediate && reply.generating !== true && !ackRepeat && !staleAck && reply.pending !== true && !planningOnly) {
+        if (immediate && reply.generating !== true && !staleAnswer && !ackRepeat && !staleAck && reply.pending !== true && !planningOnly) {
           await postDeepseekPage(offer, { text: immediate }, tab.id);
           return;
         }
-        await watchDeepseekReply(tab.id, offer, before, beforeThink, immediate);
+        await watchDeepseekReply(tab.id, offer, before, beforeThink, immediate, beforeIdentity);
       } catch (error) {
         await fail(error && error.message ? error.message : error);
       }

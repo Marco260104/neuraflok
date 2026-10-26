@@ -103,6 +103,54 @@ it('retries a transient DeepSeek tab read failure without failing an already-sen
   }
 }, 15_000);
 
+it('carries the old assistant-message identity into recovery and never posts the old reply', async () => {
+  vi.useFakeTimers();
+  try {
+    let posted: Record<string, unknown> | undefined;
+    const identitySeen: Array<string | undefined> = [];
+    const oldAnswer = 'The previous task is already complete.';
+    const state = {
+      stoppedProviderOffers: new Set<string>(),
+      readDeepseekSent: async () => ({
+        id: requestId, conversationId, tab: 7, before: oldAnswer, beforeThink: '', beforeIdentity: 'assistant-old'
+      }),
+      writeDeepseekSent: vi.fn(async () => true),
+      readProviderTab: vi.fn(async () => null),
+      writeProviderTab: vi.fn(async () => true)
+    };
+    const executor = createDeepseekPageExecutor({
+      chrome: { tabs: { get: async () => ({ id: 7, url: 'https://chat.deepseek.com/a/chat/s/abc', status: 'complete' }) } },
+      activeTabs: { set: async () => undefined },
+      call: async (path: string, init: { body?: string }) => {
+        if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
+        return { ok: true, data: { ok: true } };
+      },
+      tabReply: async (_tabId: number, message: { type: string; beforeIdentity?: string }) => {
+        if (message.type === 'neuraflok-deepseek-read') identitySeen.push(message.beforeIdentity);
+        return { answer: '  The previous task is already   complete. ', answerIdentity: 'assistant-old', think: '', generating: false };
+      },
+      createBrowserTab: vi.fn(),
+      queryProviderTabs: vi.fn(),
+      restoreDeepseekTab: vi.fn(),
+      waitForTabReady: vi.fn(),
+      isDeepseekUrl: (url: string) => url.startsWith('https://chat.deepseek.com/'),
+      usableProviderTab: vi.fn(),
+      state,
+      replyWatchTimings: { watchMs: 20, pollMs: 1, readMs: 5, readStaleMs: 100 }
+    });
+
+    executor.inspect({ id: requestId, provider: 'deepseek', conversationId, text: 'Now inspect the deployment.', stop: false, fresh: false }, false);
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(identitySeen.length).toBeGreaterThan(0);
+    expect(identitySeen.every(identity => identity === 'assistant-old')).toBe(true);
+    expect(posted).toMatchObject({ id: requestId, error: expect.stringContaining('did not finish this reply in time') });
+    expect(posted).not.toHaveProperty('text');
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
 it('keeps waiting when DeepSeek is reasoning without showing a public answer', async () => {
   const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Finish the project', stop: false, fresh: false };
   const privateReasoning = 'I am inspecting the project files before editing, checking the requested changes, and preparing the implementation plan.';
@@ -297,6 +345,163 @@ it('does not mark a DeepSeek request safe to resume unless generation is explici
     expect(failure).toMatchObject({ error: expect.stringContaining('did not confirm that generation stopped') });
     expect(failure).not.toHaveProperty('providerIdle');
   } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('does not publish a whitespace-different old answer from the snapshot recovery path', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'What changed today?', stop: false, fresh: false };
+    const before = 'Yesterday\'s answer is still visible.';
+    const settled = vi.fn(async (_offer: unknown, _body: Record<string, unknown>) => true);
+    let reads = 0;
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async (_tabId: number, message: { type: string; beforeIdentity?: string }) => {
+        if (message.type === 'neuraflok-deepseek-read') {
+          reads++;
+          throw new Error('temporary read failure');
+        }
+        return {
+          before: '  Yesterday\'s   answer is still visible.  ',
+          beforeIdentity: 'assistant-yesterday',
+          beforeThink: '',
+          generating: false
+        };
+      },
+      postDeepseekPage: settled,
+      timings: { readMs: 5, watchMs: 30, readStaleMs: 100, pollMs: 1, emptyIdleMs: 4 }
+    });
+
+    const watching = watch(7, offer, before, '', '', 'assistant-yesterday');
+    await vi.advanceTimersByTimeAsync(100);
+    await watching;
+
+    expect(reads).toBeGreaterThan(2);
+    expect(settled).toHaveBeenCalled();
+    expect(settled.mock.calls.every(([, body]) => !('text' in body))).toBe(true);
+    expect(settled.mock.calls.at(-1)?.[1]).toMatchObject({ error: expect.stringContaining('did not finish this reply in time') });
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('accepts the same answer text when the page identifies a new assistant message', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Please confirm.', stop: false, fresh: false };
+    const settled = vi.fn(async () => true);
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async () => ({
+        answer: 'Yes, it is ready.',
+        answerIdentity: 'assistant-today',
+        think: '',
+        generating: false
+      }),
+      postDeepseekPage: settled,
+      timings: { readMs: 5, watchMs: 100, readStaleMs: 100, pollMs: 1 }
+    });
+
+    const watching = watch(7, offer, 'Yes, it is ready.', '', '', 'assistant-yesterday');
+    await vi.advanceTimersByTimeAsync(40);
+    await watching;
+
+    expect(settled).toHaveBeenCalledWith(offer, { text: 'Yes, it is ready.' }, 7);
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('does not trust a provisional node identity recreated after the provider page reloads', async () => {
+  vi.useFakeTimers();
+  try {
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Check the deployment again.', stop: false, fresh: false };
+    const settled = vi.fn(async (_offer: unknown, _body: Record<string, unknown>) => true);
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async () => ({ answer: 'Still complete.', answerIdentity: 'node:new-page:1', think: '', generating: false }),
+      postDeepseekPage: settled,
+      timings: { readMs: 5, watchMs: 15, readStaleMs: 100, pollMs: 1 }
+    });
+
+    const watching = watch(7, offer, 'Still complete.', '', '', 'node:old-page:3');
+    await vi.advanceTimersByTimeAsync(30);
+    await watching;
+
+    expect(settled).toHaveBeenCalled();
+    expect(settled.mock.calls.every(([, body]) => !('text' in body))).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('passes the saved assistant-message identity to every provider read', async () => {
+  const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'What now?', stop: false, fresh: false };
+  const reads: Array<{ beforeIdentity?: string }> = [];
+  const settled = vi.fn(async () => true);
+  const watch = createDeepseekReplyWatcher({
+    stoppedProviderOffers: new Set<string>(),
+    call: async () => ({ ok: true, data: { ok: true } }),
+    tabReply: async (_tabId: number, message: { type: string; beforeIdentity?: string }) => {
+      if (message.type === 'neuraflok-deepseek-read') {
+        reads.push(message);
+        return { answer: 'Here is the current answer.', answerIdentity: 'assistant-current', generating: false };
+      }
+      return null;
+    },
+    postDeepseekPage: settled,
+    timings: { readMs: 5, watchMs: 100, readStaleMs: 100, pollMs: 1 }
+  });
+
+  await watch(7, offer, '', '', '', 'assistant-before');
+
+  expect(reads.length).toBeGreaterThan(0);
+  expect(reads.every(message => message.beforeIdentity === 'assistant-before')).toBe(true);
+  expect(settled).toHaveBeenCalledWith(offer, { text: 'Here is the current answer.' }, 7);
+});
+
+it('keeps a reply alive through a simulated 31-minute task with steady visible progress', async () => {
+  vi.useFakeTimers();
+  let progressMinute = 0;
+  let snapshot = {
+    answer: 'Progress 00/31', answerIdentity: 'assistant-long-task', think: '', generating: true
+  };
+  let posted: Record<string, unknown> | undefined;
+  const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Complete the long project task.', stop: false, fresh: false };
+  const settle = vi.fn(async (_offer: unknown, body: Record<string, unknown>) => {
+    posted = body;
+    return true;
+  });
+  const advanceProgress = setInterval(() => {
+    progressMinute++;
+    snapshot = progressMinute >= 31
+      ? { answer: 'The long task is complete after reviewing the project, applying the requested changes, and checking the results.', answerIdentity: 'assistant-long-task', think: '', generating: false }
+      : { answer: `Progress ${String(progressMinute).padStart(2, '0')}/31`, answerIdentity: 'assistant-long-task', think: '', generating: true };
+  }, 60_000);
+  const watch = createDeepseekReplyWatcher({
+    stoppedProviderOffers: new Set<string>(),
+    call: async () => ({ ok: true, data: { ok: true } }),
+    tabReply: async (_tabId: number, message: { type: string }) =>
+      message.type === 'neuraflok-deepseek-read' ? snapshot : null,
+    postDeepseekPage: settle,
+    timings: { readMs: 5, watchMs: 5 * 60_000, readStaleMs: 5 * 60_000, pollMs: 60_000, stalledGenerationMs: 32 * 60_000 }
+  });
+
+  try {
+    const watching = watch(7, offer, '', '', '', 'assistant-before');
+    await vi.advanceTimersByTimeAsync(36 * 60_000);
+    await watching;
+
+    expect(progressMinute).toBeGreaterThanOrEqual(31);
+    expect(posted).toEqual({ text: snapshot.answer });
+    expect(String(posted?.text)).toContain('long task is complete');
+  } finally {
+    clearInterval(advanceProgress);
     vi.useRealTimers();
   }
 }, 15_000);

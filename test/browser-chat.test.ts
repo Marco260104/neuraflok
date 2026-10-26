@@ -47,13 +47,31 @@ import {
   stripWebChatTools,
   usesBrowserProvider,
   usesApiProvider,
-  webToolGuide
+  webToolGuide,
+  type WebChatToolCall
 } from '../contracts/chat-protocol.js';
+import { createBrowserChatToolRegistrar, invokeBrowserChatTool } from '../backend/domains/providers/browser-chat-tools.js';
 import { isWebProviderConversationId } from '../contracts/web-providers.js';
 import { confirmsWebProviderContext, prepareWebProviderContextCheck } from '../backend/domains/sessions/input/provider-context.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
 const TEST_PROVIDER_CONVERSATION = 'ds-00000000-0000-0000-0000-000000000001';
+
+function fakeBrowserChatCall(name: string, args: unknown): WebChatToolCall {
+  return {
+    id: 'call_retry_test',
+    type: 'function',
+    function: { name, arguments: JSON.stringify(args) }
+  };
+}
+
+function fakeToolResult(text: string, isError = false) {
+  return { isError, content: [{ type: 'text' as const, text }] };
+}
+
+function fakeToolRegistrar(name: string, invoke: (...args: [string, unknown, string]) => Promise<ReturnType<typeof fakeToolResult>>) {
+  return { registered: () => [name], invoke } as unknown as ReturnType<typeof createBrowserChatToolRegistrar>;
+}
 
 // Most executor tests focus on the task/tool loop after the separately tested setup exchange.
 function configureDeepseekForTests(options: Parameters<typeof configurePageForTests>[0]): void {
@@ -93,6 +111,83 @@ it('advertises browser chat agents with schema-valid spawn and status examples',
   const coreOnly = webToolGuide([]);
   expect(coreOnly).toContain('The agents tool is not exposed in this chat.');
   expect(coreOnly).not.toContain('"action":"spawn"');
+});
+
+it('retries a transient read-only browser-chat tool failure once with the same request id', async () => {
+  const calls: Array<[string, unknown, string]> = [];
+  const invoke = vi.fn(async (name: string, args: unknown, requestId: string) => {
+    calls.push([name, args, requestId]);
+    return calls.length === 1 ? fakeToolResult('ETIMEDOUT: temporary provider channel timeout', true) : fakeToolResult('file contents');
+  });
+  const registrar = fakeToolRegistrar('read', invoke);
+
+  await expect(invokeBrowserChatTool(
+    registrar, fakeBrowserChatCall('read', { paths: ['/workspace/notes.md'] }), 'retry-stable-id', 'conversation-1', 'session-1'
+  )).resolves.toBe('file contents');
+
+  expect(calls).toEqual([
+    ['read', { paths: ['/workspace/notes.md'] }, 'retry-stable-id'],
+    ['read', { paths: ['/workspace/notes.md'] }, 'retry-stable-id']
+  ]);
+});
+
+it('retries a thrown transient read error and stops after the second attempt', async () => {
+  let attempts = 0;
+  const invoke = vi.fn(async () => {
+    attempts++;
+    if (attempts === 1) throw new Error('ETIMEDOUT: browser tool channel closed');
+    return fakeToolResult('read completed');
+  });
+  const registrar = fakeToolRegistrar('read', invoke);
+
+  await expect(invokeBrowserChatTool(
+    registrar, fakeBrowserChatCall('read', { paths: ['/workspace/config.json'] }), 'thrown-retry-id', 'conversation-1', 'session-1'
+  )).resolves.toBe('read completed');
+
+  expect(invoke).toHaveBeenCalledTimes(2);
+});
+
+it('does not retry a mutating command after a transient error with an uncertain outcome', async () => {
+  const invoke = vi.fn(async () => fakeToolResult('ECONNRESET while waiting for command result', true));
+  const registrar = fakeToolRegistrar('exec_command', invoke);
+
+  await expect(invokeBrowserChatTool(
+    registrar, fakeBrowserChatCall('exec_command', { cmd: 'npm run build', workdir: '/workspace' }), 'mutating-request', 'conversation-1', 'session-1'
+  )).resolves.toContain('ECONNRESET');
+
+  expect(invoke).toHaveBeenCalledTimes(1);
+});
+
+it('retries an agent action only when the tool confirms its first attempt was rolled back', async () => {
+  const calls: Array<[string, unknown, string]> = [];
+  const invoke = vi.fn(async (name: string, args: unknown, requestId: string) => {
+    calls.push([name, args, requestId]);
+    return calls.length === 1
+      ? fakeToolResult('The worker run could not cross its durable acceptance barrier. The spawn was rolled back; retry this same request.', true)
+      : fakeToolResult('Worker started.');
+  });
+  const args = { action: 'spawn', workers: [{ label: 'reader', task: 'Read the notes.' }] };
+  const registrar = fakeToolRegistrar('agents', invoke);
+
+  await expect(invokeBrowserChatTool(
+    registrar, fakeBrowserChatCall('agents', args), 'spawn-stable-id', 'conversation-1', 'session-1'
+  )).resolves.toBe('Worker started.');
+
+  expect(calls).toEqual([
+    ['agents', args, 'spawn-stable-id'],
+    ['agents', args, 'spawn-stable-id']
+  ]);
+});
+
+it('does not retry a read when its failure is a permission or validation error', async () => {
+  const invoke = vi.fn(async () => fakeToolResult('Permission denied: path is outside the approved workspace.', true));
+  const registrar = fakeToolRegistrar('read', invoke);
+
+  await expect(invokeBrowserChatTool(
+    registrar, fakeBrowserChatCall('read', { paths: ['C:/private/secrets.txt'] }), 'permission-request', 'conversation-1', 'session-1'
+  )).resolves.toContain('Permission denied');
+
+  expect(invoke).toHaveBeenCalledTimes(1);
 });
 
 let directory: string;

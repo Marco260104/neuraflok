@@ -14,6 +14,7 @@ interface DeepseekDomApi {
   continueButton(): FakeNode | null;
   generating(): boolean;
   lastAnswer(): string;
+  lastAnswerIdentity(): string;
   lastThink(): string;
   setValue(textarea: FakeNode, text: string): void;
   signedIn(): boolean;
@@ -410,6 +411,57 @@ it('does not treat a leftover Stop-like SVG as generating while Send is visible'
   expect(api.generating()).toBe(false);
 });
 
+it('uses the rendered message key to distinguish a repeated answer in a new turn', () => {
+  const previous = node('div', { key: 'assistant-old' }, [node('div', { class: 'ds-markdown', text: 'The same answer.' })]);
+  const current = node('div', { key: 'assistant-new' }, [node('div', { class: 'ds-markdown', text: 'The same answer.' })]);
+  const first = load([previous]).api.lastAnswerIdentity();
+  const repeated = load([previous]).api.lastAnswerIdentity();
+  const nextTurn = load([current]).api.lastAnswerIdentity();
+
+  expect(first).toBe('message:assistant-old');
+  expect(repeated).toBe(first);
+  expect(nextTurn).toBe('message:assistant-new');
+});
+
+it('rejects the previous answer despite whitespace changes when reading an old chat', () => {
+  const oldAnswer = node('div', { key: 'assistant-old' }, [node('div', { class: 'ds-markdown', text: 'Yesterday\'s answer.' })]);
+  const { listeners } = load([oldAnswer]);
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-read',
+    sent: 'What is new today?',
+    before: 'Yesterday\'s   answer. ',
+    beforeIdentity: 'message:assistant-old'
+  }, {}, value => { reply = value; });
+
+  expect(reply).toMatchObject({ answer: '', text: '' });
+});
+
+it('accepts an identical response text only after a new assistant message appears', () => {
+  const currentAnswer = node('div', { key: 'assistant-current' }, [node('div', { class: 'ds-markdown', text: 'Yes, it is ready.' })]);
+  const { listeners } = load([currentAnswer]);
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-read',
+    sent: 'Please confirm.',
+    before: 'Yes, it is ready.',
+    beforeIdentity: 'message:assistant-previous'
+  }, {}, value => { reply = value; });
+
+  expect(reply).toMatchObject({ answer: 'Yes, it is ready.', answerIdentity: 'message:assistant-current' });
+});
+
+it('does not mistake a leftover spinner for active generation when Send is enabled', () => {
+  const staleSpinner = node('div', { class: 'ds-loading' });
+  const answer = node('div', { class: 'ds-assistant-message-main-content' }, [staleSpinner]);
+  const { api } = load([answer]);
+
+  expect(api.sendButton()).not.toBeNull();
+  expect(api.generating()).toBe(false);
+});
+
 it('treats a streaming cursor as generating even when Send is still visible', () => {
   const cursor = node('div', { class: 'ds-cursor' });
   const { api, send } = load([cursor]);
@@ -471,11 +523,13 @@ it('returns a pending grown lastAnswer when Stop stays up past the fast finish w
     let reply: unknown;
     listeners[0]!({ type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000003', conversationId: SESSION_ID, fresh: true, text: 'read a.txt' }, {}, (value) => { reply = value; });
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(reply).toEqual({
+    expect(reply).toMatchObject({
       pending: true,
       text: '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```',
       before: '',
       beforeThink: '',
+      beforeIdentity: '',
+      answerIdentity: expect.stringMatching(/^node:[^:]+:1$/),
       generating: true
     });
   } finally {
@@ -522,9 +576,9 @@ it('answers neuraflok-deepseek-read with the grown think text', () => {
   const { listeners } = load([previous, think]);
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'old public', beforeThink: '' }, {}, (value) => { reply = value; });
-  expect(reply).toEqual({
+  expect(reply).toMatchObject({
     signedIn: true, generating: false, hasConversation: true, conversationId: null,
-    text: 'new think reply', answer: '', think: 'new think reply'
+    text: 'new think reply', answer: '', think: 'new think reply', answerIdentity: expect.stringMatching(/^node:[^:]+:1$/)
   });
 });
 
@@ -602,11 +656,12 @@ it('exposes the public assistant answer separately from think on read', () => {
   const { listeners } = load([assistant, think]);
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: '', beforeThink: '' }, {}, (value) => { reply = value; });
-  expect(reply).toEqual({
+  expect(reply).toMatchObject({
     signedIn: true, generating: false, hasConversation: true, conversationId: null,
     text: 'Este proyecto es Commander.js.',
     answer: 'Este proyecto es Commander.js.',
-    think: 'The user asked for a summary.'
+    think: 'The user asked for a summary.',
+    answerIdentity: expect.stringMatching(/^node:[^:]+:1$/)
   });
 });
 
