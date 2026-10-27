@@ -109,6 +109,8 @@ it('advertises browser chat agents with schema-valid spawn and status examples',
   const guide = webToolGuide(declarations, { roots: ['/workspace'], project: '/workspace' });
 
   expect(guide).toContain('The agents tool is available and listed below.');
+  expect(guide).toContain('Final answer: respond naturally, directly, and concisely');
+  expect(guide).toContain('Do not include tool transcripts, raw outputs, implementation notes, or unrelated details.');
   expect(guide).toContain('workers:[{label,task}]');
   expect(guide).toContain('"name":"agents","arguments":{"action":"spawn","workers":');
   expect(guide).toContain('"name":"agents","arguments":{"action":"status"}');
@@ -593,6 +595,8 @@ it('reviews tool-assisted work and keeps going when the requested project is sti
         return { text: 'app.js is ready too.' };
       case 4:
         expect(text).toContain('COMPLETION REVIEW');
+        expect(text).toContain('natural, direct final response that answers only the user’s request');
+        expect(text).toContain('Include concrete verification evidence only when it directly answers the request.');
         return { text: 'Both requested files are present and app.js imports the completed core.js.' };
       default:
         throw new Error('The completion review requested an unexpected provider turn.');

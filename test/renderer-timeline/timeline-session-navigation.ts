@@ -375,7 +375,7 @@ it('keeps the welcome screen visible while an empty chat has only internal warmu
   expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
 });
 
-it('shows an early composer send as a chat message and changes Reading project to Thinking after dispatch', async () => {
+it('shows an early composer send as a chat message while project preparation stays internal', async () => {
   const { w, live } = await boot([]);
   const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
   const { clearComposerWarmup, composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
@@ -392,7 +392,7 @@ it('shows an early composer send as a chat message and changes Reading project t
 
   expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(entry.text);
   expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
-  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Reading project…');
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
 
   entry.state = 'sent';
   clearComposerWarmup(composerWarmupKey(sessionId, generation));

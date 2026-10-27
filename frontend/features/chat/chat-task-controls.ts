@@ -30,6 +30,10 @@ export interface ChatTaskControlsRuntime {
   paintDeliveryControls(): void;
 }
 
+export function projectComposerControlVisibility(isProjectChat: boolean): { accessPicker: boolean; planButton: boolean } {
+  return { accessPicker: isProjectChat, planButton: isProjectChat };
+}
+
 // Owns task and automation presentation for the chat composer.
 export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
   let objectiveEditMode: 'goal' | 'loop' | null = null;
@@ -152,9 +156,13 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     const loop = editMode === 'loop';
     ui(document.querySelector('label[for="sessionObjective"]')!, 'textContent', () => loop ? t('Loop instructions') : t('Goal'));
     ui($<HTMLTextAreaElement>('sessionObjective'), 'placeholder', () => loop ? t('What should each continuation focus on?') : t('Optional. Leave empty to work toward what you asked in this chat.'));
+    const projectControls = projectComposerControlVisibility(isProjectChat());
+    const accessPicker = $<HTMLDetailsElement>('composerAccess');
+    accessPicker.hidden = !projectControls.accessPicker;
+    if (accessPicker.hidden) accessPicker.open = false;
     const planBtn = document.getElementById('composerPlanBtn');
     if (planBtn) {
-      planBtn.hidden = !isProjectChat();
+      planBtn.hidden = !projectControls.planButton;
       planBtn.classList.toggle('is-active', projectPlanMode());
       planBtn.setAttribute('aria-pressed', String(projectPlanMode()));
       ui(planBtn, 'aria-label', () => t('Plan'));

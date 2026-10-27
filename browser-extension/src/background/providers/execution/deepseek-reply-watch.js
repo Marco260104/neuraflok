@@ -20,6 +20,10 @@ function normalizedAnswer(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
+function isTransientProviderFailure(text) {
+  return /(?:server|service|servidor|servicio).{0,40}(?:temporarily unavailable|temporarily busy|unavailable temporarily|no disponible temporalmente|temporalmente no disponible|busy)|(?:temporarily unavailable|unavailable temporarily|no disponible temporalmente|temporalmente no disponible)/i.test(normalizedAnswer(text));
+}
+
 function identityProvesNewAnswer(beforeIdentity, answerIdentity) {
   if (!beforeIdentity || !answerIdentity || beforeIdentity === answerIdentity) return false;
   const beforePage = /^node:([^:]+):/.exec(beforeIdentity)?.[1] || '';
@@ -126,19 +130,25 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
       const thinkChanged = hasReasoningActivity && think !== reportedThink;
       if (thinkChanged) reportedThink = think;
       lastGenerationActive = snap?.generating === true;
-      let publicAnswer = freshPublicAnswer(
+      const detectedAnswer = freshPublicAnswer(
         snap && typeof snap.answer === 'string' ? snap.answer : '',
         before,
         beforeIdentity,
         snap?.answerIdentity,
         offer.text
       );
+      const transientFailureWithContinue = snap?.continueAvailable === true && isTransientProviderFailure(detectedAnswer);
+      // DeepSeek renders temporary server failures as assistant bubbles and
+      // leaves its own Continue button underneath. That bubble is not the
+      // answer to the user; keep the turn open so the explicit control can be
+      // pressed and the same request can finish.
+      let publicAnswer = transientFailureWithContinue ? '' : detectedAnswer;
       if (looksLikeDeepseekThink(publicAnswer) && !hasDeepseekToolCall(publicAnswer)) publicAnswer = '';
       if (think && publicAnswer && normalizedAnswer(publicAnswer) === normalizedAnswer(think)) publicAnswer = '';
       if (think && publicAnswer && publicAnswer.includes(think.trim()) && publicAnswer.length <= think.trim().length + 40) publicAnswer = '';
       const answerChanged = Boolean(publicAnswer.trim());
       const reasoningChanged = hasReasoningActivity && normalizedAnswer(think) !== normalizedAnswer(beforeThink);
-      if (snap?.generating === true || answerChanged || reasoningChanged) turnActivitySeen = true;
+      if (snap?.generating === true || answerChanged || reasoningChanged || transientFailureWithContinue) turnActivitySeen = true;
       if (publicAnswer) lastText = publicAnswer;
       completeText = publicAnswer || (isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '');
 
@@ -197,7 +207,8 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           continuationText = activity;
           continuationIdle = 1;
         }
-        if (continuationIdle >= quietNeed(publicAnswer || think)) {
+        const stableContinuationReads = transientFailureWithContinue ? 2 : quietNeed(publicAnswer || think);
+        if (continuationIdle >= stableContinuationReads) {
           continuationAttempts++;
           const continued = await tabReply(tabId, {
             type: 'neuraflok-deepseek-continue',

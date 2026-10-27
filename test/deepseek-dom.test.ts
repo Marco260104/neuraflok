@@ -425,6 +425,58 @@ it('detects the provider Continue control used after a response reaches its outp
   expect(api.continueButton()).toBe(continueButton);
 });
 
+it('returns a temporary server failure with a Continue control as pending work', async () => {
+  const { listeners, sessionStorage, send, document } = load([]);
+  const error = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Servidor no disponible temporalmente.' });
+  const continueButton = node('button', { text: 'Continuar' });
+  send.click = () => {
+    send.events.push('click');
+    document.body.appendChild(error);
+    document.body.appendChild(continueButton);
+  };
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  let reply: unknown;
+  const requestId = '00000000-0000-4000-8000-000000000012';
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: requestId, conversationId: SESSION_ID,
+    text: 'Synthetic recovery check', fresh: false, before: '', beforeThink: '', beforeIdentity: ''
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({
+    pending: true, text: 'Servidor no disponible temporalmente.', continueAvailable: true, generating: false
+  }), { timeout: 2_000 });
+  expect(reply).not.toHaveProperty('error');
+  expect(continueButton.events).not.toContain('click');
+});
+
+it('rebinds a tab only when the background worker proves the old project chat is saved', async () => {
+  const oldConversation = 'ds-00000000-0000-0000-0000-000000000099';
+  const oldMessage = node('div', { class: 'ds-message' }, [node('div', { class: 'ds-markdown', text: 'Saved older project answer' })]);
+  const newChat = node('button', { text: 'New chat' });
+  const { listeners, sessionStorage, send, document } = load([]);
+  document.body.appendChild(oldMessage);
+  document.body.appendChild(newChat);
+  newChat.click = () => {
+    newChat.events.push('click');
+    document.body.children = document.body.children.filter(child => child !== oldMessage);
+  };
+  send.click = () => {
+    send.events.push('click');
+    document.body.appendChild(node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Fresh chat is ready.' }));
+  };
+  sessionStorage.setItem('neuraflok.providerSession', oldConversation);
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000013',
+    conversationId: SESSION_ID, text: 'Synthetic fresh chat check', fresh: true,
+    rebindSavedConversation: true, before: '', beforeThink: '', beforeIdentity: ''
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Fresh chat is ready.' }), { timeout: 2_000 });
+  expect(newChat.events).toContain('click');
+  expect(sessionStorage.getItem('neuraflok.providerSession')).toBe(SESSION_ID);
+});
+
 it('only clicks Continue for the currently bound session and send claim', () => {
   const continueButton = node('button', { text: 'Continue' });
   const { listeners, sessionStorage } = load([continueButton]);

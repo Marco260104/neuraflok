@@ -180,7 +180,10 @@
     }
 
     async function beginFreshConversation(message, bound) {
-      if (options.rejectBoundFresh && bound && bound !== message.conversationId) {
+      // The background worker may reuse a tab only after it verified and
+      // persisted the old chat's exact URL. In that case the old conversation
+      // remains recoverable by navigating back to that URL later.
+      if (options.rejectBoundFresh && bound && bound !== message.conversationId && message.rebindSavedConversation !== true) {
         return 'This provider page already belongs to another NEURAFLOK session.';
       }
       const hadConversation = hasConversation();
@@ -295,13 +298,26 @@
       const publicNow = () => publicAnswer(sent, before, beforeIdentity, lastAnswerIdentity());
       const ackRepeat = (text) => isAck(text) && isAck(before);
       const staleAck = (text) => isAck(text) && Boolean(normalized(before));
+      const continueAvailable = () => typeof api.continueButton === 'function' && Boolean(valueFrom(() => api.continueButton(), null));
       await until(() => generating() || publicNow() || thinkText(sent, before, beforeThink), options.startMs);
-      const finished = await until(() => !generating() && publicNow() && !ackRepeat(publicNow()) && !staleAck(publicNow()), options.finishMs);
+      const finished = await until(() => {
+        if (generating()) return null;
+        const text = publicNow();
+        if (continueAvailable() && (text || thinkText(sent, before, beforeThink))) return 'continue';
+        if (text && !ackRepeat(text) && !staleAck(text)) return 'finished';
+        return null;
+      }, options.finishMs);
       await wait(400);
       const text = publicNow();
       const answerIdentity = lastAnswerIdentity();
-      if (finished && text && !ackRepeat(text) && !staleAck(text)) return { text, before, beforeThink, beforeIdentity, answerIdentity };
-      return { pending: true, text: text || thinkText(sent, before, beforeThink), before, beforeThink, beforeIdentity, answerIdentity, generating: generating() };
+      if (finished === 'finished' && text && !ackRepeat(text) && !staleAck(text)) return { text, before, beforeThink, beforeIdentity, answerIdentity };
+      return {
+        pending: true,
+        text: text || thinkText(sent, before, beforeThink),
+        before, beforeThink, beforeIdentity, answerIdentity,
+        generating: generating(),
+        ...(continueAvailable() ? { continueAvailable: true } : {})
+      };
     }
 
     function showMark() {

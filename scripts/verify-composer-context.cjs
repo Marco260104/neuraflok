@@ -24,16 +24,19 @@ app.whenReady().then(async () => {
     const output = [];
     document.getElementById('contextMeter').classList.add('pinned');
     // 560px is below the narrowest real composer: the 640px minimum window leaves it about 600px wide.
-    for (const width of [1000, 640, 560]) for (const images of [false, true]) {
+    for (const width of [1000, 640, 560]) for (const images of [false, true]) for (const projectContext of [false, true]) {
       fixture.style.width = width + 'px';
+      document.getElementById('composerAccess').hidden = !projectContext;
       const attachments = document.getElementById('composerImages');
       attachments.hidden = !images;
       attachments.textContent = 'Example image'; attachments.style.height = '60px';
       await new Promise(resolve => requestAnimationFrame(resolve));
       const add = rect('#attachmentMenu > summary'), access = rect('#composerAccess > summary'), terminal = rect('#toggleTerminal');
       const circle = rect('#contextMeterButton'), tooltip = rect('#contextMeterInfo'), model = rect('#chatModelPickerTrigger'), input = rect('#chatInput'), send = rect('#chatSend');
-      output.push({width, images,
-        leftOrder: add.right <= access.left + 1 && access.right <= terminal.left + 1,
+      output.push({width, images, projectContext,
+        leftOrder: projectContext
+          ? add.right <= access.left + 1 && access.right <= terminal.left + 1
+          : add.right <= terminal.left + 1,
         modelRightOfContext: model.left >= circle.right + 4,
         sendRightOfModel: model.right <= send.left - 4,
         centerDifference: Math.abs((circle.top + circle.bottom - model.top - model.bottom) / 2),
@@ -55,6 +58,6 @@ app.whenReady().then(async () => {
     assert.equal(row.sendAligned, true);
     assert.equal(row.overflow, false);
   }
-  console.log('Composer geometry passed at 1000/640/560px with/without attachments: add/access/Terminal at left, context in the middle, model and Send at right.');
+  console.log('Composer geometry passed at 1000/640/560px with/without attachments, in normal and project chats: add/Terminal at left, optional project access beside them, context in the middle, model and Send at right.');
   win.destroy(); app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

@@ -25,8 +25,8 @@ it('projects a warmup-delayed composer input into the transcript without a queue
   expect(optimisticWarmupEvents([], [{ ...queued, sessionId: null } as InputEntry], null, 5)).toEqual([]);
 });
 
-it('shows reading only while warmup is open, thinking after dispatch, and yields to provider activity', () => {
-  expect(warmupDeferredProgress([queued], 'chat-1', 4, 'opening', [])).toBe('reading');
+it('keeps project warmup internal and shows thinking while an authored message waits for it', () => {
+  expect(warmupDeferredProgress([queued], 'chat-1', 4, 'opening', [])).toBe('thinking');
   expect(warmupDeferredProgress([queued], 'chat-1', 4, null, [])).toBeNull();
 
   const sent = { ...queued, state: 'sent' } as InputEntry;

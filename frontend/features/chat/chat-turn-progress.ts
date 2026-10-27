@@ -88,8 +88,7 @@ export function createChatTurnProgress(
     const preparationPhase = visibleWarmupPhase(warmup?.phase ?? null, hasPendingAuthoredMessage());
     if (preparationPhase === 'failed') return { text: t('Chat context not verified'), icon: '', working: false };
     const deferred = deferredProgress();
-    if (deferred === 'reading') return { text: t('Reading project…'), icon: 'thinking', working: false };
-    if (preparationPhase === 'opening') return { text: t('Reading project…'), icon: 'thinking', working: false };
+    if (preparationPhase === 'opening') return { text: t('Thinking…'), icon: 'thinking', working: false };
     if (deferred === 'thinking') return { text: t('Thinking…'), icon: 'thinking', working: false };
     const call =
       runningToolsFor === runtime.selectedId ? runningTools.at(-1) : undefined;

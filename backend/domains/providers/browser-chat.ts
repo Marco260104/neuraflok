@@ -247,7 +247,7 @@ function webProviderCompletionReview(entry: InputEntry): string {
   return [
     'COMPLETION REVIEW: Before ending this task, compare the original request with the work and tool results in this conversation. Inspect the actual project files and run focused checks when useful.',
     `ACTIVE REQUEST: ${activeRequest}`,
-    'If any requested deliverable or verification is missing, continue working with the available tools now. Preserve successful work, avoid repeating completed edits, and do not stop at a status report. If everything is complete, give a concise final response with concrete verification evidence. Never claim an unverified result.'
+    'If any requested deliverable or verification is missing, continue working with the available tools now. Preserve successful work, avoid repeating completed edits, and do not stop at a status report. If everything is complete, give a concise, natural, direct final response that answers only the user’s request, in the configured language. Include concrete verification evidence only when it directly answers the request. Never claim an unverified result.'
   ].join('\n\n');
 }
 

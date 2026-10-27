@@ -502,7 +502,8 @@ export function webToolGuide(
     '```neuraflok-tool',
     patchExample,
     '```',
-    'You will receive a neuraflok-result fence with that tool\'s output. After tools finish, answer the user with no fence unless another tool call is required.'
+    'You will receive a neuraflok-result fence with that tool\'s output. After tools finish, answer the user with no fence unless another tool call is required.',
+    `Final answer: respond naturally, directly, and concisely to the user's request in ${ctx?.language ? 'the configured language' : 'the language the user used'}. Do not include tool transcripts, raw outputs, implementation notes, or unrelated details.`
   ].join('\n');
 }
 

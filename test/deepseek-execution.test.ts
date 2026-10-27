@@ -162,6 +162,115 @@ it('continues a DeepSeek reply at its explicit Continue control before finishing
   }
 }, 15_000);
 
+it('suppresses DeepSeek temporary server errors when the page exposes Continue and resumes the same request', async () => {
+  const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Complete the project task', stop: false, fresh: false };
+  let snapshot = {
+    answer: 'Servidor no disponible temporalmente.',
+    text: 'Servidor no disponible temporalmente.',
+    think: '', generating: false, continueAvailable: true
+  };
+  let continueCount = 0;
+  const settle = vi.fn(async () => true);
+  const watch = createDeepseekReplyWatcher({
+    stoppedProviderOffers: new Set<string>(),
+    call: async () => ({ ok: true, data: { ok: true } }),
+    tabReply: async (_tabId: number, message: { type: string }) => {
+      if (message.type === 'neuraflok-deepseek-continue') {
+        continueCount++;
+        snapshot = {
+          answer: 'NF_RECOVERED: project task complete.',
+          text: 'NF_RECOVERED: project task complete.',
+          think: '', generating: false, continueAvailable: false
+        };
+        return { continued: true };
+      }
+      return message.type === 'neuraflok-deepseek-read' ? snapshot : null;
+    },
+    postDeepseekPage: settle,
+    timings: { readMs: 50, watchMs: 500, maxWatchMs: 5_000, readStaleMs: 5_000, pollMs: 2 }
+  });
+
+  await watch(7, offer, '', '', '');
+
+  expect(continueCount).toBe(1);
+  expect(settle).toHaveBeenCalledWith(offer, { text: 'NF_RECOVERED: project task complete.' }, 7);
+  expect(settle).not.toHaveBeenCalledWith(offer, { text: 'Servidor no disponible temporalmente.' }, 7);
+});
+
+it('reuses an inactive DeepSeek tab only when its prior conversation has a verified saved URL', async () => {
+  const priorConversation = 'ds-00000000-0000-4000-8000-000000000099';
+  const priorUrl = 'https://chat.deepseek.com/a/chat/s/saved-project';
+  const newUrl = 'https://chat.deepseek.com/a/chat/s/new-project';
+  let currentUrl = priorUrl;
+  let posted: Record<string, unknown> | undefined;
+  const completeMessages: Array<Record<string, unknown>> = [];
+  const state = {
+    stoppedProviderOffers: new Set<string>(),
+    readDeepseekSent: async () => null,
+    writeDeepseekSent: vi.fn(async () => true),
+    readProviderTab: vi.fn(async (id: string) => id === priorConversation
+      ? { provider: 'deepseek', tab: 7, url: priorUrl }
+      : null),
+    writeProviderTab: vi.fn(async () => true)
+  };
+  const createBrowserTab = vi.fn();
+  const executor = createDeepseekPageExecutor({
+    chrome: { tabs: {
+      get: async () => ({ id: 7, url: currentUrl, status: 'complete' }),
+      update: async (_id: number, options: { url: string }) => { currentUrl = options.url; }
+    } },
+    activeTabs: { set: async () => undefined },
+    call: async (path: string, init: { body?: string }) => {
+      if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
+      return { ok: true, data: { ok: true } };
+    },
+    tabReply: async (_tabId: number, message: { type: string; [key: string]: unknown }) => {
+      if (message.type === 'neuraflok-deepseek-status') {
+        return { signedIn: true, generating: false, hasConversation: true, conversationId: priorConversation };
+      }
+      if (message.type === 'neuraflok-deepseek-snapshot') {
+        return { signedIn: true, generating: false, hasConversation: true, conversationId: priorConversation, before: 'Saved answer', beforeIdentity: 'saved-answer' };
+      }
+      if (message.type === 'neuraflok-deepseek-complete') {
+        completeMessages.push(message);
+        if (message.conversationId === conversationId && message.fresh === true) {
+          currentUrl = newUrl;
+          return { text: 'NF_FRESH_CHAT_READY', pending: false, generating: false };
+        }
+        return { text: 'NF_OLD_CONTEXT_RESTORED: saved project answer', pending: false, generating: false };
+      }
+      return null;
+    },
+    createBrowserTab,
+    queryProviderTabs: async () => [{ id: 7, url: priorUrl, status: 'complete', lastAccessed: 1 }],
+    restoreDeepseekTab: async () => true,
+    waitForTabReady: async () => true,
+    isDeepseekUrl: (url: string) => url.startsWith('https://chat.deepseek.com/'),
+    usableProviderTab: (tab: { id?: number; status?: string }) => Number.isInteger(tab.id) && tab.status === 'complete',
+    state
+  });
+
+  executor.inspect({ id: requestId, provider: 'deepseek', conversationId, text: 'Open another chat', stop: false, fresh: true }, true);
+  await vi.waitFor(() => expect(posted).toMatchObject({ id: requestId, text: 'NF_FRESH_CHAT_READY' }));
+
+  expect(createBrowserTab).not.toHaveBeenCalled();
+  expect(completeMessages[0]).toMatchObject({ conversationId, fresh: true, rebindSavedConversation: true });
+  expect(state.writeProviderTab).toHaveBeenCalledWith(conversationId, 7);
+
+  posted = undefined;
+  executor.inspect({
+    id: '00000000-0000-4000-8000-000000000014', provider: 'deepseek',
+    conversationId: priorConversation, text: 'Continue the saved project', stop: false, fresh: false
+  }, true);
+  await vi.waitFor(() => expect(posted).toMatchObject({
+    id: '00000000-0000-4000-8000-000000000014', text: 'NF_OLD_CONTEXT_RESTORED: saved project answer'
+  }));
+
+  expect(currentUrl).toBe(priorUrl);
+  expect(createBrowserTab).not.toHaveBeenCalled();
+  expect(completeMessages[1]).toMatchObject({ conversationId: priorConversation, text: 'Continue the saved project', fresh: false });
+});
+
 it('retries a transient DeepSeek tab read failure without failing an already-sent reply', async () => {
   vi.useFakeTimers();
   try {

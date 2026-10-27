@@ -32,5 +32,12 @@ export function tabAndProperties(browser: BrowserControl, [first, second]: unkno
 export function targetWindow(browser: BrowserControl, windowId: unknown): number | null {
   if (windowId !== undefined) return windowIdOf(browser, windowId);
   const focused = browser.model.lastFocusedWindow();
-  return browser.model.window(focused) ? focused : null;
+  const focusedWindow = browser.model.window(focused);
+  if (focusedWindow?.type === 'normal') return focused;
+  // Background provider tabs are commonly opened while the integrated browser
+  // is hidden. In that state there is no focused window, but creating a new
+  // BrowserWindow for every chat needlessly accumulates native windows and
+  // WebContentsViews. Keep background tabs in the existing normal browser
+  // window; create one only when the app has not opened any yet.
+  return browser.model.allWindows().filter(window => window.type === 'normal').at(-1)?.id ?? null;
 }

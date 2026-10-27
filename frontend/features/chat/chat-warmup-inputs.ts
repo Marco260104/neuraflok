@@ -1,7 +1,7 @@
 import type { SessionEvent } from '../../../contracts/session.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 
-export type DeferredInputProgress = 'reading' | 'thinking';
+export type DeferredInputProgress = 'thinking';
 
 export function warmupDeferredEntries(
   entries: Iterable<InputEntry>,
@@ -67,10 +67,13 @@ export function warmupDeferredProgress(
       ['assistant_message', 'tool_call', 'page_tool', 'progress', 'turn_start', 'turn_end', 'chat_error'].includes(event.kind));
     if (!laterActivity) return 'thinking';
   }
-  if (warmupPhase === 'opening') return 'reading';
+  // Project preparation is an internal handshake. If the user already sent a
+  // message, present the familiar turn state while delivery waits for that
+  // handshake instead of exposing an implementation phase in the transcript.
+  if (warmupPhase === 'opening') return 'thinking';
   if (dispatchedInput) return null;
   // A queued after-turn message has not been handed to the provider yet. Keep
-  // it in the queue without painting a permanent "reading" spinner after the
+  // it in the queue without painting a permanent thinking indicator after the
   // chat preparation failed or the app restarted.
   return null;
 }
