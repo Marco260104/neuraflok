@@ -434,8 +434,8 @@ async function adoptAcceptedOpening(entry: InputEntry): Promise<boolean> { retur
 function paintPendingInputs(): void { chatInputQueue.paintPendingInputs(); }
 async function refreshInputQueue(): Promise<void> { return chatInputQueue.refreshInputQueue(); }
 function showAutoSkillReceipt(entry: Pick<InputEntry, 'autoSkills'>): void { chatInputQueue.showAutoSkillReceipt(entry); }
-async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?: string, controlAction = false): Promise<boolean | void> {
-  return chatComposerDelivery.sendComposer(delivery, plan, planObjective, controlAction);
+async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?: string, controlAction = false, planOnly = false): Promise<boolean | void> {
+  return chatComposerDelivery.sendComposer(delivery, plan, planObjective, controlAction, planOnly);
 }
 
 // Open the chat search dialog from the View menu or primary shortcut.

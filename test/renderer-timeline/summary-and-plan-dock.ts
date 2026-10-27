@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import type { SessionEvent } from "../../contracts/session.js";
 import type { InputArgs, InputEntry } from "../../backend/domains/sessions/input/input.js";
 
-import { T0, TOKEN, boot, compaction, settle, summary, text, toolCall } from './context.js';
+import { T0, TOKEN, boot, compaction, receivePlan, settle, summary, text, toolCall } from './context.js';
 
 it('keeps one live compaction across refused source calls and unrelated old-turn commentary', async () => {
   const [request, start, brief, end, handoff, resume] = compaction(2);
@@ -595,22 +595,24 @@ it('retains the New Chat objective through Goal, Off and Goal toggles', async ()
 });
 
 it('keeps editable stages and sends the original request with the full workflow exactly once', async () => {
-  const { w, live } = await boot([], false);
+  const app = await boot([], false);
+  const { w, live } = app;
   const api = (w as any).api;
   (await api.getState()).data.config.ui.finishTool = true;
-  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Build foundation', 'Verify it'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task';
   input.dispatchEvent(new w.Event('input'));
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   await settle();
-  expect(live.sent).toHaveLength(0);
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ text: 'Build the whole task', planOnly: true });
+  await receivePlan(app, ['Build foundation', 'Verify it']);
   expect(w.document.getElementById('taskPlanPreview')!.textContent).not.toMatch(/Start plan|Review stages/);
   const edit = w.document.querySelector<HTMLButtonElement>('[aria-label="Edit stage 1"]')!;
   edit.click();
   const stage = w.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit stage 1"]')!;
   stage.value = 'Build the edited foundation'; stage.dispatchEvent(new w.Event('input'));
-  expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).toBe('Start full plan');
+  expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).toBe('Approve plan');
   (w.document.querySelector(`[data-id="${summary([]).id}"]`) as HTMLButtonElement).click();
   await settle();
   w.document.getElementById('newChat')!.click(); await settle();
@@ -618,8 +620,7 @@ it('keeps editable stages and sends the original request with the full workflow 
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   await settle();
-  expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ text: 'Build the edited foundation', stages: ['Verify it'], objective: 'Build the whole task', authoredSource: 'objective' });
+  expect(live.sent.at(-1)).toMatchObject({ text: 'Build the edited foundation', stages: ['Verify it'], objective: 'Build the whole task', authoredSource: 'objective' });
   expect(w.document.getElementById('taskPlanPreview')!.hidden).toBe(true);
   expect(w.document.getElementById('finishQueue')!.hidden).toBe(false);
   expect(w.document.getElementById('finishQueue')!.textContent).toContain('Verify it');
@@ -627,14 +628,15 @@ it('keeps editable stages and sends the original request with the full workflow 
 });
 
 it.each([true, false])('hands plan presentation to queued stages while sending and restores a rejected draft (accepted=%s)', async accepted => {
-  const { w, live, append } = await boot([], false);
+  const app = await boot([], false);
+  const { w, live, append } = app;
   const api = (w as any).api;
   const stages = ['Define the build', 'Assign first worker', 'Assign second worker', 'Integrate', 'Verify', 'Acceptance'];
-  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: stages }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task'; input.dispatchEvent(new w.Event('input'));
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   await settle();
+  await receivePlan(app, stages);
   const preview = w.document.getElementById('taskPlanPreview')!;
   expect(preview.hidden).toBe(false);
   expect(preview.querySelectorAll('.plan-stage')).toHaveLength(6);
@@ -652,8 +654,7 @@ it.each([true, false])('hands plan presentation to queued stages while sending a
   expect(preview.hidden).toBe(true);
   expect(preview.querySelectorAll('.plan-stage')).toHaveLength(0);
   expect(w.document.querySelectorAll('#finishQueue .queued-input')).toHaveLength(5);
-  expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ text: stages[0], stages: stages.slice(1) });
+  expect(live.sent.at(-1)).toMatchObject({ text: stages[0], stages: stages.slice(1) });
   if (!accepted) live.inputs = [];
   finish(accepted ? { ok: true, data: first } : { ok: false, error: 'Fixture send rejected' });
   await settle();
@@ -692,7 +693,7 @@ it.each(['delivery', 'enqueue-failed'])('retries the durable full plan without p
 });
 
 it('the Plan toggle only arms planning; Send generates from the draft', async () => {
-  const { w } = await boot([], false);
+  const { w, live } = await boot([], false);
   const api = (w as any).api;
   api.draftTaskPlan = vi.fn(() => new Promise(() => {}));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
@@ -700,12 +701,15 @@ it('the Plan toggle only arms planning; Send generates from the draft', async ()
   input.value = 'Existing draft'; input.dispatchEvent(new w.Event('input'));
   plan.click(); await settle();
   expect(api.draftTaskPlan).not.toHaveBeenCalled();
+  expect(live.sent).toHaveLength(0);
   expect(plan.getAttribute('aria-pressed')).toBe('true');
   input.value = ''; input.dispatchEvent(new w.Event('input'));
   expect(plan.getAttribute('aria-pressed')).toBe('true');
   input.value = 'Plan this'; input.dispatchEvent(new w.Event('input'));
   input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', cancelable: true })); await settle();
-  expect(api.draftTaskPlan).toHaveBeenCalledWith('Plan this', expect.anything(), expect.any(String));
+  expect(api.draftTaskPlan).not.toHaveBeenCalled();
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ text: 'Plan this', planOnly: true });
 });
 
 it('the mode-menu pencil edits an objective without switching automation until Save', async () => {

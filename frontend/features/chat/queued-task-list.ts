@@ -1,4 +1,4 @@
-import { queuedFollowup } from '../../../contracts/input.js';
+import { optimisticComposerSend, queuedFollowup } from '../../../contracts/input.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { SessionSummary } from '../../../contracts/session.js';
 import { $ } from '../../shared/dom.js';
@@ -44,6 +44,7 @@ export function createQueuedTaskList(runtime: Runtime) {
       (entry) =>
         belongsToSelection(entry) &&
         queuedFollowup(entry) &&
+        !optimisticComposerSend(entry) &&
         ['queued', 'tool', 'browser'].includes(entry.state),
     );
     // Keep every accepted plan stage visible until its durable queue row appears.

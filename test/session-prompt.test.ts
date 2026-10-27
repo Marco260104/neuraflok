@@ -6,6 +6,22 @@ import { initDurableStore, resetDurableForTests } from '../backend/persistence/d
 import { addProject, assignSessionProject } from '../backend/domains/workspace/projects.js';
 import { createSession, initSessionStore, rebindSession, resetSessionStoreForTests } from '../backend/domains/sessions/history/store.js';
 import { fitSessionPrompt, prepareProviderSessionPrompt, prepareProviderSkillFollowup, prepareSessionPrompt } from '../backend/domains/sessions/input/prompt.js';
+import {
+  formatProviderConversationRecap,
+  buildProviderReconnectContext,
+  buildProviderProjectContext,
+  buildGeneralChatContext,
+  isNewProviderChat,
+  looksLikeContinueRequest,
+  needsWorkPlan,
+  looksLikeStaleCompletion,
+  looksLikeProjectStatusRecap,
+  parseWorkPlan,
+  formatPlanOnlyPrompt,
+  formatExecuteStepPrompt,
+  prepareLocalProviderPrompt,
+  resetLocalProviderHydrationForTests
+} from '../backend/domains/sessions/input/provider-context.js';
 import { MAX_PROVIDER_MESSAGE_CHARS, prependUserPrompt, userPromptText } from '../contracts/messaging/provider-message-envelope.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
@@ -83,6 +99,7 @@ beforeEach(async () => {
   await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }] });
 });
 afterEach(async () => {
+  resetLocalProviderHydrationForTests();
   resetSessionStoreForTests(); resetDurableForTests();
   await removeTempDir(directory);
 });
@@ -221,4 +238,190 @@ it('keeps language and project directory on later provider turns without repeati
   expect(followup).not.toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
   expect(followup).toContain('Continúa con el README');
   expect(followup).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
+});
+
+it('treats bare continue messages as a request to restore project context', () => {
+  expect(looksLikeContinueRequest('CONTINUA')).toBe(true);
+  expect(looksLikeContinueRequest('continúa')).toBe(true);
+  expect(looksLikeContinueRequest('Continue please')).toBe(true);
+  expect(looksLikeContinueRequest('Continúa con el README')).toBe(false);
+  expect(looksLikeContinueRequest('Añade tests unitarios')).toBe(false);
+});
+
+it('injects AGENTS.md and conversation recap when the user only asks to continue', async () => {
+  await fs.mkdir(path.join(directory, 'resume-project'), { recursive: true });
+  await fs.writeFile(path.join(directory, 'resume-project', 'AGENTS.md'), 'KEEP_THE_EXISTING_TREE_API');
+  const project = await addProject(path.join(directory, 'resume-project'));
+  const recap = formatProviderConversationRecap([
+    { role: 'system', content: 'guide' },
+    { role: 'user', content: 'Initialize this NEURAFLOK conversation using the instructions below.' },
+    { role: 'assistant', content: 'NEURAFLOK_READY' },
+    { role: 'user', content: 'Implementa el arbol binario' },
+    { role: 'assistant', content: 'Voy a leer AGENTS.md y el código actual.' }
+  ]);
+  expect(recap).toContain('Implementa el arbol binario');
+  expect(recap).toContain('CONVERSATION_SO_FAR');
+  expect(recap).not.toContain('NEURAFLOK_READY');
+  const session = await createSession({ title: 'Continue' });
+  await assignSessionProject(session.id, project.id);
+  const prompt = await prepareLocalProviderPrompt(
+    { text: 'CONTINUA', projectId: project.id } as never,
+    session.id,
+    false,
+    { recap, hydrateWorkspace: true }
+  );
+  expect(prompt).toContain('KEEP_THE_EXISTING_TREE_API');
+  expect(prompt).toContain('Implementa el arbol binario');
+  expect(prompt).toContain('Do not start an unrelated task');
+});
+
+it('builds a continuation markdown pack with project tree, edits, and usable conversation', async () => {
+  await fs.mkdir(path.join(directory, 'shop', 'src'), { recursive: true });
+  await fs.writeFile(path.join(directory, 'shop', 'AGENTS.md'), 'KEEP_SHOP');
+  await fs.writeFile(path.join(directory, 'shop', 'index.html'), '<html></html>');
+  await fs.writeFile(path.join(directory, 'shop', 'src', 'app.js'), 'ok');
+  const project = await addProject(path.join(directory, 'shop'));
+  const session = await createSession({ title: 'Shop' });
+  await assignSessionProject(session.id, project.id);
+  const pack = await buildProviderReconnectContext(session.id, [
+    { role: 'system', content: 'guide' },
+    { role: 'user', content: 'Implementa la librería' },
+    { role: 'assistant', content: 'NEURAFLOK_READY' },
+    { role: 'tool', content: 'Success. Updated the following files:\nA /work/shop/index.html' },
+    { role: 'assistant', content: 'This DeepSeek session has no verified browser tab. Start a new chat to reconnect it safely.' },
+    { role: 'assistant', content: '<neuraflok-tool fence> {"name":"read","arguments":{"paths":["/work/shop/index.html"]}} </neuraflok-tool>' },
+    { role: 'assistant', content: 'La app está lista en index.html.' },
+    { role: 'user', content: 'Qué animaciones podemos agregar' }
+  ], 'Reply in Spanish. Use complete neuraflok-tool fences.');
+  expect(pack).toContain('Continuation of this NEURAFLOK session');
+  expect(pack).toContain('index.html');
+  expect(pack).toContain('app.js');
+  expect(pack).toContain('Added /work/shop/index.html');
+  expect(pack).toContain('Implementa la librería');
+  expect(pack).toContain('Qué animaciones podemos agregar');
+  expect(pack).toContain('La app está lista');
+  expect(pack).toContain('How to reply');
+  expect(pack).toContain('Where this session left off');
+  expect(pack).not.toContain('NEURAFLOK_READY');
+  expect(pack).not.toContain('no verified browser tab');
+});
+
+it('passes only the project tree on a new chat and the full session pack on an old chat', async () => {
+  await fs.mkdir(path.join(directory, 'desk', 'src'), { recursive: true });
+  await fs.writeFile(path.join(directory, 'desk', 'AGENTS.md'), 'KEEP_DESK');
+  await fs.writeFile(path.join(directory, 'desk', 'index.html'), '<html></html>');
+  await fs.writeFile(path.join(directory, 'desk', 'src', 'app.js'), 'ok');
+  const project = await addProject(path.join(directory, 'desk'));
+  const session = await createSession({ title: 'Desk' });
+  await assignSessionProject(session.id, project.id);
+  const thread = [
+    { role: 'user', content: 'Implementa el panel' },
+    { role: 'tool', content: 'Success. Updated the following files:\nA /work/desk/index.html' },
+    { role: 'assistant', content: 'El panel ya lista los libros.' },
+    { role: 'user', content: 'CONTINUA' }
+  ];
+  const fresh = await buildProviderProjectContext(session.id, thread, { newChat: true });
+  expect(fresh).toContain('Project structure');
+  expect(fresh).toContain('How to reply');
+  expect(fresh).toContain('index.html');
+  expect(fresh).toContain('app.js');
+  expect(fresh).not.toContain('Implementa el panel');
+  expect(fresh).not.toContain('Added /work/desk/index.html');
+  expect(fresh).not.toContain('CONTINUA');
+  expect(fresh).not.toContain('Continuation of this NEURAFLOK session');
+  expect(fresh).not.toContain('Where this session left off');
+  const old = await buildProviderProjectContext(session.id, thread, { newChat: false, replyGuide: 'Reply in Spanish.' });
+  expect(old).toContain('Continuation of this NEURAFLOK session');
+  expect(old).toContain('index.html');
+  expect(old).toContain('Implementa el panel');
+  expect(old).toContain('Added /work/desk/index.html');
+  expect(old).toContain('El panel ya lista');
+  expect(old).toContain('Where this session left off');
+  expect(old).not.toContain('CONTINUA');
+});
+
+it('treats a bootstrap-only thread as a new chat, not an old recap', () => {
+  expect(isNewProviderChat([{ role: 'system', content: 'guide' }])).toBe(true);
+  expect(isNewProviderChat([
+    { role: 'system', content: 'guide' },
+    { role: 'user', content: 'Initialize this NEURAFLOK conversation using the instructions below.' },
+    { role: 'assistant', content: 'NEURAFLOK_READY' }
+  ])).toBe(true);
+  expect(isNewProviderChat([
+    { role: 'system', content: 'guide' },
+    { role: 'user', content: 'Implementa el panel' },
+    { role: 'assistant', content: 'Listo.' }
+  ])).toBe(false);
+  expect(isNewProviderChat([{ role: 'user', content: 'Hola' }], true)).toBe(true);
+});
+
+it('keeps general chats as conversation recap without a project tree', async () => {
+  const session = await createSession({ title: 'General' });
+  const thread = [
+    { role: 'user', content: 'Hola necesito ayuda' },
+    { role: 'assistant', content: 'Claro, dime.' },
+    { role: 'user', content: 'Explícame esto' }
+  ];
+  expect(await buildGeneralChatContext(session.id, thread, { newChat: true })).toBe('');
+  const old = await buildGeneralChatContext(session.id, thread, { newChat: false });
+  expect(old).toContain('Conversation recap');
+  expect(old).toContain('Hola necesito ayuda');
+  expect(old).toContain('Claro, dime.');
+  expect(old).toContain('This is not a coding project');
+  expect(old).not.toContain('Project structure');
+  expect(old).not.toContain('apply_patch');
+  expect(old).not.toContain('Approved roots');
+  const prompt = await prepareLocalProviderPrompt(
+    { text: 'Explícame esto', projectId: null } as never,
+    session.id,
+    false,
+    { recap: old, conversationOnly: true }
+  );
+  expect(prompt).toContain('Explícame esto');
+  expect(prompt).toContain('Hola necesito ayuda');
+  expect(prompt).not.toContain('WORKSPACE_CONTEXT');
+  expect(prompt).not.toContain('Execute the user task');
+});
+
+it('treats a new request on an old chat as the current task even if the recap said the work was done', async () => {
+  await fs.mkdir(path.join(directory, 'libros'), { recursive: true });
+  await fs.writeFile(path.join(directory, 'libros', 'index.html'), '<html></html>');
+  const project = await addProject(path.join(directory, 'libros'));
+  const session = await createSession({ title: 'Libros' });
+  await assignSessionProject(session.id, project.id);
+  const task = 'Puedes cambiar todo y usar Next.js, y Anime.js para una animación de carga al entrar';
+  const pack = await buildProviderProjectContext(session.id, [
+    { role: 'user', content: 'Implementa la librería' },
+    { role: 'assistant', content: 'El proyecto está completo y verificado; no quedan tareas pendientes.' }
+  ], { newChat: false, continueOnly: false, currentTask: task });
+  expect(pack).toContain('Current user request');
+  expect(pack).toContain('Next.js');
+  expect(pack).toContain('Anime.js');
+  expect(pack).toContain('The latest user message is the current task');
+  expect(pack).toContain('even if a previous recap said the project was complete');
+  expect(pack).not.toContain('Do not start an unrelated task');
+  expect(pack).not.toContain('Do not restart the project from scratch');
+  expect(pack).not.toContain('no quedan tareas pendientes');
+});
+
+it('plans new work and ignores a stale complete banner', () => {
+  expect(needsWorkPlan('CONTINUA')).toBe(false);
+  expect(needsWorkPlan('Hola')).toBe(false);
+  expect(needsWorkPlan('Puedes cambiar todo y usar Next.js y Anime.js para una animación de carga')).toBe(true);
+  expect(looksLikeStaleCompletion('El proyecto está completo y verificado; no quedan tareas pendientes.')).toBe(true);
+  expect(looksLikeStaleCompletion('Paso 1: creé el scaffold de Next.js.')).toBe(false);
+  expect(looksLikeProjectStatusRecap('Sí, ya quedó implementado el descuento dinámico por producto. Esto es lo que cambió:\n\nLógica (core.js)\n\nnpm run dev y abre http://localhost:3000.')).toBe(true);
+  expect(looksLikeProjectStatusRecap('Hola, dime en qué te ayudo.')).toBe(false);
+  expect(parseWorkPlan('1. Crear app Next.js\n2. Portar el catálogo\n3. Añadir Anime.js al entrar')).toEqual([
+    'Crear app Next.js',
+    'Portar el catálogo',
+    'Añadir Anime.js al entrar'
+  ]);
+  expect(formatPlanOnlyPrompt('Usa Next.js y Anime.js')).toContain('PLAN_ONLY');
+  expect(formatPlanOnlyPrompt('Usa Next.js y Anime.js')).toContain('must be ignored');
+  expect(formatExecuteStepPrompt({
+    task: 'Usa Next.js y Anime.js',
+    steps: ['Scaffold Next.js', 'Portar catálogo', 'Animación Anime.js'],
+    index: 0
+  })).toContain('Do ONLY step 1 of 3: Scaffold Next.js');
 });

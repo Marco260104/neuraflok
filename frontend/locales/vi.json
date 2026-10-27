@@ -2157,13 +2157,17 @@
   "Could not run tests": "Could not run tests",
   "Could not run a command": "Could not run a command",
   "Command failed tests": "Command failed tests",
-  "Command failed a command": "Command failed a command"
-,
+  "Command failed a command": "Command failed a command",
   "Loading web models": "Đang tải mô hình web",
   "Opening the private browser and connecting to the selected provider.": "Đang mở trình duyệt riêng và kết nối nhà cung cấp đã chọn.",
   "Opening the private browser and connecting to {0}.": "Đang mở trình duyệt riêng và kết nối {0}.",
   "The web model is ready.": "Mô hình web đã sẵn sàng.",
   "Preparing chat…": "Đang chuẩn bị trò chuyện…",
+  "Reading project…": "Đang đọc dự án…",
   "Reading the project and connecting the model…": "Đang đọc dự án và kết nối mô hình…",
-  "Chat is ready.": "Trò chuyện đã sẵn sàng."
+  "Chat is ready.": "Trò chuyện đã sẵn sàng.",
+  "Approve plan": "Duyệt Plan",
+  "Add a step": "Thêm bước",
+  "Revise plan": "Sửa Plan",
+  "What should change in this plan?": "Cần đổi gì trong Plan này?"
 }

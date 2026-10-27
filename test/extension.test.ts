@@ -130,6 +130,8 @@ describe('NEURAFLOK browser companion', () => {
     expect(pageExecutor.split('\n').length).toBeLessThan(60);
     expect(providerState.split('\n').length).toBeLessThan(100);
     expect(deepseekExecutor.split('\n').length).toBeLessThan(300);
+    const deepseekWatch = await readFile(path.join(root, 'browser-extension/src/background/providers/execution/deepseek-watch.js'), 'utf8');
+    expect(deepseekWatch.split('\n').length).toBeLessThan(220);
     expect(webExecutor.split('\n').length).toBeLessThan(240);
     expect(worker).toContain("import { createAppLanguageSync } from './connectivity/language-sync.js'");
     expect(worker).toContain('await appLanguage.apply(data).catch');

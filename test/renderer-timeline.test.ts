@@ -6,6 +6,7 @@ import './renderer-timeline/compaction-and-chat-actions.js';
 import './renderer-timeline/summary-and-plan-dock.js';
 import './renderer-timeline/goal-delivery-and-progress.js';
 import './renderer-timeline/composer-and-task-lifecycle.js';
+import './renderer-timeline/composer-send-ux.js';
 import './renderer-timeline/history-reading-and-timeline.js';
 import './renderer-timeline/rounds-and-reader-gestures.js';
 

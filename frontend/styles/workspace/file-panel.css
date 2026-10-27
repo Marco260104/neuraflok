@@ -307,6 +307,19 @@
 .plan-stage-heading .dock-action { justify-content: center; width: 26px; height: 26px; }
 .plan-stage-heading .queue-label { color: var(--ink); }
 .composer-dock .plan-stage textarea { width: calc(100% - 24px); margin: 0 12px 10px; border: 1px solid var(--edge); border-radius: 7px; background: var(--page); color: var(--ink); }
+.plan-stage-actions { display: flex; gap: 8px; padding: 6px 12px 8px; }
+.composer-dock .plan-feedback {
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  min-height: 52px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
+#taskPlanPreview > .dock-action { margin: 0 12px 10px; }
 .send-button.is-plan-ready { background: #80654d; color: #fff9f2; }
 .stage-error { display: block; padding: 0 12px 10px; color: var(--red); font-size: calc(12px * var(--text-scale, 1)); }
 .stage-error[hidden] { display: none; }

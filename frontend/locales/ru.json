@@ -2157,13 +2157,17 @@
   "Could not run tests": "Could not run tests",
   "Could not run a command": "Could not run a command",
   "Command failed tests": "Command failed tests",
-  "Command failed a command": "Command failed a command"
-,
+  "Command failed a command": "Command failed a command",
   "Loading web models": "Загрузка веб-моделей",
   "Opening the private browser and connecting to the selected provider.": "Открывается закрытый браузер и подключается выбранный провайдер.",
   "Opening the private browser and connecting to {0}.": "Открывается закрытый браузер и подключается {0}.",
   "The web model is ready.": "Веб-модель готова.",
   "Preparing chat…": "Подготовка чата…",
+  "Reading project…": "Чтение проекта…",
   "Reading the project and connecting the model…": "Чтение проекта и подключение модели…",
-  "Chat is ready.": "Чат готов."
+  "Chat is ready.": "Чат готов.",
+  "Approve plan": "Утвердить план",
+  "Add a step": "Добавить шаг",
+  "Revise plan": "Пересмотреть план",
+  "What should change in this plan?": "Что изменить в этом плане?"
 }

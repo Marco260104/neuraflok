@@ -176,9 +176,31 @@ it('keeps a second local-provider message queued until the active response finis
   const second = await sendDesktopInput({ ...request, id: '20000000-0000-4000-8000-000000000002', sessionId: 'session-existing' });
 
   expect(first.mode).toBe('auto');
-  expect(second).toMatchObject({ state: 'queued', mode: 'after-turn', afterTurn: true });
+  expect(second).toMatchObject({ state: 'queued', mode: 'after-turn', afterTurn: true, requestedMode: 'auto' });
   expect(ports.runApi).toHaveBeenCalledOnce();
   complete(null);
+});
+
+it('sends immediately into an old chat whose persisted turn id is stale', async () => {
+  ports.session = { conversationId: 'ds-00000000-0000-4000-8000-000000000001', activeTurnId: 'yesterday-turn' };
+  const row = await sendDesktopInput({ ...request, sessionId: 'session-existing' });
+  expect(row.mode).toBe('auto');
+  expect(row.afterTurn).toBeUndefined();
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledOnce());
+  expect(ports.run).toHaveBeenCalledWith(row, 'deepseek', expect.any(AbortSignal));
+});
+
+it('releases an idle after-turn send when no local response is running', async () => {
+  ports.session = { conversationId: 'ds-00000000-0000-4000-8000-000000000009' };
+  const row = await sendDesktopInput({
+    ...request,
+    sessionId: 'session-existing',
+    mode: 'after-turn',
+    afterTurn: true
+  });
+  expect(row.mode).toBe('after-turn');
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledOnce());
+  expect(ports.run).toHaveBeenCalledWith(row, 'deepseek', expect.any(AbortSignal));
 });
 
 it('dispatches the next local follow-up only after the provider reports a completed turn', async () => {

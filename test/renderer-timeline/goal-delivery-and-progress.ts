@@ -2,12 +2,14 @@ import { expect, it, vi } from 'vitest';
 import type { SessionEvent } from "../../contracts/session.js";
 import type { InputArgs } from "../../backend/domains/sessions/input/input.js";
 
-import { T0, boot, settle, summary, text } from './context.js';
+import { T0, boot, receivePlan, settle, summary, text } from './context.js';
 
 it('disables empty task actions and confirms saving without the old helper sentence', async () => {
   const { w } = await boot([], false);
   const save = w.document.getElementById('saveSessionObjective') as HTMLButtonElement;
   expect(save.disabled).toBe(true);
+  expect(w.document.getElementById('createPlan')!.hidden).toBe(false);
+  expect(w.document.getElementById('composerGoalBtn')!.hidden).toBe(true);
   const plan = w.document.getElementById('createPlan') as HTMLButtonElement;
   plan.click();
   expect(w.document.activeElement?.id).toBe('chatInput');
@@ -134,20 +136,58 @@ it('dismisses only the displayed recovery revision and reveals a changed status 
   expect((w.document.getElementById('chatInput') as HTMLTextAreaElement).disabled).toBe(false);
 });
 
+it('lets the user add a step and send feedback before approving the plan', async () => {
+  const app = await boot([]);
+  const { w, live } = app;
+  const api = (w as any).api;
+  api.draftTaskPlan = vi.fn(async (text: string) => ({
+    ok: true,
+    data: String(text).includes('User adjustments')
+      ? ['Scaffold Next.js', 'Port the catalog', 'Add Anime.js loading']
+      : ['Write poem', 'Verify lines']
+  }));
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  input.value = 'Rain poem'; input.dispatchEvent(new w.Event('input'));
+  w.document.getElementById('createPlan')!.click();
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
+  await settle();
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ text: 'Rain poem', planOnly: true });
+  await receivePlan(app, ['Write poem', 'Verify lines']);
+  w.document.querySelector<HTMLButtonElement>('[aria-label="Add a step"]')!.click();
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(3);
+  const extra = w.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit stage 3"]')!;
+  extra.value = 'Record the reading'; extra.dispatchEvent(new w.Event('input'));
+  const notes = w.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should change in this plan?"]')!;
+  notes.value = 'Use Next.js instead'; notes.dispatchEvent(new w.Event('input'));
+  w.document.querySelector<HTMLButtonElement>('[aria-label="Revise plan"]')!.click();
+  await settle();
+  expect(api.draftTaskPlan).toHaveBeenCalledTimes(1);
+  expect(String(api.draftTaskPlan.mock.calls[0][0])).toContain('User adjustments to the plan');
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(3);
+  expect(w.document.getElementById('taskPlanPreview')!.textContent).toContain('Scaffold Next.js');
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
+  await settle();
+  expect(live.sent).toHaveLength(2);
+  expect(live.sent[1]).toMatchObject({ text: 'Scaffold Next.js', stages: ['Port the catalog', 'Add Anime.js loading'] });
+});
+
 it('blocks an empty stage, deletes it explicitly, and hides the whole dock in settings', async () => {
-  const { w, live } = await boot([], false);
+  const app = await boot([]);
+  const { w, live } = app;
   const api = (w as any).api;
   (await api.getState()).data.config.ui.finishTool = true;
-  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Write poem', 'Verify lines'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Rain poem'; input.dispatchEvent(new w.Event('input'));
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
+  await receivePlan(app, ['Write poem', 'Verify lines']);
   const stage = w.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit stage 1"]')!;
   stage.value = ''; stage.dispatchEvent(new w.Event('input'));
   expect(stage.getAttribute('aria-invalid')).toBe('true');
   expect((w.document.getElementById('chatSend') as HTMLButtonElement).disabled).toBe(true);
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
-  await settle(); expect(live.sent).toHaveLength(0);
+  await settle(); expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ planOnly: true, text: 'Rain poem' });
   w.document.querySelector<HTMLButtonElement>('[aria-label="Delete stage 1"]')!.click();
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(1);
   expect((w.document.getElementById('chatSend') as HTMLButtonElement).disabled).toBe(false);
@@ -158,63 +198,64 @@ it('blocks an empty stage, deletes it explicitly, and hides the whole dock in se
   expect(w.document.getElementById('composerDock')!.hidden).toBe(false);
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(1);
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
-  await settle(); expect(live.sent[0]).toMatchObject({ text: 'Verify lines', stages: [] });
+  await settle(); expect(live.sent.at(-1)).toMatchObject({ text: 'Verify lines', stages: [] });
 });
 
 it('cancels pending planning without replacing the draft with a late result', async () => {
-  const { w, live, progress } = await boot([], false);
-  const api = (w as any).api;
-  api.cancelTaskRequest = vi.fn(async () => ({ ok: true, data: true }));
-  (await api.getState()).data.config.ui.finishTool = true;
-  let finish!: (value: unknown) => void;
-  api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+  const app = await boot([]);
+  const { w, live } = app;
+  (await (w as any).api.getState()).data.config.ui.finishTool = true;
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Keep this draft';
   const plan = w.document.getElementById('createPlan') as HTMLButtonElement;
   plan.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
-  const requestId = api.draftTaskPlan.mock.calls[0][2];
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ planOnly: true, text: 'Keep this draft' });
   expect(plan.getAttribute('aria-pressed')).toBe('true');
   plan.click();
-  expect(api.cancelTaskRequest).toHaveBeenCalledWith(requestId);
-  progress({ requestId, phase: 'generating', text: 'Stale cancelled plan' });
-  expect(w.document.getElementById('taskPlanPreview')!.textContent).not.toContain('Stale cancelled plan');
-  finish({ ok: true, data: ['First', 'Second'] }); await settle();
-  expect(input.value).toBe('Keep this draft');
   expect(plan.getAttribute('aria-pressed')).toBe('false');
   expect(w.document.getElementById('taskPlanPreview')!.hidden).toBe(true);
-  expect(live.sent).toHaveLength(0);
+  await receivePlan(app, ['First', 'Second']);
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(0);
 });
 
 it('keeps completed stages after clearing or replacing the composer until explicitly deleted', async () => {
-  const { w, live } = await boot([], false);
-  const api = (w as any).api;
-  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Build foundation', 'Verify it'] }));
+  const app = await boot([]);
+  const { w, live } = app;
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task'; input.dispatchEvent(new w.Event('input'));
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
+  await receivePlan(app, ['Build foundation', 'Verify it']);
   for (const replacement of ['', 'Unrelated next message', '']) {
     input.value = replacement; input.dispatchEvent(new w.Event('input'));
     expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
     expect(w.document.getElementById('taskPlanPreview')!.textContent).toContain('Verify it');
   }
-  expect(live.sent).toHaveLength(0);
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ planOnly: true, text: 'Build the whole task' });
   w.document.querySelector<HTMLButtonElement>('[aria-label="Delete stage 1"]')!.click();
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(1);
   w.document.querySelector<HTMLButtonElement>('[aria-label="Delete stage 1"]')!.click();
   expect(w.document.getElementById('taskPlanPreview')!.hidden).toBe(true);
 });
 
-it('queues every generated stage in an existing session without Send and preserves them after clearing the composer', async () => {
-  const { w, live } = await boot([]);
+it('keeps a generated plan in an existing session until the user approves it', async () => {
+  const app = await boot([]);
+  const { w, live } = app;
   const api = (w as any).api;
-  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Build foundation', 'Verify it'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Build the whole task'; input.dispatchEvent(new w.Event('input'));
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ sessionId: summary([]).id, text: 'Build foundation', stages: ['Verify it'], mode: 'finish', model: null, reasoningEffort: null, authoredSource: 'objective' });
-  expect(input.value).toBe('');
+  expect(live.sent[0]).toMatchObject({ planOnly: true });
+  await receivePlan(app, ['Build foundation', 'Verify it']);
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
+  expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).toBe('Approve plan');
   input.value = ''; input.dispatchEvent(new w.Event('input'));
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
+  expect(live.sent).toHaveLength(2);
+  expect(live.sent[1]).toMatchObject({ sessionId: summary([]).id, text: 'Build foundation', stages: ['Verify it'], mode: 'finish', model: null, reasoningEffort: null, authoredSource: 'objective' });
   expect(w.document.querySelectorAll('#finishQueue .queued-input')).toHaveLength(2);
   expect(w.document.querySelectorAll('[aria-label="Remove queued task"]')).toHaveLength(2);
   expect(w.document.getElementById('taskPlanPreview')!.hidden).toBe(true);
@@ -222,7 +263,7 @@ it('queues every generated stage in an existing session without Send and preserv
   w.document.querySelector<HTMLButtonElement>('[aria-label="Remove queued task"]')!.click(); await settle();
   expect(w.document.querySelectorAll('#finishQueue .queued-input')).toHaveLength(1);
   expect(w.document.getElementById('finishQueue')!.textContent).toContain('Verify it');
-  expect(live.sent).toHaveLength(1);
+  expect(live.sent).toHaveLength(2);
 });
 
 it('retries a materialized finish checkpoint without recreating its already independent siblings', async () => {
@@ -238,51 +279,54 @@ it('retries a materialized finish checkpoint without recreating its already inde
 });
 
 it('retains a rejected queue admission independently of composer edits and retries as finish only', async () => {
-  const { w, live } = await boot([]);
+  const app = await boot([]);
+  const { w, live } = app;
   const api = (w as any).api, send = api.sendInput;
-  let reject!: (value: unknown) => void;
-  api.sendInput = vi.fn(() => new Promise(resolve => { reject = resolve; }));
-  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['First checkpoint', 'Last checkpoint'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Plan the remaining checks';
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
+  await receivePlan(app, ['First checkpoint', 'Last checkpoint']);
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
+  let reject!: (value: unknown) => void;
+  api.sendInput = vi.fn(() => new Promise(resolve => { reject = resolve; }));
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   input.value = ''; input.dispatchEvent(new w.Event('input'));
   reject({ ok: false, error: 'Queue full' }); await settle();
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
-  expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).toBe('Queue plan at Session finish');
+  expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).toBe('Approve plan');
   api.sendInput = send;
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
-  expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ mode: 'finish', text: 'First checkpoint', stages: ['Last checkpoint'] });
+  expect(live.sent.at(-1)).toMatchObject({ mode: 'finish', text: 'First checkpoint', stages: ['Last checkpoint'] });
   expect(w.document.querySelectorAll('#finishQueue .queued-input')).toHaveLength(2);
   expect(input.value).toBe('');
 });
 
 it('clears the planner prompt and starts a new-chat plan with Enter without overriding provider model selection', async () => {
   const { w, live } = await boot([], false);
-  (w as any).api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Build foundation', 'Verify it'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Original objective';
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   expect(input.value).toBe('');
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ text: 'Original objective', planOnly: true, model: null, reasoningEffort: null });
   input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, cancelable: true }));
   input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', isComposing: true, cancelable: true }));
-  await settle(); expect(live.sent).toHaveLength(0);
-  input.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', cancelable: true })); await settle();
-  expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ objective: 'Original objective', text: 'Build foundation', stages: ['Verify it'], model: null, reasoningEffort: null });
+  await settle(); expect(live.sent).toHaveLength(1);
 });
 
 it('does not erase a new composer draft while completed-plan queue admission is pending', async () => {
-  const { w } = await boot([]);
+  const app = await boot([]);
+  const { w } = app;
   const api = (w as any).api, send = api.sendInput;
-  let admit!: () => Promise<void>;
-  api.sendInput = vi.fn((args: InputArgs) => new Promise(resolve => { admit = async () => resolve(await send(args)); }));
-  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['First checkpoint', 'Last checkpoint'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Planner request';
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
+  await receivePlan(app, ['First checkpoint', 'Last checkpoint']);
   expect(input.value).toBe('');
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
+  let admit!: () => Promise<void>;
+  api.sendInput = vi.fn((args: InputArgs) => new Promise(resolve => { admit = async () => resolve(await send(args)); }));
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   input.value = 'My next correction'; input.dispatchEvent(new w.Event('input'));
   await admit(); await settle();
   expect(input.value).toBe('My next correction');
@@ -290,51 +334,36 @@ it('does not erase a new composer draft while completed-plan queue admission is 
 });
 
 it('clearing the complete planner task cancels generation and restores Create plan', async () => {
-  const { w, live } = await boot([], false);
-  const api = (w as any).api;
-  (await api.getState()).data.config.ui.finishTool = true;
-  let finish!: (value: unknown) => void;
-  api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
-  api.cancelTaskRequest = vi.fn(async () => ({ ok: true, data: true }));
+  const app = await boot([]);
+  const { w, live } = app;
+  (await (w as any).api.getState()).data.config.ui.finishTool = true;
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Write a poem'; w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
-  input.value = ''; input.dispatchEvent(new w.Event('input'));
-  expect(api.cancelTaskRequest).toHaveBeenCalled();
+  expect(live.sent).toHaveLength(1);
+  w.document.getElementById('createPlan')!.click();
   expect(w.document.getElementById('createPlan')!.getAttribute('aria-pressed')).toBe('false');
   expect(w.document.getElementById('createPlan')!.textContent).toBe('Plan');
   expect(w.document.getElementById('createPlan')!.getAttribute('aria-label')).toBe('Create plan');
-  finish({ ok: true, data: ['Old stage', 'Old check'] }); await settle();
-  expect(live.sent).toHaveLength(0);
+  await receivePlan(app, ['Old stage', 'Old check']);
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(0);
 });
 
 it('routes an armed empty-composer plan through the planner and paints only its live progress', async () => {
-  const { w, live, progress } = await boot([], false);
-  const api = (w as any).api;
-  (await api.getState()).data.config.ui.finishTool = true;
-  let finish!: (value: unknown) => void;
-  api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+  const app = await boot([]);
+  const { w, live } = app;
+  (await (w as any).api.getState()).data.config.ui.finishTool = true;
   w.document.getElementById('createPlan')!.click();
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Create an SVG cat';
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   await settle();
-  expect(live.sent).toHaveLength(0);
-  expect(api.draftTaskPlan.mock.calls[0][0]).toBe('Create an SVG cat');
-  const requestId = api.draftTaskPlan.mock.calls[0][2];
-  progress({ requestId: 'another-request', phase: 'generating', text: 'Wrong work' });
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ text: 'Create an SVG cat', planOnly: true });
   expect(w.document.getElementById('taskPlanPreview')!.textContent).not.toContain('Wrong work');
-  progress({ requestId, phase: 'generating', text: 'Design the SVG paths' });
-  expect(w.document.getElementById('taskPlanPreview')!.textContent).toContain('Design the SVG paths');
-  progress({ requestId, phase: 'retrying', text: '', attempt: 2, retryAt: Date.now() + 30000, error: 'rate_limited' });
-  expect(w.document.getElementById('taskPlanPreview')!.textContent).toContain('Provider busy · retry 2');
-  expect(w.document.getElementById('createPlan')!.getAttribute('aria-busy')).toBe('true');
-  finish({ ok: true, data: ['Write SVG paths', 'Validate the SVG'] }); await settle();
-  expect(live.sent).toHaveLength(0);
+  await receivePlan(app, ['Write SVG paths', 'Validate the SVG']);
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true }));
   await settle();
-  expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ text: 'Write SVG paths', stages: ['Validate the SVG'] });
+  expect(live.sent.at(-1)).toMatchObject({ text: 'Write SVG paths', stages: ['Validate the SVG'] });
 });
 
 it('does not turn an empty or repeated form submission into a Stop request', async () => {

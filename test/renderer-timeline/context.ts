@@ -25,6 +25,27 @@ export function text(value: string) {
   return { text: value, truncated: false, chars: value.length };
 }
 
+export function planAssistantEvent(seq: number, stages: string[]): SessionEvent {
+  return {
+    seq,
+    time: T0 + seq * 1000,
+    source: 'extension',
+    kind: 'assistant_message',
+    messageId: `m-plan-${seq}`,
+    message: text(stages.map((stage, index) => `${index + 1}. ${stage}`).join('\n')),
+    state: 'final',
+    final: true
+  };
+}
+
+export async function receivePlan(
+  app: { live: { events: SessionEvent[] }; append: (events: SessionEvent[]) => Promise<void> },
+  stages: string[]
+): Promise<void> {
+  const seq = (app.live.events.at(-1)?.seq ?? 0) + 1;
+  await app.append([planAssistantEvent(seq, stages)]);
+}
+
 export function summary(events: SessionEvent[]): SessionSummary {
   return {
     id: '2026-09-02-test0001',
@@ -165,7 +186,7 @@ export async function boot(events: SessionEvent[], selectExisting = true, paused
       screen: false, control: false, clipboardRead: false, clipboardWrite: false
     },
     commandAllowlist: { enabled: false, mode: 'allow' as const, rules: [] as string[] },
-    ui: { minimizeToTray: true, privacyScreenshots: false, theme: 'light', developerMode: options.developerMode ?? false, ...(options.followOutput === undefined ? {} : { followOutput: options.followOutput }) },
+    ui: { minimizeToTray: true, privacyScreenshots: false, theme: 'light', developerMode: options.developerMode ?? false, webProvider: 'deepseek', ...(options.followOutput === undefined ? {} : { followOutput: options.followOutput }) },
     sessions: { record: true, retainDays: 30, advisoryTokens: 300000, limitTokens: 400000 },
     compaction: { auto: true, autoTokens: 300000 },
     multiAgent: { enabled: false, maxWorkers: 2, allowUnattributedCalls: false, recoverAgentTabs: true },
@@ -176,7 +197,10 @@ export async function boot(events: SessionEvent[], selectExisting = true, paused
     config,
     hasApiKey: false,
     hasGoalKey: false,
-    bridge: { running: true, port: 8765, paired: false, present: false, lastSeenAt: null, extensionVersion: null },
+    bridge: {
+      running: true, port: 8765, paired: false, present: false, lastSeenAt: null, extensionVersion: null,
+      webProviders: { deepseek: { signedIn: true, open: true, tabId: 1, lastSeenAt: Date.now() } }
+    },
     update: { current: '2.0.3', latest: null, stage: 'idle', error: null, checkedAt: null }
   };
   const ok = (data: any) => Promise.resolve({ ok: true, data });

@@ -4,6 +4,7 @@ import { $, el, icon } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
 import type { ProgressStatus } from './chat-progress-status.js';
+import { composerTurnNowLabel } from './chat-turn-now.js';
 
 export function createChatTurnProgress(
   runtime: ChatProgressRuntime,
@@ -60,10 +61,19 @@ export function createChatTurnProgress(
         working: true,
         since: call.since,
       };
-    const thinking = { text: t('Thinking…'), icon: '', working: false };
-    // A pending message indicates work before its first event is recorded.
-    if ($('inputQueue').querySelector('.pending-message, .queued-input'))
-      return thinking;
+    const pendingQueue = $('inputQueue').querySelector(
+      '.pending-message, .queued-input',
+    );
+    const selected = runtime.sessions.find(row => row.id === runtime.selectedId);
+    const cue = composerTurnNowLabel({
+      preparing: !!$('inputQueue').querySelector(
+        '.pending-message[data-phase="preparing"]',
+      ),
+      working: turnStatusLine.classList.contains('is-working'),
+      pending: !!pendingQueue,
+      hasProject: Boolean(selected?.projectId),
+    });
+    if (cue) return { text: cue, icon: '', working: false };
     let asked = Number.NEGATIVE_INFINITY;
     for (const event of runtime.events)
       if (event.kind === 'user_message') asked = Math.max(asked, event.time);
@@ -87,7 +97,7 @@ export function createChatTurnProgress(
         working: true,
         since: newest.time,
       };
-    return thinking;
+    return { text: t('Thinking…'), icon: '', working: false };
   }
 
   function paintTurnNow(): void {
@@ -271,7 +281,10 @@ export function createChatTurnProgress(
       $('timeline').append(turnNow);
     } else if (working || pending)
       $('inputQueue').after(turnStatusLine, turnNow);
-    else if (!turnStatusLine.closest('#timeline')) {
+    else {
+      // The last live status may still be mounted inside #timeline from the
+      // preceding render. A provider failure can end the turn without a new
+      // timeline row, so remove it even when it was parked beside that message.
       turnStatusLine.remove();
       turnNow.remove();
     }

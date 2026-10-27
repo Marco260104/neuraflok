@@ -13,6 +13,7 @@ import { createChatComposerComposition } from './chat-composer-composition.js';
 
 export function createChatFeatureComposition(bindings: typeof import('./chat-orchestrator.js').chatRuntimeBindings) {
   let chatSessionList: ReturnType<typeof createChatSessionNavigationComposition>['chatSessionList'];
+  let adoptPendingPlan: ((events: typeof bindings.events) => void) | undefined;
   // Gives the session list its shared state, UI helpers, and owner actions.
   const chatProgressRuntime = {
     api: bindings.api,
@@ -86,6 +87,7 @@ export function createChatFeatureComposition(bindings: typeof import('./chat-orc
     itemKey: bindings.itemKey,
     refreshSessionControls: bindings.refreshSessionControls,
     paintDetail: bindings.paintDetail,
+    adoptPlanFromEvents: (events: typeof bindings.events) => adoptPendingPlan?.(events),
     paintSessions: () => chatSessionList.paintSessions(),
     loadHandoff: () => bindings.chatRecoveryView.loadHandoff(),
     state: () => bindings.deps.state()
@@ -98,6 +100,7 @@ export function createChatFeatureComposition(bindings: typeof import('./chat-orc
     parkTurnStatus: working => chatProgress.parkTurnStatus(working),
     turnWorking: () => chatProgress.turnWorking
   });
+  adoptPendingPlan = events => composer.taskPlanController.adoptPlanFromEvents(events);
 
   const sessionNavigation = createChatSessionNavigationComposition(bindings);
   const {

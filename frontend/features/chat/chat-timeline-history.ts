@@ -36,6 +36,7 @@ export interface ChatTimelineHistoryRuntime {
   itemKey: (item: TimelineItem) => string;
   refreshSessionControls: () => Promise<void>;
   paintDetail: (followBottom?: boolean) => void;
+  adoptPlanFromEvents?: (events: SessionEvent[]) => void;
   paintSessions: () => void;
   loadHandoff: () => Promise<void>;
   state: () => AppState | null;
@@ -76,6 +77,19 @@ export function createChatTimelineHistory(runtime: Runtime) {
     runtime.events = retainTimelinePage(chronological(foldProgress(merged)), 'newer');
   }
 
+  async function adoptUnboundPlan(selection: number, generation: number): Promise<void> {
+    if (!runtime.adoptPlanFromEvents) return;
+    const id = runtime.sessions[0]?.id;
+    if (!id) return;
+    const detail = await runtime.run(runtime.api.getSession(id, { limit: runtime.TIMELINE_BATCH_SIZE }));
+    if (
+      generation !== runtime.detailLoadGeneration ||
+      selection !== runtime.selectionGeneration ||
+      runtime.selectedId !== null
+    ) return;
+    runtime.adoptPlanFromEvents(detail?.events ?? []);
+  }
+
   async function loadDetail(navigate = false, olderBefore?: number, newerFrom?: number): Promise<boolean> {
     const prepend = olderBefore !== undefined;
     const wanted = runtime.selectedId;
@@ -99,6 +113,7 @@ export function createChatTimelineHistory(runtime: Runtime) {
       runtime.detailCursor = null;
       $('timelineContent').style.removeProperty('--timeline-scroll-reserve');
       runtime.paintDetail();
+      void adoptUnboundPlan(selection, generation);
       return false;
     }
     const opening = runtime.detailFor !== wanted;
@@ -149,6 +164,7 @@ export function createChatTimelineHistory(runtime: Runtime) {
     if (generation !== runtime.detailLoadGeneration || selection !== runtime.selectionGeneration || runtime.selectedId !== wanted) return false;
     if (opening) $('timelineContent').style.removeProperty('--timeline-scroll-reserve');
     if (prepend || newerFrom !== undefined) runtime.roundsEnter = false;
+    runtime.adoptPlanFromEvents?.(runtime.events);
     runtime.paintDetail(!prepend && newerFrom === undefined);
     if (runtime.visible && runtime.historyBefore === null && generation === runtime.detailLoadGeneration && selection === runtime.selectionGeneration && runtime.selectedId === wanted) {
       runtime.sidebarCompletion?.markSeen(observedCompletion);

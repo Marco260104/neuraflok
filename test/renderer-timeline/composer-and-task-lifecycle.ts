@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import type { SessionEvent } from "../../contracts/session.js";
 import type { InputEntry } from "../../backend/domains/sessions/input/input.js";
 
-import { T0, boot, settle, summary, text } from './context.js';
+import { T0, boot, receivePlan, settle, summary, text } from './context.js';
 
 it('follows the accepted New Chat receipt while preserving a typed follow-up', async () => {
   const { w, live, append } = await boot([], false);
@@ -78,22 +78,18 @@ it('applies Off to the exact accepted New Chat opening while preserving an unrel
 });
 
 it('cancels pending plan generation when its own draft changes', async () => {
-  const { w, live, progress } = await boot([], false);
+  const { w, live } = await boot([], false);
   const api = (w as any).api;
   (await api.getState()).data.config.ui.finishTool = true;
-  api.cancelTaskRequest = vi.fn(async () => ({ ok: true, data: true }));
-  let finish!: (value: any) => void;
-  api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+  api.draftTaskPlan = vi.fn(async () => ({ ok: true, data: ['Old first stage', 'Old second stage'] }));
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Original plan';
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
-  const requestId = api.draftTaskPlan.mock.calls[0][2];
+  expect(api.draftTaskPlan).not.toHaveBeenCalled();
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ text: 'Original plan', planOnly: true });
   input.value = 'Replacement plan'; input.dispatchEvent(new w.Event('input'));
-  expect(api.cancelTaskRequest).toHaveBeenCalledWith(requestId);
-  progress({ requestId, phase: 'generating', text: 'Old plan text' });
   expect(w.document.getElementById('taskPlanPreview')!.textContent).not.toContain('Old plan text');
-  finish({ ok: true, data: ['Old first stage', 'Old second stage'] }); await settle();
-  expect(live.sent).toHaveLength(0);
 });
 
 it('preserves composer drafts across chat and settings navigation without forcing a fixed height', async () => {
@@ -120,69 +116,47 @@ it('preserves composer drafts across chat and settings navigation without forcin
 
 it('retains an existing running chat planner across navigation and accepts its result only in that draft', async () => {
   const first = summary([]), second = { ...first, id: 'second-chat', title: 'Second chat' };
-  const { w, live, progress } = await boot([], true, [], [], { sessions: [first, second] });
-  const api = (w as any).api;
-  api.cancelTaskRequest = vi.fn(async () => ({ ok: true, data: true }));
-  let finish!: (value: any) => void;
-  api.draftTaskPlan = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+  const app = await boot([], true, [], [], { sessions: [first, second] });
+  const { w, live } = app;
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   input.value = 'Plan for this running chat'; input.dispatchEvent(new w.Event('input'));
   w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
-  const requestId = api.draftTaskPlan.mock.calls[0][2];
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({ planOnly: true, text: 'Plan for this running chat' });
   (w.document.querySelector('#sessionList [data-id="second-chat"]') as HTMLElement).click(); await settle();
   input.value = 'Unrelated draft'; input.dispatchEvent(new w.Event('input'));
-  expect(api.cancelTaskRequest).not.toHaveBeenCalled();
-  progress({ requestId, phase: 'generating', text: 'Original chat progress' });
-  expect(w.document.getElementById('taskPlanPreview')!.textContent).not.toContain('Original chat progress');
-  (w.document.querySelector('#sessionList [data-id]') as HTMLElement).click(); await settle();
-  expect(input.value).toBe('Plan for this running chat');
-  expect(w.document.getElementById('taskPlanPreview')!.textContent).toContain('Original chat progress');
-  expect(w.document.getElementById('createPlan')!.getAttribute('aria-busy')).toBe('true');
-  (w.document.querySelector('#sessionList [data-id="second-chat"]') as HTMLElement).click(); await settle();
-  finish({ ok: true, data: ['Original first stage', 'Original checkpoint'] }); await settle();
-  expect(input.value).toBe('Unrelated draft');
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(0);
   (w.document.querySelector('#sessionList [data-id]') as HTMLElement).click(); await settle();
+  await receivePlan(app, ['Original first stage', 'Original checkpoint']);
+  expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(2);
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
   expect(w.document.querySelectorAll('#finishQueue .queued-input')).toHaveLength(2);
-  expect(input.value).toBe('');
   expect(w.document.getElementById('taskPlanPreview')!.hidden).toBe(true);
-  expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ sessionId: summary([]).id, mode: 'finish', text: 'Original first stage', stages: ['Original checkpoint'] });
+  expect(live.sent.at(-1)).toMatchObject({ sessionId: summary([]).id, mode: 'finish', text: 'Original first stage', stages: ['Original checkpoint'] });
 });
 
 it('keeps two planner owners independent and ignores a cancelled result after returning to its chat', async () => {
   const first = summary([]), second = { ...first, id: 'second-chat', title: 'Second chat' };
-  const { w, live } = await boot([], true, [], [], { sessions: [first, second] });
-  const api = (w as any).api;
-  const pending = new Map<string, (value: any) => void>();
-  api.draftTaskPlan = vi.fn((text: string) => new Promise(resolve => { pending.set(text, resolve); }));
-  api.cancelTaskRequest = vi.fn(async () => ({ ok: true, data: true }));
+  const app = await boot([], true, [], [], { sessions: [first, second] });
+  const { w, live } = app;
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   const generate = () => { w.document.getElementById('createPlan')!.click(); w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); };
   const select = async (id: string) => { (w.document.querySelector(`#sessionList [data-id="${id}"]`) as HTMLElement).click(); await settle(); };
   input.value = 'Plan A'; generate(); await settle();
-  const requestA = api.draftTaskPlan.mock.calls[0][2];
+  expect(live.sent[0]).toMatchObject({ text: 'Plan A', planOnly: true, sessionId: first.id });
   await select(second.id);
   input.value = 'Plan B'; generate(); await settle();
-  pending.get('Plan A')!({ ok: true, data: ['A first', 'A check'] }); await settle();
+  expect(live.sent.some(row => row.text === 'Plan B' && row.planOnly === true)).toBe(true);
   expect(w.document.querySelectorAll('.plan-stage')).toHaveLength(0);
-  expect(w.document.getElementById('createPlan')!.getAttribute('aria-busy')).toBe('true');
   await select(first.id);
-  expect(w.document.getElementById('finishQueue')!.textContent).toContain('A first');
+  await receivePlan(app, ['A first', 'A check']);
+  expect(w.document.getElementById('taskPlanPreview')!.textContent).toContain('A first');
   await select(second.id);
-  const requestB = api.draftTaskPlan.mock.calls[1][2];
-  w.document.getElementById('createPlan')!.click(); // Explicitly cancel B; A and navigation did not cancel it.
-  expect(api.cancelTaskRequest.mock.calls).toEqual([[requestB]]);
-  expect(api.cancelTaskRequest).not.toHaveBeenCalledWith(requestA);
-  input.value = 'B replacement'; generate(); await settle();
-  pending.get('Plan B')!({ ok: true, data: ['Stale B result'] }); await settle();
-  expect(w.document.getElementById('taskPlanPreview')!.textContent).not.toContain('Stale B');
-  pending.get('B replacement')!({ ok: false, error: 'Planner unavailable' }); await settle();
-  await select(first.id); await select(second.id);
-  expect(w.document.getElementById('taskPlanPreview')!.textContent).toContain('Planner unavailable');
-  expect(input.value).toBe('B replacement');
-  expect(live.sent).toHaveLength(1);
-  expect(live.sent[0]).toMatchObject({ sessionId: first.id, text: 'A first', mode: 'finish' });
+  w.document.getElementById('createPlan')!.click();
+  expect(w.document.getElementById('createPlan')!.getAttribute('aria-pressed')).toBe('false');
+  await select(first.id);
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { cancelable: true })); await settle();
+  expect(live.sent.at(-1)).toMatchObject({ sessionId: first.id, text: 'A first', mode: 'finish' });
 });
 
 it('renders existing-chat Goal draft stages from main controls without starting another request', async () => {

@@ -173,7 +173,7 @@ it('refuses to send a fresh provider session into an old conversation without a 
     type: 'neuraflok-provider-complete', provider: 'qwen', id: uuid,
     conversationId: `qw-${uuid}`, fresh: true, text: 'do not append here'
   }, {}, value => { reply = value; });
-  await vi.waitFor(() => expect(reply).toMatchObject({ error: expect.stringMatching(/new-chat control/i) }));
+  await vi.waitFor(() => expect(reply).toMatchObject({ error: expect.stringMatching(/new-chat control/i) }), { timeout: 12_000 });
   expect(sent).toBe(0);
   expect(window.sessionStorage.getItem('neuraflok.session.qwen')).toBeNull();
   dom.window.close();

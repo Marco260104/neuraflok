@@ -30,11 +30,31 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       );
       if (!summary || runtime.detailFor !== runtime.selectedId)
         return { text: '', tone: '' };
-      const active =
+      const controlledTurn =
         runtime.controlledSessionId === runtime.selectedId &&
         runtime.controlledSelection === runtime.selectionGeneration
           ? runtime.controlledTurnId
           : null;
+      const controlledStartedAt = controlledTurn
+        ? (summary.finishTurn?.turnId === controlledTurn
+            ? summary.finishTurn.startedAt
+            : runtime.events.find(
+                (event) => event.kind === 'turn_start' && event.turnId === controlledTurn,
+              )?.time)
+        : undefined;
+      const controlledEndedAt = controlledTurn
+        ? runtime.events.find(
+            (event) => event.kind === 'turn_end' && event.turnId === controlledTurn,
+          )?.time
+        : undefined;
+      // A provider error can reach the transcript before the controls poll clears its
+      // activeTurnId. A durable end event (or the summary's later end time) wins so the
+      // header and inline Thinking indicator cannot remain live after a failed turn.
+      const active = controlledTurn && controlledEndedAt === undefined
+        && !(controlledStartedAt !== undefined
+          && (summary.lastTurnEndAt ?? 0) >= controlledStartedAt)
+        ? controlledTurn
+        : null;
       const lastBoundary = [...runtime.events]
         .reverse()
         .find(

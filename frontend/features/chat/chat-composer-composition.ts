@@ -49,6 +49,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get inputDrafts() { return bindings.drafts().inputDrafts; },
     selectSession: bindings.selectSession,
     get newChatTasks() { return bindings.drafts().newChatTasks; },
+    rehomeTaskPlan: undefined as ((from: string, to: string) => void) | undefined,
     get pendingComposerInputs() { return bindings.pendingComposerInputs; },
     set pendingComposerInputs(value: typeof bindings.pendingComposerInputs) { bindings.pendingComposerInputs = value; },
     get dismissedInputNotices() { return bindings.dismissedInputNotices; },
@@ -134,10 +135,12 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     paintTaskActions: bindings.paintTaskActions,
     paintDeliveryControls: bindings.paintDeliveryControls,
     sendComposer: bindings.sendComposer,
-    refreshInputQueue: () => bindings.refreshInputQueue()
+    refreshInputQueue: () => bindings.refreshInputQueue(),
+    planBackend: () => bindings.deps.state()?.config.ui.planBackend ?? 'web'
   };
 
   const taskPlanController = createChatTaskPlan(chatTaskPlanRuntime);
+  chatInputQueueRuntime.rehomeTaskPlan = (from, to) => taskPlanController.movePlan(from, to);
   bindings.chatDraftState = createChatDraftState({
     get selectedId() { return bindings.selectedId; },
     get selectedProjectId() { return bindings.selectedProjectId; },

@@ -23,6 +23,7 @@ export interface ProviderPageReply {
 
 interface Pending extends ProviderPageOffer {
   at: number;
+  lastText: string;
   resolve: (value: ProviderPageReply) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -44,7 +45,9 @@ function expirePending(error: Error): void {
   const current = pending;
   pending = null;
   clearTimeout(current.timer);
-  current.reject(error);
+  const grown = current.lastText.trim();
+  if (grown) current.resolve({ text: grown });
+  else current.reject(error);
 }
 
 function armPageWait(id: string): ReturnType<typeof setTimeout> {
@@ -100,7 +103,29 @@ export function reportProviderPageProgress(body: Record<string, unknown>): boole
   if (body.provider !== pending.provider || body.conversationId !== pending.conversationId) return false;
   const text = typeof body.text === 'string' ? body.text : '';
   const generating = body.generating !== false;
-  if (generating) {
+  if (body.inspect != null) {
+    let inspect: unknown = body.inspect;
+    if (typeof inspect === 'string') {
+      try { inspect = JSON.parse(inspect) as unknown; } catch { inspect = null; }
+    }
+    if (inspect && typeof inspect === 'object' && !Array.isArray(inspect)) {
+      const source = inspect as Record<string, unknown>;
+      const summary: Record<string, unknown> = {};
+      for (const key of ['md', 'msgs', 'answerLength', 'thinkLength', 'freshRouteStableMs', 'freshRouteWaitMs']) {
+        if (typeof source[key] === 'number' && Number.isFinite(source[key])) summary[key] = source[key] as number;
+      }
+      for (const key of ['gen', 'send', 'stop', 'hasConversation', 'freshConversation', 'newChatRoute', 'newChatActivated', 'newChatAvailable', 'freshRouteRestored']) {
+        if (typeof source[key] === 'boolean') summary[key] = source[key];
+      }
+      if (typeof source.pathKind === 'string' && /^(home|new-chat|thread|other)$/.test(source.pathKind)) summary.pathKind = source.pathKind;
+      if (typeof source.newChatFromKind === 'string' && /^(home|new-chat|thread|other|none)$/.test(source.newChatFromKind)) summary.newChatFromKind = source.newChatFromKind;
+      if (typeof source.newChatKind === 'string' && /^(anchor-home|anchor-path|anchor-other|button|text|none)$/.test(source.newChatKind)) summary.newChatKind = source.newChatKind;
+      // Never persist provider answer, reasoning, or sidebar text in the app log.
+      logInfo(`deepseek inspect: ${JSON.stringify(summary)}`);
+    }
+  }
+  if (text.trim()) pending.lastText = text;
+  if (generating && text.trim()) {
     clearTimeout(pending.timer);
     pending.at = Date.now();
     pending.timer = armPageWait(pending.id);
@@ -196,6 +221,7 @@ export async function requestProviderPageComplete(
       stop: false,
       fresh: options?.fresh === true,
       at: Date.now(),
+      lastText: '',
       resolve: (value) => finish(() => resolve(value)),
       reject: (error) => finish(() => reject(error)),
       timer

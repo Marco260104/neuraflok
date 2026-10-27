@@ -17,7 +17,7 @@ import type { MessageEvent, NewNativeImageEvent } from './session-canonical-mess
 export type { CanonicalEvent, MessageEvent, NativeImageEvent, NewMessageEvent, NewNativeImageEvent } from './session-canonical-messages.js';
 export type { OpenSession } from './session-store-live.js';
 export type { ReadOptions } from './session-event-reader.js';
-export { sessionSearchIndexPath, sessionWebProviderThreadPath, sessionApiThreadPath, sessionsRoot } from './session-store-paths.js';
+export { sessionSearchIndexPath, sessionWebProviderThreadPath, sessionApiThreadPath, sessionsRoot, sessionDir } from './session-store-paths.js';
 import { createSessionCatalog } from './session-catalog.js';
 import { createSessionLifecycle } from './session-lifecycle.js';
 import { createSessionProcessCalls } from './session-process-calls.js';

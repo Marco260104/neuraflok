@@ -38,7 +38,9 @@ async function runLocalExecutorInput(entry: InputEntry, apiExecutor: boolean, pr
     if (entry.localExecutor !== 'api') provider = entry.localExecutor;
   }
   const sessionId = entry.sessionId ?? entry.id;
-  if (localRuns.has(sessionId)) throw new Error('A response is already running in this chat. This message will wait for it to finish.');
+  if (localRuns.has(sessionId) && localRuns.get(sessionId) !== entry.id) {
+    throw new Error('A response is already running in this chat. This message will wait for it to finish.');
+  }
   localRuns.set(sessionId, entry.id);
   let completedTurnId: string | null = null;
   let failure: Error | null = null;
@@ -154,12 +156,13 @@ export async function sendDesktopInput(input: InputArgs): Promise<InputEntry> {
   }
   // Keep browser-only tool handoffs with the outbox. Local providers use their own exact completion boundary below and must never claim a browser document as sender.
   if (!localExecutor && (input.delivery === 'tool' || input.attachmentDelivery === 'tool' || input.mode === 'finish')) return enqueueInput(input);
+  // Only a live in-process run holds the next auto send. A persisted activeTurnId from an old chat is history.
+  const holdForLiveTurn = localExecutor && !!effectiveSessionId && input.mode === 'auto' && localRuns.has(effectiveSessionId);
   const effectiveInput: InputArgs = {
     ...input,
     sessionId: effectiveSessionId,
-    ...(localExecutor && effectiveSessionId && input.mode === 'auto' &&
-      (session?.activeTurnId !== undefined && !!session.activeTurnId || localRuns.has(effectiveSessionId))
-      ? { mode: 'after-turn', afterTurn: true }
+    ...(holdForLiveTurn
+      ? { mode: 'after-turn', afterTurn: true, requestedMode: 'auto' }
       : localExecutor && input.mode === 'after-turn' ? { afterTurn: true } : {})
   };
   if (!apiExecutor) {
@@ -182,10 +185,12 @@ export async function sendDesktopInput(input: InputArgs): Promise<InputEntry> {
   try {
     const entry = await enqueueInput(effectiveInput, undefined, apiExecutor ? 'api' : provider);
     if (providerController.signal.aborted) { await cancelInput(input.id); providerController.signal.throwIfAborted(); }
+    const waitForLiveTurn = entry.mode === 'after-turn' && !!effectiveSessionId && localRuns.has(effectiveSessionId);
     if (entry.state !== 'queued' || entry.transportIntent === 'tool' || entry.attachmentDelivery === 'tool' ||
-        entry.mode === 'after-turn' || entry.mode === 'finish') {
+        waitForLiveTurn || entry.mode === 'finish') {
       starting.delete(input.id); return entry;
     }
+    localRuns.set(entry.sessionId ?? entry.id, entry.id);
     void (async () => {
       try {
         await runLocalExecutorInput(entry, apiExecutor, provider, providerController.signal);

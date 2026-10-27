@@ -20,6 +20,10 @@ type InputIntent = {
 export function manualInput(row: InputIntent): boolean {
   return (row.requestedMode ?? row.mode) === 'auto' && !row.finishOwner && row.purpose !== 'decision' && row.attachmentDelivery !== 'tool' && !row.afterTurn;
 }
+/** Composer Send, including an auto message waiting behind a live local turn. */
+export function optimisticComposerSend(row: InputIntent): boolean {
+  return (row.requestedMode ?? row.mode) === 'auto' && !row.finishOwner && row.purpose !== 'decision' && row.attachmentDelivery !== 'tool';
+}
 export function queuedFollowup(row: InputIntent): boolean {
   return !row.opening && !manualInput(row) &&
     (row.mode === 'finish' || ((row.mode === 'after-turn' || row.afterTurn === true) && !!row.sessionId && row.purpose !== 'decision'));

@@ -5,7 +5,7 @@ import type {
 import type { ComposerAttachment } from './chat-composer-attachments.js';
 import type { NewChatTaskDraft } from './chat-draft-state.js';
 import type { SessionEvent, SessionSummary } from '../../../contracts/session.js';
-import { queuedFollowup } from '../../../contracts/input.js';
+import { optimisticComposerSend, queuedFollowup } from '../../../contracts/input.js';
 import { $ } from '../../shared/dom.js';
 import { t } from '../../shared/i18n.js';
 import { createQueuedTaskList } from './queued-task-list.js';
@@ -39,6 +39,7 @@ export interface ChatInputQueueRuntime {
   inputDrafts: Map<string, string>;
   selectSession: (id: string) => void;
   newChatTasks: Map<string, NewChatTaskDraft>;
+  rehomeTaskPlan?: (from: string, to: string) => void;
   pendingComposerInputs: InputEntry[];
   dismissedInputNotices: Set<string>;
   detailFor: string | null;
@@ -99,6 +100,7 @@ export function createChatInputQueue(runtime: Runtime) {
     runtime.pendingNewInput = null;
     runtime.mergeSessionRows([summary]);
     const from = runtime.draftKey();
+    runtime.rehomeTaskPlan?.(from, summary.id);
     runtime.inputDrafts.set(summary.id, runtime.authoredComposerText());
     const images = runtime.imageDrafts.get(from);
     if (images) runtime.imageDrafts.set(summary.id, images);
@@ -150,6 +152,7 @@ export function createChatInputQueue(runtime: Runtime) {
         !(!notice(entry) && anchored(entry)) &&
         !(
           queuedFollowup(entry) &&
+          !optimisticComposerSend(entry) &&
           ['queued', 'tool', 'browser'].includes(entry.state)
         ) &&
         (belongsToSelection(entry) || unbound(entry) || notice(entry)) &&
@@ -323,7 +326,7 @@ export function createChatInputQueue(runtime: Runtime) {
   function pendingComposerInput(): InputEntry | undefined {
     return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs].find(
       (entry) =>
-        (!queuedFollowup(entry) || entry.state === 'browser') &&
+        (!queuedFollowup(entry) || optimisticComposerSend(entry) || entry.state === 'browser') &&
         ['queued', 'browser'].includes(entry.state) &&
         (runtime.selectedId
           ? (entry.sessionId ?? entry.deliveredSessionId) === runtime.selectedId

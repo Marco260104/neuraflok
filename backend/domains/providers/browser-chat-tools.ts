@@ -8,7 +8,7 @@ import { getConfig, effectiveCapabilities } from '../../infrastructure/settings/
 import { createRegistrar, type ToolContext, type ToolResult } from '../../infrastructure/tool-gateway/protocol/kernel.js';
 import { registerCoreTools } from '../../infrastructure/tool-gateway/protocol/tools-core.js';
 import { withManagedSkills } from '../skills/access/managed-roots.js';
-import { getSessionProject } from '../workspace/projects.js';
+import { getSessionProject, projectWorkspace } from '../workspace/projects.js';
 import { observeRequestCorrelation } from '../sessions/history/correlation.js';
 
 const MAX_TOOL_RESULT_CHARS = 40_000;
@@ -41,16 +41,21 @@ export function advertisedBrowserChatTools(registrar: ReturnType<typeof createBr
   return registrar.declarations().filter(entry => ALLOWED_TOOLS.has(entry.name));
 }
 
-export async function getBrowserChatGuideContext(sessionId: string): Promise<WebChatGuideContext> {
+export async function getBrowserChatGuideContext(sessionId: string, projectId?: string | null): Promise<WebChatGuideContext> {
   const roots = getConfig().roots.map(root => `/${root.name}`);
   if (!roots.includes('/skills')) roots.push('/skills');
   const language = getConfig().ui.language;
   try {
     const project = await getSessionProject(sessionId);
-    return { roots, project: project?.virtual, language };
-  } catch {
-    return { roots, language };
+    if (project) return { roots, project: project.virtual, language };
+  } catch {}
+  if (projectId) {
+    try {
+      const folder = await projectWorkspace(projectId);
+      return { roots, project: folder.virtual, language };
+    } catch {}
   }
+  return { roots, language };
 }
 
 function toolResultText(result: ToolResult): string {

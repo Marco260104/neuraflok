@@ -403,6 +403,28 @@ it('uses the Working label for active turns', async () => {
   expect(w.document.getElementById('chatState')!.textContent).toMatch(/^Working for /);
 });
 
+it('clears stale live status when a failed turn ends before the controls poll refreshes', async () => {
+  const { w, append } = await boot([
+    { seq: 1, time: T0, source: 'extension', kind: 'turn_start', turnId: 'failed-turn' },
+    { kind: 'user_message', seq: 2, origin: 2, time: T0 + 100, source: 'extension', turnId: 'failed-turn', messageId: 'failed-ask', message: text('Hola') }
+  ]);
+  const api = (w as any).api;
+  api.getSessionControls = async (id: string) => ({ ok: true, data: {
+    sessionId: id, automation: 'off', activeTurnId: 'failed-turn', finishHeld: false, blocked: '', job: null
+  } });
+  (w.document.querySelector('#sessionList [data-id]') as HTMLElement).click();
+  await settle();
+  expect(w.document.getElementById('chatState')!.classList.contains('is-working')).toBe(true);
+  await append([
+    { seq: 3, time: T0 + 2_000, source: 'app', kind: 'chat_error', turnId: 'failed-turn', message: text('Provider timed out'), recoverable: false },
+    { seq: 4, time: T0 + 2_100, source: 'extension', kind: 'turn_end', turnId: 'failed-turn', outcome: 'failed' }
+  ]);
+  const status = w.document.getElementById('chatState')!;
+  expect(status.classList.contains('is-working')).toBe(false);
+  expect(status.textContent).not.toMatch(/Working/);
+  expect(w.document.querySelector('#timeline .turn-now')).toBeNull();
+});
+
 it('offers copy and Markdown export under the answer of a completed turn only', async () => {
   const ask: SessionEvent = { kind: 'user_message', seq: 1, origin: 1, time: T0, source: 'extension', turnId: 'done-turn', messageId: 'ask', message: text('Write hello.txt') };
   const reply: SessionEvent = { kind: 'assistant_message', seq: 2, time: T0 + 1_000, source: 'extension', turnId: 'done-turn', messageId: 'reply', message: text('Created **hello.txt**.'), final: true, state: 'final' };

@@ -25,12 +25,16 @@ export const inputArgs = z.object({
   text: z.string().trim().min(1).max(MAX_PROVIDER_MESSAGE_CHARS),
   mode: z.enum(['auto', 'after-turn', 'finish']),
   afterTurn: z.boolean().optional(),
+  /** Original composer choice when local delivery rewrites auto onto after-turn. */
+  requestedMode: z.enum(['auto', 'after-turn', 'finish']).optional(),
   dueAt: z.number().int().nonnegative(),
   model: z.string().max(80).nullable(),
   reasoningEffort: z.enum(REASONING_EFFORTS).nullable(),
   webProvider: z.enum(['deepseek', 'kimi', 'qwen', 'glm']).optional(),
   /** Hidden web-chat setup: bind the session and wait for NEURAFLOK_READY without a user task. */
-  warmup: z.literal(true).optional()
+  warmup: z.literal(true).optional(),
+  /** Composer Plan: DeepSeek writes a numbered plan from tree, recap, and this request. Do not execute until the user approves. */
+  planOnly: z.literal(true).optional()
 });
 export type InputArgs = z.infer<typeof inputArgs>;
 export const entrySchema = inputArgs.extend({
@@ -55,7 +59,6 @@ export const entrySchema = inputArgs.extend({
   /** Exact tool-free turn this explicit browser correction may interrupt. */
   directTurn: z.object({ id: z.string().min(1).max(256), startedAt: z.number() }).optional(),
   finishOwner: z.object({ turnId: z.string().min(1).max(256), periodic: z.boolean(), mode: z.enum(['goal', 'loop']).optional(), userRequested: z.boolean().optional() }).optional(),
-  requestedMode: z.enum(['auto', 'after-turn', 'finish']).optional(),
   transportIntent: z.enum(['tool', 'browser']).optional(),
   /** Frozen local executor custody, committed before any browser publication. */
   localExecutor: z.enum(['api', 'deepseek', 'kimi', 'qwen', 'glm']).optional(),

@@ -179,6 +179,22 @@ function xmlToolBody(name: string, raw: string): string | null {
   return JSON.stringify({ name, arguments: parsed });
 }
 
+function wrapToolBlocks(source: string): Array<{ start: number; end: number; body: string }> {
+  const out: Array<{ start: number; end: number; body: string }> = [];
+  const open = /<neuraflok-tool\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(source))) {
+    const obj = readJsonObject(source, match.index + match[0].length);
+    if (!obj) continue;
+    let end = obj.end;
+    const close = source.slice(end).match(/^[ \t]*\r?\n?<\/neuraflok-tool\s*>/i);
+    if (close) end += close[0].length;
+    out.push({ start: match.index, end, body: obj.json });
+    open.lastIndex = end;
+  }
+  return out;
+}
+
 function xmlToolBlocks(source: string): Array<{ start: number; end: number; body: string }> {
   const out: Array<{ start: number; end: number; body: string }> = [];
   const open = new RegExp(XML_TOOL_OPEN.source, 'gi');
@@ -210,6 +226,34 @@ function xmlToolOpens(source: string): number {
   return count;
 }
 
+function dsmlToolBlocks(source: string): Array<{ start: number; end: number; body: string }> {
+  const out: Array<{ start: number; end: number; body: string }> = [];
+  const invoke = /<[^>]*\binvoke\b[^>]*\bname\s*=\s*["']?(exec_command|read|apply_patch)["']?[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = invoke.exec(source))) {
+    const name = match[1]!;
+    const from = match.index + match[0].length;
+    const close = source.slice(from).search(/<\s*\/[^>]*invoke\b/i);
+    const chunk = close >= 0 ? source.slice(match.index, from + close) : source.slice(match.index, match.index + 4_000);
+    const param = chunk.match(/<[^>]*parameter[^>]*name\s*=\s*["']arguments["'][^>]*>([\s\S]*?)<\s*\/[^>]*parameter/i);
+    const raw = param ? param[1]!.trim() : readJsonObject(source, from)?.json;
+    if (!raw) continue;
+    const body = xmlToolBody(name, raw);
+    if (!body) continue;
+    const end = close >= 0 ? from + close + (source.slice(from + close).match(/<\s*\/[^>]*invoke[^>]*>/i)?.[0].length ?? 0) : from + chunk.length;
+    out.push({ start: match.index, end, body });
+    invoke.lastIndex = end;
+  }
+  return out;
+}
+
+function dsmlToolOpens(source: string): number {
+  const invoke = /<[^>]*\binvoke\b[^>]*\bname\s*=\s*["']?(exec_command|read|apply_patch)["']?[^>]*>/gi;
+  let count = 0;
+  while (invoke.exec(source)) count++;
+  return count;
+}
+
 function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder: string } {
   const source = text ?? '';
   const calls: WebChatToolCall[] = [];
@@ -222,7 +266,9 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
   };
   for (const block of taggedToolBlocks(source, 'neuraflok-tool')) take(block.start, block.end, block.body);
   for (const block of taggedToolBlocks(source, 'json')) take(block.start, block.end, block.body);
+  for (const block of wrapToolBlocks(source)) take(block.start, block.end, block.body);
   for (const block of xmlToolBlocks(source)) take(block.start, block.end, block.body);
+  for (const block of dsmlToolBlocks(source)) take(block.start, block.end, block.body);
   const banner = /(?:^|\n)neuraflok-tool[ \t]*\r?\n/gi;
   let match: RegExpExecArray | null;
   while ((match = banner.exec(source))) {
@@ -247,8 +293,24 @@ export function parseWebChatTools(text: string): WebChatToolCall[] {
   return consumeToolRegions(text).calls;
 }
 
+const DSML_TAG = /<\/?\s*[\|｜]{1,4}\s*DSML\s*[\|｜]{1,4}[^>]*>/gi;
+const DSML_MARK = /[\|｜]{1,4}\s*DSML\s*[\|｜]{1,4}[^<\n]*/gi;
+const DSML_ORPHAN = /<\/?\s*[\|｜]{1,4}\s*>/g;
+
+/** Drop DeepSeek DSML special tokens so they never reach the user-visible reply. */
+export function stripDsmlChrome(text: string): string {
+  let value = String(text ?? '');
+  value = value.replace(DSML_TAG, '');
+  value = value.replace(DSML_MARK, '');
+  value = value.replace(DSML_ORPHAN, '');
+  value = value.replace(/<\/?\s*[\|｜]{1,4}(?=\s*$)/gm, '');
+  value = value.replace(/^\s*calls>\s*/i, '');
+  value = value.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return value;
+}
+
 export function stripWebChatTools(text: string): string {
-  return consumeToolRegions(text).remainder;
+  return stripDsmlChrome(consumeToolRegions(text).remainder);
 }
 
 /** True when the reply started a provider tool fence that did not parse as JSON. */
@@ -259,9 +321,12 @@ export function incompleteWebChatTool(text: string): boolean {
   while (fence.exec(source)) opens++;
   const banner = /(?:^|\n)neuraflok-tool[ \t]*\r?\n/gi;
   while (banner.exec(source)) opens++;
+  const wrap = /<neuraflok-tool\b[^>]*>/gi;
+  while (wrap.exec(source)) opens++;
   opens += xmlToolOpens(source);
-  if (!opens) return false;
-  return parseWebChatTools(source).length < opens;
+  opens += dsmlToolOpens(source);
+  if (opens) return parseWebChatTools(source).length < opens;
+  return /\binvoke\b/i.test(source) && /exec_command|read|apply_patch/i.test(source) && parseWebChatTools(source).length === 0;
 }
 
 export function formatWebChatResult(name: string, content: string): string {
@@ -280,19 +345,32 @@ export function webChatWriteRoot(ctx?: WebChatGuideContext): string {
   return writable[0] || '/workspace';
 }
 
-export function webChatRoundReminder(ctx?: WebChatGuideContext): string {
-  const root = webChatWriteRoot(ctx);
-  const listed = ctx?.roots?.length ? ctx.roots.join(', ') : root;
+export function webChatConversationGuide(ctx?: WebChatGuideContext): string {
   const language = replyLanguageInstruction(ctx?.language);
+  const root = webChatWriteRoot(ctx);
   return [
     language,
-    ctx?.project ? `Selected project directory: ${ctx.project}. Keep task work there.` : '',
+    'This is a conversation only. Answer the user directly in ordinary prose.',
+    `The default workspace folder is ${root}. Do not list or send a file tree.`,
+    'Do not use tools, commands, file reads, or project inspection.',
+    'Do not emit neuraflok-tool fences, DSML, XML invoke tags, or special tokens.'
+  ].filter(Boolean).join(' ');
+}
+
+export function webChatRoundReminder(ctx?: WebChatGuideContext): string {
+  if (!ctx?.project) return webChatConversationGuide(ctx);
+  const root = webChatWriteRoot(ctx);
+  const listed = ctx.roots?.length ? ctx.roots.join(', ') : root;
+  const language = replyLanguageInstruction(ctx.language);
+  return [
+    language,
+    `Selected project directory: ${ctx.project}. Keep task work there.`,
     `Approved roots: ${listed}.`,
     `read takes a neuraflok-tool fence {"name":"read","arguments":{"paths":["${root}/file"]}}. Prefer read on the project folder. Do not run rg; it is not on this PowerShell PATH.`,
     `exec_command takes a neuraflok-tool fence {"name":"exec_command","arguments":{"cmd":"Get-ChildItem -Name","workdir":"${root}"}}. Set workdir to the virtual project path. Never put ${root} inside cmd; use relative paths such as lib/index.js.`,
     'Do not write PowerShell with $ in cmd; this chat renders $ as math and corrupts the command. Do not pipe to head, wc, cat, or ls.',
     `To create or edit files, emit a complete neuraflok-tool fence calling apply_patch under ${root}. Pasting source in the chat does not write files.`,
-    'Do not write planning sentences such as Let me or We need. On the user task, first output must be a complete neuraflok-tool fence. The handshake reply NEURAFLOK_READY is exempt and must not include a tool fence. If the user asked a question, answer after tools with no fence. Only apply_patch when they asked to change files.'
+    'Do not write planning sentences such as Let me or We need. On the user task, first output must be a complete neuraflok-tool fence. The handshake reply NEURAFLOK_READY is exempt and must not include a tool fence. Never emit DSML, XML invoke tags, or special tokens in any reply. If the user asked a question or the work is done, answer after tools in a short friendly recap: what is done, how to open or try it, and what is left. No logs, fences, or protocol chrome in that answer. Only apply_patch when they asked to change files.'
   ].filter(Boolean).join(' ');
 }
 
@@ -331,7 +409,7 @@ export function webToolGuide(
   return [
     'You are working in this local workspace. Local Core tools run only when you emit a tool block.',
     'Only these listed Core tools exist here. Desktop, agents, session_finish and code-mode exec are not available on this executor.',
-    webChatRoundReminder(ctx),
+    webChatRoundReminder(ctx?.project ? ctx : { ...ctx, project: root }),
     'Available tools:',
     declarations.map(compactToolLine).join('\n'),
     'Patch grammar (apply_patch argument "patch"):',
@@ -355,7 +433,7 @@ export function webToolGuide(
     '```neuraflok-tool',
     patchExample,
     '```',
-    'You will receive a neuraflok-result fence with that tool\'s output. After tools finish, answer the user with no fence unless another tool call is required.'
+    'You will receive a neuraflok-result fence with that tool\'s output. After tools finish, answer the user with no fence unless another tool call is required. That final answer must be friendly and easy to read: what changed, how to try it, and what is still open. Never DSML or XML.'
   ].join('\n');
 }
 

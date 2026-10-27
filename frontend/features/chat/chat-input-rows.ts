@@ -38,10 +38,10 @@ export function createChatInputRows(
 
   function inputMessageRow(entry: InputEntry, notice: boolean): HTMLElement {
     const row = el('div', 'pending-message');
-    row.classList.toggle(
-      'is-delivered',
-      !entry.error && ['sent', 'tool'].includes(entry.state),
-    );
+    const looksSent = !entry.error && ['queued', 'browser', 'sent', 'tool'].includes(entry.state);
+    const preparing = !entry.error && entry.state === 'queued';
+    row.classList.toggle('is-delivered', looksSent);
+    if (preparing) row.dataset.phase = 'preparing';
     row.classList.toggle(
       'is-delivery-error',
       !!entry.error || entry.state === 'failed',
@@ -72,7 +72,9 @@ export function createChatInputRows(
                     ])
                   : entry.delivery === 'tool'
                     ? t('Waiting for the next tool call')
-                    : t('Queued');
+                    : looksSent
+                      ? ''
+                      : t('Queued');
     const files = el('div', 'message-attachments');
     if (entry.attachments?.length)
       files.append(
@@ -96,12 +98,9 @@ export function createChatInputRows(
     if (entry.error || entry.state === 'failed') {
       ui(receipt, 'textContent', status);
     } else
-      receipt.append(
-        icon(['sent', 'tool'].includes(entry.state) ? 'i-check' : 'i-clock'),
-      );
+      receipt.append(icon(looksSent ? 'i-check' : 'i-clock'));
     receipt.hidden =
-      !entry.error &&
-      ['sent', 'tool'].includes(entry.state) &&
+      looksSent &&
       runtime.hasLaterModelActivity(
         entry.deliveredAt ?? entry.offeredAt ?? entry.createdAt,
       );

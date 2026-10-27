@@ -1,11 +1,15 @@
-export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, usableProviderTab, state }) {
+import { createDeepseekReplyWatcher } from './deepseek-watch.js';
+import { createDeepseekRouteCoordinator } from './deepseek-routes.js';
+
+export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, state, snapshotTimings = {}, watchTimings = {} }) {
   const { stoppedProviderOffers, readDeepseekSent, writeDeepseekSent, readProviderTab, writeProviderTab } = state;
   let deepseekPageFlight = null;
   const DEEPSEEK_SEND_MS = 100_000;
   const DEEPSEEK_READ_MS = 8_000;
-  const DEEPSEEK_WATCH_MS = 540_000;
-  const DEEPSEEK_POLL_MS = 2_000;
-  const DEEPSEEK_TIMEOUT = 'DeepSeek did not finish this reply in time. Sign in at chat.deepseek.com in the same browser as this app, then send again.';
+
+  function isPageTimeout(error) {
+    return /provider_page_timeout/i.test(String(error && error.message ? error.message : error || ''));
+  }
 
   async function postDeepseekPage(offer, body) {
     if (!offer || typeof offer.id !== 'string' || typeof offer.conversationId !== 'string') return false;
@@ -20,128 +24,58 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
     }
     return false;
   }
-  
-  function isAck(text) {
-    return /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/.test(String(text || '').trim());
-  }
 
-  function hasToolCall(text) {
-    return /```(?:neuraflok-tool|json)\b/i.test(text) || /<(?:exec_command|read|apply_patch)\b/i.test(text);
-  }
+  const { watchDeepseekReply, isAck, looksLikeThink, hasToolCall } = createDeepseekReplyWatcher({
+    tabReply, call, postDeepseekPage, stoppedProviderOffers, timings: watchTimings
+  });
 
-  function looksLikeThink(text) {
-    return /^(Let me|Let's|We need|I will|I'll |The user |Need to |Must not |Pensado|Pensó|Detenido|Voy a |Vamos a |Déjame |Dejame |Necesito |Debo |Hay que )\b/i.test(String(text || '').replace(/\s+/g, ' ').trim());
-  }
+  const {
+    leftoverPaint,
+    waitForSignedSnapshot,
+    openDeepseekTab,
+    waitForFreshChatRoute,
+    freshRouteRestoredMs
+  } = createDeepseekRouteCoordinator({
+    chrome,
+    tabReply,
+    createBrowserTab,
+    restoreDeepseekTab,
+    waitForTabReady,
+    isDeepseekUrl,
+    writeProviderTab,
+    snapshotTimings
+  });
 
-  function quietNeed(text) {
-    if (isAck(text)) return 1;
-    if (String(text || '').trim().length < 80) return 6;
-    return 3;
-  }
+  const FRESH_CHAT_ERROR = 'DeepSeek did not confirm a stable new chat. No message was sent; open a new chat and try again.';
 
-  async function watchDeepseekReply(tabId, offer, before, beforeThink, initial) {
-    let lastText = typeof initial === 'string' ? initial : '';
-    let reportedText = '';
-    let emptyIdle = 0;
-    let stableText = '';
-    let stableIdle = 0;
-    let quietText = '';
-    let quietIdle = 0;
-    let lastProgressAt = 0;
-    let completeText = isAck(lastText) && !isAck(before) ? lastText : '';
-    let deadline = Date.now() + DEEPSEEK_WATCH_MS;
-    while (Date.now() < deadline) {
-      if (stoppedProviderOffers.has(offer.id)) {
-        stoppedProviderOffers.delete(offer.id);
-        await postDeepseekPage(offer, { stopped: true });
-        return;
+  async function confirmFreshChatRoute(tabId) {
+    let lastError = '';
+    let stableMs;
+    let handledRestore = false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const reply = await tabReply(tabId, { type: 'neuraflok-deepseek-open-new-chat' }, undefined, 8_000).catch(() => null);
+      const started = reply?.started === true || reply?.alreadyOpen === true;
+      if (!started) {
+        lastError = reply && typeof reply.error === 'string' && reply.error.trim()
+          ? reply.error.trim()
+          : 'DeepSeek did not acknowledge the new-chat command. No message was sent; retry.';
+        await new Promise(resolve => setTimeout(resolve, 500));
+        continue;
       }
-      const snap = await tabReply(tabId, {
-        type: 'neuraflok-deepseek-read',
-        before,
-        beforeThink
-      }, undefined, DEEPSEEK_READ_MS);
-      const think = snap && typeof snap.think === 'string' ? snap.think : '';
-      let publicAnswer = snap && typeof snap.answer === 'string' ? snap.answer : '';
-      if (isAck(publicAnswer) && String(before || '').trim()) publicAnswer = '';
-      if (looksLikeThink(publicAnswer) && !hasToolCall(publicAnswer)) publicAnswer = '';
-      if (think && publicAnswer && publicAnswer.replace(/\s+/g, ' ').trim() === think.replace(/\s+/g, ' ').trim()) publicAnswer = '';
-      if (think && publicAnswer && publicAnswer.includes(think.trim()) && publicAnswer.length <= think.trim().length + 40) publicAnswer = '';
-      const text = publicAnswer || (snap && typeof snap.text === 'string' ? snap.text : '');
-      if (text) lastText = text;
-      completeText = publicAnswer || (isAck(lastText) && !isAck(before) ? lastText : '');
-      if (completeText && snap && snap.generating !== true) {
-        if (completeText === quietText) {
-          quietIdle += 1;
-          if (quietIdle >= quietNeed(completeText)) {
-            const posted = await postDeepseekPage(offer, { text: completeText });
-            if (posted) return;
-          }
-        } else {
-          quietText = completeText;
-          quietIdle = 0;
-        }
-      } else {
-        quietText = completeText;
-        quietIdle = 0;
+      const fresh = await waitForFreshChatRoute(tabId, stableMs);
+      if (fresh && fresh.routeRestored !== true) {
+        return handledRestore ? { ...fresh, freshRouteRestored: true } : fresh;
       }
-      if (snap && snap.generating === true) {
-        deadline = Date.now() + DEEPSEEK_WATCH_MS;
-        if (lastText !== reportedText || Date.now() - lastProgressAt > 15_000) {
-          reportedText = lastText;
-          lastProgressAt = Date.now();
-          void call('/provider/page/progress', {
-            method: 'POST',
-            body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true })
-          }).catch(() => undefined);
-        }
-        if (completeText && completeText === stableText) {
-          stableIdle += 1;
-          if (stableIdle >= 15) {
-            const posted = await postDeepseekPage(offer, { text: completeText });
-            if (posted) return;
-          }
-        } else {
-          stableText = completeText;
-          stableIdle = 0;
-        }
-      } else if (!completeText && lastText && isAck(lastText) && !isAck(before)) {
-        if (lastText === stableText) {
-          stableIdle += 1;
-          if (stableIdle >= 15) {
-            const posted = await postDeepseekPage(offer, { text: lastText });
-            if (posted) return;
-          }
-        } else {
-          stableText = lastText;
-          stableIdle = 0;
-        }
-      } else {
-        stableText = lastText;
-        stableIdle = 0;
+      if (fresh?.routeRestored === true) {
+        stableMs = freshRouteRestoredMs;
+        handledRestore = true;
       }
-      if (snap && snap.generating !== true && !lastText) {
-        emptyIdle += 1;
-        if (emptyIdle >= 4) {
-          const fallback = await tabReply(tabId, { type: 'neuraflok-deepseek-snapshot' }, undefined, 4_000).catch(() => null);
-          const ans = fallback && typeof fallback.before === 'string' ? fallback.before : '';
-          if (ans && ans !== before && !(isAck(ans) && isAck(before))) {
-            lastText = ans;
-            const posted = await postDeepseekPage(offer, { text: lastText });
-            if (posted) return;
-          }
-        }
-        if (emptyIdle >= 180) {
-          await postDeepseekPage(offer, { error: DEEPSEEK_TIMEOUT });
-          return;
-        }
-      } else emptyIdle = 0;
-      await new Promise(resolve => setTimeout(resolve, DEEPSEEK_POLL_MS));
+      lastError = FRESH_CHAT_ERROR;
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
-    if (completeText) await postDeepseekPage(offer, { text: completeText });
-    else await postDeepseekPage(offer, { error: DEEPSEEK_TIMEOUT });
+    throw new Error(lastError || FRESH_CHAT_ERROR);
   }
-  
+
   function inspectDeepseekPage(offer, background) {
     if (!offer || typeof offer.id !== 'string' || typeof offer.conversationId !== 'string') return;
     if (deepseekPageFlight) {
@@ -172,53 +106,28 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
             offer,
             typeof sent.before === 'string' ? sent.before : '',
             typeof sent.beforeThink === 'string' ? sent.beforeThink : '',
-            ''
+            '',
+            typeof sent.beforeIdentity === 'string' ? sent.beforeIdentity : ''
           );
           return;
         }
         let tab = null;
-        if (offer.fresh === true && !offer.stop) {
-          tab = await createBrowserTab('https://chat.deepseek.com/', background === true);
-          if (Number.isInteger(tab?.id)) {
-            if (!await writeProviderTab(offer.conversationId, tab.id)) throw new Error('Could not reserve this DeepSeek tab for the local session.');
-            await waitForTabReady(tab.id);
-            await restoreDeepseekTab(tab.id);
-            tab = await chrome.tabs.get(tab.id);
-            if (!isDeepseekUrl(tab.url) || tab.pendingUrl || tab.status !== 'complete') {
-              throw new Error('The new DeepSeek page did not finish loading. No message was sent.');
-            }
-          }
+        let reconnectFresh = false;
+        // Never search existing DeepSeek tabs by title. A user message always opens a new
+        // tab; only tool rounds on this same turn reuse the tab we just opened.
+        const binding = await readProviderTab(offer.conversationId);
+        const boundTab = !offer.fresh && binding && Number.isInteger(binding.tab)
+          ? await chrome.tabs.get(binding.tab).catch(() => null)
+          : null;
+        const boundLive = boundTab && Number.isInteger(boundTab.id) && isDeepseekUrl(boundTab.url || boundTab.pendingUrl)
+          ? boundTab
+          : null;
+        if (boundLive) {
+          tab = boundLive;
+          await writeProviderTab(offer.conversationId, tab.id, 'deepseek');
         } else {
-          let binding = await readProviderTab(offer.conversationId);
-          if (!binding) {
-            const candidates = await queryProviderTabs('deepseek');
-            const readyCandidate = candidates.find(usableProviderTab) || candidates[0] || null;
-            if (readyCandidate && Number.isInteger(readyCandidate.id)) {
-              await writeProviderTab(offer.conversationId, readyCandidate.id, 'deepseek');
-              binding = { provider: 'deepseek', tab: readyCandidate.id, at: Date.now() };
-            }
-          }
-          if (!binding) throw new Error('This DeepSeek session has no verified browser tab. Start a new chat to reconnect it safely.');
-          tab = await chrome.tabs.get(binding.tab).catch(() => null);
-          if (!tab || !isDeepseekUrl(tab.url || tab.pendingUrl)) {
-            const candidates = await queryProviderTabs('deepseek');
-            const readyCandidate = candidates.find(usableProviderTab) || candidates[0] || null;
-            if (readyCandidate && Number.isInteger(readyCandidate.id)) {
-              await writeProviderTab(offer.conversationId, readyCandidate.id, 'deepseek');
-              tab = readyCandidate;
-            } else {
-              throw new Error('The DeepSeek tab assigned to this session is no longer available. Start a new chat to reconnect safely.');
-            }
-          }
-          if (tab.discarded === true || tab.frozen === true || tab.status === 'loading') {
-            try { await chrome.tabs.reload(tab.id); } catch {}
-            await waitForTabReady(tab.id);
-            await restoreDeepseekTab(tab.id);
-            tab = await chrome.tabs.get(tab.id).catch(() => null);
-            if (!tab || !isDeepseekUrl(tab.url || tab.pendingUrl)) {
-              throw new Error('The assigned DeepSeek tab changed while waking. No message was sent.');
-            }
-          }
+          tab = await openDeepseekTab(offer, background);
+          reconnectFresh = true;
         }
         if (!Number.isInteger(tab?.id)) {
           await fail('Sign in to DeepSeek at chat.deepseek.com in the same browser as this app, then send again.');
@@ -226,57 +135,132 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         }
         await activeTabs?.set(`provider:${offer.id}`, [tab], candidate =>
           candidate.id === tab.id && isDeepseekUrl(candidate.url));
-        const status = await tabReply(tab.id, { type: 'neuraflok-deepseek-status' });
-        if (!status || typeof status.signedIn !== 'boolean') await restoreDeepseekTab(tab.id);
-        const snapshot = await tabReply(tab.id, { type: 'neuraflok-deepseek-snapshot' }, undefined, DEEPSEEK_READ_MS);
-        if (!snapshot || snapshot.signedIn !== true) throw new Error('Sign in to DeepSeek in this browser, then try again.');
-        if (offer.fresh !== true && snapshot.conversationId && snapshot.conversationId !== offer.conversationId) {
-          throw new Error('The page no longer belongs to this DeepSeek session. Start a new chat to reconnect safely.');
+        let status = await tabReply(tab.id, { type: 'neuraflok-deepseek-status' }, undefined, 8_000).catch(() => null);
+        if (!status || typeof status.signedIn !== 'boolean') {
+          await restoreDeepseekTab(tab.id);
+          status = await tabReply(tab.id, { type: 'neuraflok-deepseek-status' }, undefined, 8_000).catch(() => null);
         }
+        const needsFreshChat = offer.fresh === true || reconnectFresh;
+        const signed = await waitForSignedSnapshot(tab.id, false);
+        if (!signed) throw new Error('DeepSeek did not finish restoring a stable chat. No message was sent.');
+        if (signed.signedIn !== true) throw new Error('Sign in to DeepSeek in this browser, then try again.');
+        // A blank home screen can still be restoring yesterday's thread and will
+        // replace the composer after the send. Open New chat from the page (the
+        // content script acknowledges before navigating) and only send once a
+        // fresh route has stayed stable long enough for that restoration to end.
+        const snapshot = needsFreshChat ? await confirmFreshChatRoute(tab.id) : signed;
+        const freshRouteStableMs = Number.isFinite(snapshot?.routeStableMs) ? snapshot.routeStableMs : 0;
+        const freshRouteWaitMs = Number.isFinite(snapshot?.routeWaitMs) ? snapshot.routeWaitMs : 0;
+        const freshRouteRestored = snapshot?.freshRouteRestored === true;
         const claim = {
           id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, tab: tab.id,
-          before: typeof snapshot.before === 'string' ? snapshot.before : '',
-          beforeThink: typeof snapshot.beforeThink === 'string' ? snapshot.beforeThink : '',
+          before: leftoverPaint(signed),
+          beforeThink: typeof signed.beforeThink === 'string' ? signed.beforeThink : '',
+          beforeIdentity: typeof signed.beforeIdentity === 'string' ? signed.beforeIdentity : '',
           at: Date.now(), phase: 'claimed'
         };
         if (!await writeDeepseekSent(claim)) throw new Error('Could not record the send claim. No message was sent; retry after restarting the extension.');
-        const reply = await tabReply(tab.id, {
-          type: 'neuraflok-deepseek-complete',
-          id: offer.id,
-          conversationId: offer.conversationId,
-          text: typeof offer.text === 'string' ? offer.text : '',
-          stop: offer.stop === true,
-          fresh: offer.fresh === true,
-          before: claim.before,
-          beforeThink: claim.beforeThink
-        }, undefined, DEEPSEEK_SEND_MS);
+        let reply;
+        try {
+          reply = await tabReply(tab.id, {
+            type: 'neuraflok-deepseek-complete',
+            id: offer.id,
+            conversationId: offer.conversationId,
+            text: typeof offer.text === 'string' ? offer.text : '',
+            stop: offer.stop === true,
+            fresh: offer.fresh === true || reconnectFresh,
+            openedNewChat: needsFreshChat,
+            freshRouteStableMs,
+            freshRouteWaitMs,
+            freshRouteRestored,
+            before: claim.before,
+            beforeThink: claim.beforeThink,
+            beforeIdentity: claim.beforeIdentity
+          }, undefined, DEEPSEEK_SEND_MS);
+        } catch (error) {
+          if (!isPageTimeout(error)) throw error;
+          reply = { pending: true, text: '', generating: false, timedOut: true };
+        }
+        if (reply?.openedNewChat === true) {
+          const fresh = await waitForFreshChatRoute(tab.id);
+          if (!fresh || fresh.routeRestored === true) {
+            await fail(FRESH_CHAT_ERROR);
+            return;
+          }
+          try {
+            reply = await tabReply(tab.id, {
+              type: 'neuraflok-deepseek-complete',
+              id: offer.id,
+              conversationId: offer.conversationId,
+              text: typeof offer.text === 'string' ? offer.text : '',
+              stop: offer.stop === true,
+              fresh: false,
+              before: claim.before,
+              beforeThink: claim.beforeThink,
+              beforeIdentity: claim.beforeIdentity
+            }, undefined, DEEPSEEK_SEND_MS);
+          } catch (error) {
+            if (!isPageTimeout(error)) throw error;
+            reply = { pending: true, text: '', generating: false, timedOut: true };
+          }
+          if (reply?.openedNewChat === true) {
+            await fail(FRESH_CHAT_ERROR);
+            return;
+          }
+        }
+        const preSendError = reply && typeof reply.error === 'string' ? reply.error.trim() : '';
+        if (preSendError && !(typeof reply.text === 'string' && reply.text.trim())
+          && reply.pending !== true && reply.generating !== true) {
+          // The page agent only returns a plain error when it rejected the send before
+          // clicking DeepSeek's Send control. Surface it immediately; waiting for a reply
+          // watcher here leaves NeuraFlok in Thinking even though nothing was submitted.
+          await fail(preSendError);
+          return;
+        }
         if (offer.stop) {
           await postDeepseekPage(offer, { stopped: true });
           return;
         }
-        if (reply && typeof reply.error === 'string' && reply.error.trim()) {
+        const isBootstrap = /Initialize this NEURAFLOK conversation|NEURAFLOK_READY/i.test(String(offer.text || ''));
+        const immediate = reply && typeof reply.text === 'string' ? reply.text : '';
+        const before = reply && typeof reply.before === 'string' && reply.before ? reply.before : claim.before;
+        const beforeThink = reply && typeof reply.beforeThink === 'string' ? reply.beforeThink : claim.beforeThink;
+        const folded = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+        const leftoverRepeat = Boolean(folded(immediate) && folded(immediate) === folded(before));
+        const leftoverConversation = /still showed a previous conversation/i.test(String(reply?.error || ''));
+        const leftoverRecap = /ya qued[oó] implementado|esto es lo que cambi[oó]|c[oó]mo probarlo|npm run (dev|build)/i.test(immediate)
+          && /\.(js|ts|tsx|css|html)\b/i.test(immediate)
+          && (
+            /This is a conversation only/i.test(String(offer.text || ''))
+            || (offer.fresh === true && !folded(before))
+          );
+        const ackRepeat = isAck(immediate) && isAck(before);
+        const staleAck = isAck(immediate) && (!isBootstrap || String(before || '').trim() !== '');
+        const planningOnly = looksLikeThink(immediate) && !hasToolCall(immediate) && reply?.generating === true;
+        if (leftoverConversation) {
           await fail(reply.error);
           return;
         }
-        const immediate = reply && typeof reply.text === 'string' ? reply.text : '';
-        const before = claim.before;
-        const beforeThink = claim.beforeThink;
-        const ackRepeat = isAck(immediate) && isAck(before);
-        const staleAck = isAck(immediate) && String(before || '').trim() !== '';
-        const planningOnly = looksLikeThink(immediate) && !hasToolCall(immediate);
-        if (immediate && reply.pending !== true && !ackRepeat && !staleAck && !planningOnly) {
+        if (leftoverRecap) {
+          await watchDeepseekReply(tab.id, offer, immediate || before, beforeThink, '', claim.beforeIdentity);
+          return;
+        }
+        if (immediate && reply?.pending !== true && reply?.generating !== true && !ackRepeat && !staleAck && !planningOnly && !leftoverRepeat) {
           await postDeepseekPage(offer, { text: immediate });
           return;
         }
-        if (!reply) {
-          await fail('DeepSeek page did not answer.');
+        if (reply && typeof reply.error === 'string' && reply.error.trim() && !immediate) {
+          await fail(reply.error);
           return;
         }
-        if (immediate && reply.generating !== true && !ackRepeat && !staleAck && reply.pending !== true && !planningOnly) {
-          await postDeepseekPage(offer, { text: immediate });
-          return;
-        }
-        await watchDeepseekReply(tab.id, offer, before, beforeThink, immediate);
+        await watchDeepseekReply(
+          tab.id,
+          offer,
+          leftoverRepeat ? (before || immediate) : before,
+          beforeThink,
+          leftoverRepeat ? '' : immediate,
+          claim.beforeIdentity
+        );
       } catch (error) {
         await fail(error && error.message ? error.message : error);
       }

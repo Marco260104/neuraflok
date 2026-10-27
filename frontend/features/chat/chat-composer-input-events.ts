@@ -15,7 +15,7 @@ export interface ChatComposerInputRuntime {
   currentPreparedPlan: () => unknown;
   sendPreparedPlan: () => Promise<void>;
   createTaskPlan: (backend: 'api' | 'web') => Promise<void>;
-  sendComposer: (delivery?: 'finish', plan?: string[], planObjective?: string, controlAction?: boolean) => Promise<boolean | void>;
+  sendComposer: (delivery?: 'finish', plan?: string[], planObjective?: string, controlAction?: boolean, planOnly?: boolean) => Promise<boolean | void>;
   planBackend: () => 'api' | 'web';
 }
 
@@ -68,7 +68,12 @@ export function bindChatComposerInputEvents(runtime: Runtime): void {
     const controlAction = event.submitter === $('chatSend') && $('chatSend').dataset.action === 'stop';
     if (runtime.currentPreparedPlan()) void runtime.sendPreparedPlan();
     else if (runtime.taskPlans.hasPlan(runtime.draftKey())) {
-      if (!$('createPlan').dataset.busy) void runtime.createTaskPlan(runtime.planBackend());
+      const plan = runtime.taskPlans.getPlan(runtime.draftKey());
+      if (plan && !plan.stages) {
+        plan.text = runtime.authoredComposerText().trim();
+        runtime.taskPlans.paintTaskPlan();
+      }
+      void runtime.sendComposer(undefined, undefined, undefined, controlAction, true);
     } else void runtime.sendComposer(undefined, undefined, undefined, controlAction);
   });
 }

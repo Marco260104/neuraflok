@@ -98,7 +98,7 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     send.dataset.action = stop ? 'stop' : 'send';
     ui(send, 'aria-label', () => stop ? (runtime.controlledStopPending ? t("Stop requested") : t("Stop turn")) : t("Send message"));
     if (stop && !working && pending) ui(send, 'aria-label', () => t("Cancel delivery"));
-    const planAction = runtime.selectedId ? t("Queue plan at Session finish") : t("Start full plan");
+    const planAction = t("Approve plan");
     if (preparedPlan && !stop) send.setAttribute('aria-label', planAction);
     else if (planMode && !stop) ui(send, 'aria-label', () => t("Generate plan"));
     send.classList.toggle('is-plan-ready', !!preparedPlan && !stop);

@@ -2157,13 +2157,17 @@
   "Could not run tests": "Could not run tests",
   "Could not run a command": "Could not run a command",
   "Command failed tests": "Command failed tests",
-  "Command failed a command": "Command failed a command"
-,
+  "Command failed a command": "Command failed a command",
   "Loading web models": "Web modelleri yükleniyor",
   "Opening the private browser and connecting to the selected provider.": "Özel tarayıcı açılıyor ve seçili sağlayıcıya bağlanılıyor.",
   "Opening the private browser and connecting to {0}.": "Özel tarayıcı açılıyor ve {0} bağlantısı kuruluyor.",
   "The web model is ready.": "Web modeli hazır.",
   "Preparing chat…": "Sohbet hazırlanıyor…",
+  "Reading project…": "Proje okunuyor…",
   "Reading the project and connecting the model…": "Proje okunuyor ve model bağlanıyor…",
-  "Chat is ready.": "Sohbet hazır."
+  "Chat is ready.": "Sohbet hazır.",
+  "Approve plan": "Planı onayla",
+  "Add a step": "Adım ekle",
+  "Revise plan": "Planı gözden geçir",
+  "What should change in this plan?": "Bu planda ne değişmeli?"
 }

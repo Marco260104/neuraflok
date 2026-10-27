@@ -22,7 +22,16 @@ import {
   observeSessionModel,
 } from '../sessions/history/store.js';
 import { getSessionProject } from '../workspace/projects.js';
-import { prepareLocalProviderPrompt } from '../sessions/input/provider-context.js';
+import {
+  prepareLocalProviderPrompt,
+  buildProviderProjectContext,
+  buildGeneralChatContext,
+  isNewProviderChat,
+  localProviderNeedsWorkspace,
+  looksLikeContinueRequest,
+  markLocalProviderHydrated,
+  resetLocalProviderHydrationForTests
+} from '../sessions/input/provider-context.js';
 import { normalizeInputAttachments } from '../sessions/input/attachments/index.js';
 import type { InputImage } from '../../../contracts/input.js';
 import { replyLanguageInstruction } from '../../../contracts/ui-language.js';
@@ -36,6 +45,7 @@ interface Flight { turnId: string; controller: AbortController; }
 const flights = new Map<string, Flight>();
 
 export function resetApiChatForTests(): void {
+  resetLocalProviderHydrationForTests();
   for (const flight of flights.values()) flight.controller.abort(new Error('test reset'));
   flights.clear();
 }
@@ -158,6 +168,16 @@ function apiUserMessage(text: string, images: InputImage[]): ApiMessage {
   ] };
 }
 
+function apiMessagesForContext(messages: ApiMessage[]): Array<{ role: string; content: string | null }> {
+  return messages.map(message => {
+    const content = message.content;
+    const text = Array.isArray(content)
+      ? content.map(part => part.type === 'text' ? part.text : '[Image attachment]').filter(Boolean).join('\n')
+      : content ?? null;
+    return { role: message.role, content: text };
+  });
+}
+
 async function observe(conversationId: string, items: Parameters<typeof recordChatObservations>[1]): Promise<void> {
   await recordChatObservations(conversationId, items);
 }
@@ -178,12 +198,36 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
   const project = await getSessionProject(sessionId).catch(() => null);
   const roots = getConfig().roots.map(root => `/${root.name}`);
   if (!roots.includes('/skills')) roots.push('/skills');
-  const system = guide(registrarValue.declarations(), roots, project?.virtual);
+  const general = !project?.virtual;
+  const defaultRoot = (getConfig().roots.map(root => `/${root.name}`).find(name => name && name !== '/skills')) || '/workspace';
+  const system = general
+    ? [
+      replyLanguageInstruction(getConfig().ui.language),
+      'This is a conversation only. Answer the user directly in ordinary prose.',
+      `The default workspace folder is ${defaultRoot}. Do not list or send a file tree.`,
+      'Do not use tools, commands, file reads, or project inspection.'
+    ].filter(Boolean).join('\n\n')
+    : guide(registrarValue.declarations(), roots, project?.virtual);
   const prior = await readApiThread(sessionId, conversationId);
   let messages = trimApiThread(prior?.messages ?? [{ role: 'system', content: system }]);
   messages = [{ role: 'system', content: system }, ...messages.filter(row => row.role !== 'system')];
   const opening = isOpening(messages);
-  const preparedText = await prepareLocalProviderPrompt(entry, sessionId, opening, { allowImageAttachments: true });
+  const contextMessages = apiMessagesForContext(messages);
+  const newChat = isNewProviderChat(contextMessages, entry.opening === true);
+  const hydrateWorkspace = general ? false : localProviderNeedsWorkspace(sessionId, opening, entry.text);
+  const recap = general
+    ? await buildGeneralChatContext(sessionId, contextMessages, { newChat })
+    : await buildProviderProjectContext(sessionId, contextMessages, {
+      newChat,
+      continueOnly: looksLikeContinueRequest(entry.text),
+      currentTask: entry.text
+    });
+  const preparedText = await prepareLocalProviderPrompt(entry, sessionId, opening, {
+    allowImageAttachments: true,
+    recap,
+    hydrateWorkspace,
+    conversationOnly: general
+  });
   const images = await userImages(entry);
   const userMessageId = randomUUID();
   const turnId = randomUUID();
@@ -220,7 +264,9 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
     const currentUserIndex = messages.length - 1;
     const thread: ApiThread = { version: 1, sessionId, conversationId, messages, updatedAt: now() };
     await persistApiThread(thread);
-    const declarations = openaiTools(registrarValue.declarations().filter(row => ALLOWED_TOOLS.has(row.name)));
+    const declarations = general
+      ? []
+      : openaiTools(registrarValue.declarations().filter(row => ALLOWED_TOOLS.has(row.name)));
     let assistantText = '';
     for (let round = 0; round < MAX_ROUNDS; round++) {
       abort.signal.throwIfAborted();
@@ -258,6 +304,7 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
       { kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }
     ]);
     logInfo(`API provider: session ${sessionId} completed turn ${turnId}`);
+    markLocalProviderHydrated(sessionId);
     return turnId;
   } catch (error) {
     const current = await getSession(sessionId).catch(() => null);

@@ -2157,13 +2157,17 @@
   "Could not run tests": "No pudo ejecutar las pruebas",
   "Could not run a command": "No pudo ejecutar un comando",
   "Command failed tests": "Fallaron las pruebas",
-  "Command failed a command": "Falló un comando"
-,
+  "Command failed a command": "Falló un comando",
   "Loading web models": "Cargando modelos web",
   "Opening the private browser and connecting to the selected provider.": "Abriendo el navegador privado y conectando con el proveedor seleccionado.",
   "Opening the private browser and connecting to {0}.": "Abriendo el navegador privado y conectando con {0}.",
   "The web model is ready.": "El modelo web está listo.",
   "Preparing chat…": "Preparando el chat…",
+  "Reading project…": "Leyendo proyecto…",
   "Reading the project and connecting the model…": "Leyendo el proyecto y conectando el modelo…",
-  "Chat is ready.": "El chat está listo."
+  "Chat is ready.": "El chat está listo.",
+  "Approve plan": "Aprobar plan",
+  "Add a step": "Añadir un paso",
+  "Revise plan": "Revisar plan",
+  "What should change in this plan?": "¿Qué debe cambiar en este plan?"
 }

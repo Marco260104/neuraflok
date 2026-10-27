@@ -36,7 +36,16 @@ export function createInputEnqueuer(runtime: InputEnqueueRuntime) {
       const current = await load();
       const prior = current.find((entry) => entry.id === input.id);
       if (prior) {
-        if (JSON.stringify(inputArgs.parse({ ...prior, sessionId: prior.opening ? prior.requestedSessionId ?? null : prior.sessionId, mode: prior.requestedMode ?? prior.mode })) !== JSON.stringify(input)) throw new Error('Message id already belongs to different input');
+        const replay = (row: typeof input) => inputArgs.parse({
+          ...row,
+          mode: row.requestedMode ?? row.mode,
+          requestedMode: undefined,
+          afterTurn: undefined
+        });
+        if (JSON.stringify(replay({
+          ...prior,
+          sessionId: prior.opening ? prior.requestedSessionId ?? null : prior.sessionId
+        })) !== JSON.stringify(replay(input))) throw new Error('Message id already belongs to different input');
         if (!terminal(prior)) await materializeOpening(prior);
         return { ...prior };
       }
@@ -52,7 +61,7 @@ export function createInputEnqueuer(runtime: InputEnqueueRuntime) {
       // An explicit reviewed resend may replace a proven pre-send failure in the same local chat. An ambiguous native Send still owns its receipt; never replay it.
       const retryOpening = !!(input.sessionId && requestedSession?.origin?.kind === 'desktop' && !requestedSession.conversationId &&
         previousOpening && terminal(previousOpening) && neverAuthorized(previousOpening));
-      const requestedMode = input.mode;
+      const requestedMode = input.requestedMode ?? input.mode;
       let toolImages: InputImage[] | undefined;
       let injectionOwner: { conversationId: string; turnId: string } | undefined;
       // Inject now reaches the model only as a real message (see sessionInputPolicy): when the running turn takes one, the explicit choice goes through the composer too. Files keep the tool path.

@@ -139,6 +139,11 @@ export class IntegratedBrowser {
     const ses = session.fromPartition(PARTITION);
     this.configure(ses);
     this.ses = ses;
+    // A service worker left by a previous run can keep serving an old
+    // background script while the content scripts on disk are already new.
+    // Clear that cache before loading so the companion matches this build.
+    try { await ses.clearStorageData({ storages: ['serviceworkers'] }); }
+    catch { /* a partition without service workers must not block the browser */ }
     const extension = await ses.extensions.loadExtension(dir);
     this.extensionId = extension.id;
     try { this.companionIcon = `data:image/png;base64,${readFileSync(path.join(dir, 'icons', 'icon32.png')).toString('base64')}`; }

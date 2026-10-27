@@ -8,6 +8,37 @@
 .composer-model-controls #chatModelPicker { width: max-content; max-width: 168px; min-width: 0; flex: 0 0 auto; }
 .composer-model-controls #chatModelPicker > summary { width: auto; max-width: 168px; }
 
+.composer-goal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--soft);
+  background: transparent;
+  font: inherit;
+  font-size: calc(12px * var(--text-scale, 1));
+  white-space: nowrap;
+  cursor: pointer;
+}
+.composer-goal-pill > .ico { --ico: 17px; --glyph: 17px; }
+.composer-goal-pill[aria-pressed='true'],
+.composer-goal-pill.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--card) 76%, var(--accent));
+}
+@media (hover: hover) and (pointer: fine) {
+  .composer-goal-pill:hover:not(:disabled):not([hidden]) { background: var(--hover); color: var(--ink); }
+  .composer-goal-pill[aria-pressed='true']:hover:not(:disabled),
+  .composer-goal-pill.is-active:hover:not(:disabled) {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--card) 66%, var(--accent));
+  }
+}
+
 .composer #composerAccess { width: 28px; max-width: 28px; min-width: 28px; }
 .composer #composerAccess > summary { width: 28px; min-width: 28px; height: 28px; min-height: 28px; justify-content: center; gap: 0; padding: 0; }
 .composer #composerAccess > summary > .ico:first-child { flex: none; color: var(--soft); }

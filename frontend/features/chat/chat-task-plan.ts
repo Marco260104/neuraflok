@@ -17,8 +17,9 @@ export interface ChatTaskPlanRuntime {
   dockAction: (label: string | (() => string), symbol: string, click: (event: MouseEvent) => void) => HTMLButtonElement;
   paintTaskActions: () => void;
   paintDeliveryControls: () => void;
-  sendComposer: (delivery?: 'finish', plan?: string[], planObjective?: string, controlAction?: boolean) => Promise<boolean | void>;
+  sendComposer: (delivery?: 'finish', plan?: string[], planObjective?: string, controlAction?: boolean, planOnly?: boolean) => Promise<boolean | void>;
   refreshInputQueue: () => Promise<void>;
+  planBackend: () => 'api' | 'web';
 }
 
 type Runtime = ChatTaskPlanRuntime;
@@ -30,6 +31,7 @@ export type TaskPlanDraft = {
   sending: boolean;
   progress: TaskProgress | null;
   error: string | null;
+  feedback?: string;
 };
 
 // Owns task-plan drafts, planning requests, editable stages, and queue admission.
@@ -117,11 +119,6 @@ export function createChatTaskPlan(runtime: Runtime) {
       text = runtime.authoredComposerText().trim();
     const key = runtime.draftKey();
     cancelTaskPlan(key);
-    const sessionId = runtime.selectedId,
-      projectId = runtime.selectedId
-        ? (runtime.sessions.find((row) => row.id === runtime.selectedId)
-            ?.projectId ?? null)
-        : runtime.selectedProjectId;
     const requestId = text ? crypto.randomUUID() : null;
     const plan: TaskPlanDraft = {
       text,
@@ -164,13 +161,6 @@ export function createChatTaskPlan(runtime: Runtime) {
           input.value = '';
           runtime.restoreSkills();
         }
-        if (sessionId)
-          await queuePreparedPlan(
-            key,
-            plan as TaskPlanDraft & { stages: string[] },
-            sessionId,
-            projectId,
-          );
       } else plan.error = result.error;
     } catch (error) {
       if (current())
@@ -265,6 +255,91 @@ export function createChatTaskPlan(runtime: Runtime) {
         return row;
       }),
     );
+    const actions = el('div', 'plan-stage-actions');
+    const add = runtime.dockAction(
+      () => t('Add a step'),
+      'i-plus',
+      () => {
+        if (plan.sending) return;
+        plan.stages.push('');
+        paintPreparedPlan();
+        runtime.paintDeliveryControls();
+        const fields = preview.querySelectorAll<HTMLTextAreaElement>('.plan-stage textarea');
+        const last = [...fields].at(-1);
+        if (last) {
+          last.hidden = false;
+          last.focus();
+        }
+      },
+    );
+    add.disabled = plan.sending;
+    actions.append(add);
+    const notes = document.createElement('textarea');
+    notes.dir = 'auto';
+    notes.rows = 2;
+    notes.className = 'plan-feedback';
+    notes.value = plan.feedback ?? '';
+    notes.maxLength = 4000;
+    ui(notes, 'placeholder', () => t('What should change in this plan?'));
+    ui(notes, 'aria-label', () => t('What should change in this plan?'));
+    notes.disabled = plan.sending;
+    notes.oninput = () => {
+      plan.feedback = notes.value;
+    };
+    const revise = runtime.dockAction(
+      () => t('Revise plan'),
+      'i-loop',
+      () => {
+        if (plan.sending || !notes.value.trim()) return;
+        void reviseTaskPlan(notes.value);
+      },
+    );
+    revise.disabled = plan.sending;
+    preview.append(actions, notes, revise);
+  }
+
+  async function reviseTaskPlan(feedback: string): Promise<void> {
+    const key = runtime.draftKey();
+    const plan = taskPlans.get(key);
+    const notes = feedback.trim();
+    if (!plan?.stages || !notes || plan.requestId) return;
+    const previous = plan.stages;
+    const requestId = crypto.randomUUID();
+    plan.requestId = requestId;
+    plan.stages = null;
+    plan.progress = null;
+    plan.error = null;
+    paintTaskPlan();
+    const current = () => taskPlans.get(key) === plan;
+    const unsubscribe = api.onTaskProgress?.((progress) => {
+      if (progress.requestId !== requestId || !current()) return;
+      plan.progress = progress;
+      if (runtime.draftKey() === key) paintTaskPlan();
+    });
+    try {
+      const result = await api.draftTaskPlan(
+        `${plan.text}\n\nUser adjustments to the plan:\n${notes}`,
+        runtime.planBackend(),
+        requestId,
+      );
+      if (!current()) return;
+      if (result.ok) {
+        plan.stages = result.data;
+        plan.feedback = '';
+      } else {
+        plan.stages = previous;
+        plan.error = result.error;
+      }
+    } catch (error) {
+      if (current()) {
+        plan.stages = previous;
+        plan.error = error instanceof Error ? error.message : String(error);
+      }
+    } finally {
+      unsubscribe?.();
+      plan.requestId = null;
+      if (current() && runtime.draftKey() === key) paintTaskPlan();
+    }
   }
   async function sendPreparedPlan(): Promise<void> {
     const key = runtime.draftKey(),
@@ -366,6 +441,42 @@ export function createChatTaskPlan(runtime: Runtime) {
     taskPlans.set(key, plan);
   }
 
+  function movePlan(from: string, to: string): void {
+    if (!from || !to || from === to) return;
+    const plan = taskPlans.get(from);
+    if (!plan) return;
+    taskPlans.set(to, plan);
+    taskPlans.delete(from);
+  }
+
+  function parsePlanStages(text: string): string[] {
+    const steps: string[] = [];
+    for (const line of String(text || '').split(/\n/)) {
+      const match = line.match(/^\s*(?:\d+[\.)]|[-*]|paso\s*\d+\s*[:.)-])\s+(.+)/i);
+      if (!match) continue;
+      const step = match[1]!.replace(/\s+/g, ' ').trim();
+      if (step.length >= 6) steps.push(step);
+    }
+    return steps.slice(0, 12);
+  }
+
+  function adoptPlanFromEvents(events: Array<{ kind: string; final?: boolean; message?: { text?: string } }>): void {
+    const key = runtime.draftKey();
+    const plan = taskPlans.get(key);
+    if (!plan || plan.stages || plan.sending || plan.requestId) return;
+    if (!plan.text.trim()) return;
+    const last = [...events].reverse().find(event =>
+      event.kind === 'assistant_message' && event.final === true && Boolean(event.message?.text?.trim())
+    );
+    const body = last?.message?.text ?? '';
+    const steps = parsePlanStages(body);
+    if (steps.length < 2) return;
+    plan.stages = steps;
+    plan.requestId = null;
+    plan.error = null;
+    paintTaskPlan();
+  }
+
   return {
     currentPreparedPlan,
     cancelTaskPlan,
@@ -376,5 +487,7 @@ export function createChatTaskPlan(runtime: Runtime) {
     getPlan,
     hasPlan,
     setPlan,
+    movePlan,
+    adoptPlanFromEvents,
   };
 }

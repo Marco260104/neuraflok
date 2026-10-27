@@ -94,7 +94,7 @@ export function createProviderTabs(chrome) {
     const scripts = provider === 'deepseek'
       ? ['src/provider-pages/deepseek/dom-adapter.js', 'src/provider-pages/shared/delivery-agent.js', 'src/provider-pages/deepseek/controller.js']
       : ['src/provider-pages/web/dom-adapter.js', 'src/provider-pages/shared/delivery-agent.js', 'src/provider-pages/web/controller.js'];
-    try {
+    const inject = (async () => {
       for (const file of scripts) await chrome.scripting.executeScript({ target, files: [file] });
       if (provider === 'deepseek') {
         try {
@@ -102,6 +102,12 @@ export function createProviderTabs(chrome) {
         } catch {}
       }
       return true;
+    })();
+    try {
+      return await Promise.race([
+        inject,
+        new Promise(resolve => setTimeout(() => resolve(false), 5_000))
+      ]);
     } catch {
       return false;
     }

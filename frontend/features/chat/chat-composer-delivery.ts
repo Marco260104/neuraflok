@@ -50,7 +50,7 @@ type Runtime = ChatComposerDeliveryRuntime;
 
 // Owns composer delivery and its renderer-side outbox handoff.
 export function createChatComposerDelivery(runtime: Runtime) {
-  async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?: string, controlAction = false): Promise<boolean | void> {
+  async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?: string, controlAction = false, planOnly = false): Promise<boolean | void> {
     const input = $<HTMLTextAreaElement>('chatInput');
     const key = runtime.draftKey();
     const projectId = runtime.selectedId ? runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? null : runtime.selectedProjectId;
@@ -99,7 +99,7 @@ export function createChatComposerDelivery(runtime: Runtime) {
     const objective = plan ? planObjective : mode === 'finish' ? undefined : $<HTMLTextAreaElement>('sessionObjective').value.trim() || undefined;
     const authoredSource = plan ? 'objective' as const : 'text' as const;
     runtime.startingInputs.set(id, { id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource, mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn',
-      dueAt, ...modelSettings, state: 'queued', owner: null, createdAt: dueAt, conversationId: null });
+      dueAt, ...modelSettings, state: 'queued', owner: null, createdAt: dueAt, conversationId: null, ...(planOnly && !plan ? { planOnly: true as const } : {}) });
     runtime.replaceComposerDraft();
     input.value = ''; runtime.inputDrafts.delete(key);
     runtime.restoreSkills();
@@ -116,7 +116,7 @@ export function createChatComposerDelivery(runtime: Runtime) {
     runtime.paintDeliveryControls();
     try {
       const currentWebProvider = isWebProviderId($<HTMLSelectElement>('webProvider').value) ? $<HTMLSelectElement>('webProvider').value as WebProviderId : undefined;
-      const result = await run(runtime.api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource, automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: runtime.openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, webProvider: currentWebProvider, ...modelSettings }));
+      const result = await run(runtime.api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource, automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: runtime.openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, webProvider: currentWebProvider, ...modelSettings, ...(planOnly && !plan ? { planOnly: true as const } : {}) }));
       if (runtime.cancelledStarts.has(id)) return;
       if (!result) {
         const retained = (await run(runtime.api.listInputs()))?.find(row => row.id === id);

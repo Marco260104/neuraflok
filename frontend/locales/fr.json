@@ -2157,13 +2157,17 @@
   "Could not run tests": "Impossible d’exécuter les tests",
   "Could not run a command": "Impossible d’exécuter une commande",
   "Command failed tests": "Échec des tests",
-  "Command failed a command": "Échec d’une commande"
-,
+  "Command failed a command": "Échec d’une commande",
   "Loading web models": "Chargement des modèles web",
   "Opening the private browser and connecting to the selected provider.": "Ouverture du navigateur privé et connexion au fournisseur sélectionné.",
   "Opening the private browser and connecting to {0}.": "Ouverture du navigateur privé et connexion à {0}.",
   "The web model is ready.": "Le modèle web est prêt.",
   "Preparing chat…": "Préparation du chat…",
+  "Reading project…": "Lecture du projet…",
   "Reading the project and connecting the model…": "Lecture du projet et connexion du modèle…",
-  "Chat is ready.": "Le chat est prêt."
+  "Chat is ready.": "Le chat est prêt.",
+  "Approve plan": "Approuver le plan",
+  "Add a step": "Ajouter une étape",
+  "Revise plan": "Réviser le plan",
+  "What should change in this plan?": "Que faut-il changer dans ce plan ?"
 }

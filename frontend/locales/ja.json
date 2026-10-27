@@ -2157,13 +2157,17 @@
   "Could not run tests": "Could not run tests",
   "Could not run a command": "Could not run a command",
   "Command failed tests": "Command failed tests",
-  "Command failed a command": "Command failed a command"
-,
+  "Command failed a command": "Command failed a command",
   "Loading web models": "Webモデルを読み込み中",
   "Opening the private browser and connecting to the selected provider.": "プライベートブラウザーを開き、選択したプロバイダーに接続しています。",
   "Opening the private browser and connecting to {0}.": "プライベートブラウザーを開き、{0} に接続しています。",
   "The web model is ready.": "Webモデルの準備ができました。",
   "Preparing chat…": "チャットを準備しています…",
+  "Reading project…": "プロジェクトを読み込み中…",
   "Reading the project and connecting the model…": "プロジェクトを読み込み、モデルに接続しています…",
-  "Chat is ready.": "チャットの準備ができました。"
+  "Chat is ready.": "チャットの準備ができました。",
+  "Approve plan": "計画を承認",
+  "Add a step": "手順を追加",
+  "Revise plan": "計画を見直す",
+  "What should change in this plan?": "この計画のどこを変えますか？"
 }
