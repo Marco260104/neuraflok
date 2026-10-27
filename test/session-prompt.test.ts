@@ -156,8 +156,9 @@ it('builds a provider-native workspace context without the old MCP-client prompt
     { projectId: project.id },
     { maxChars: 72_000, maxBytes: 288_000 }
   );
-  expect(prompt).toContain('<WORKSPACE_CONTEXT>');
-  expect(prompt).toContain('You are an assistant working with the user in their selected workspace.');
+  expect(prompt).toContain('<ASSISTANT_INSTRUCTIONS>');
+  expect(prompt).toContain('FINAL RESPONSE STYLE: Answer the user\'s current question naturally and directly');
+  expect(prompt).toContain('You are an assistant working with the user in their selected project.');
   expect(prompt).toContain('# AGENTS.md instructions for /work/provider-project');
   expect(prompt).toContain('PROJECT FILE TREE (names only; bounded)');
   expect(prompt).toContain('src/');
@@ -243,7 +244,7 @@ it('keeps project tree, instructions, language, and recent summary on later prov
   expect(followup).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
 });
 
-it('uses the configured default folder and never adds a file tree to an ordinary chat', async () => {
+it('keeps an ordinary chat plain and carries only its natural-language instructions and prior history', async () => {
   const session = await createSession({ title: 'Ordinary chat' });
   await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }] });
   const opening = await prepareProviderSessionPrompt('Answer briefly.', { sessionId: session.id });
@@ -252,9 +253,13 @@ it('uses the configured default folder and never adds a file tree to an ordinary
     historySummary: 'User: The earlier answer mentioned marker NF_OLD_CHAT_42.'
   });
   for (const prompt of [opening, followup]) {
-    expect(prompt).toContain('Default workspace folder for ordinary chats: /work');
-    expect(prompt).toContain('Do not include or invent a file tree');
+    expect(prompt).toContain('Answer the user naturally and directly');
+    expect(prompt).toContain('Do not inspect files, mention paths, run commands');
     expect(prompt).not.toContain('PROJECT FILE TREE');
+    expect(prompt).not.toContain('Selected project directory');
+    expect(prompt).not.toContain('Available tools');
   }
+  expect(opening.match(/USER MESSAGE:\nAnswer briefly\./g)).toHaveLength(1);
+  expect(followup.match(/USER MESSAGE:\nOne more thing\./g)).toHaveLength(1);
   expect(followup).toContain('NF_OLD_CHAT_42');
 });

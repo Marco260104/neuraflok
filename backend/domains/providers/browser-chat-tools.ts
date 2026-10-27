@@ -10,6 +10,7 @@ import { registerCoreTools } from '../../infrastructure/tool-gateway/protocol/to
 import { withManagedSkills } from '../skills/access/managed-roots.js';
 import { getSessionProject } from '../workspace/projects.js';
 import { observeRequestCorrelation } from '../sessions/history/correlation.js';
+import { scopeProjectPlanTool } from './project-plan-tools.js';
 
 const MAX_TOOL_RESULT_CHARS = 40_000;
 const TOOL_RETRY_BACKOFF_MS = 200;
@@ -114,7 +115,8 @@ export async function invokeBrowserChatTool(
   call: WebChatToolCall,
   requestId: string,
   conversationId: string,
-  sessionId: string
+  sessionId: string,
+  projectPlanDirectory?: string
 ): Promise<string> {
   const name = call.function.name;
   if (!ALLOWED_TOOLS.has(name) || !registrar.registered().includes(name)) {
@@ -122,6 +124,9 @@ export async function invokeBrowserChatTool(
   }
   const parsed = parseArgs(call.function.arguments);
   if (!parsed.ok) return `INVALID_ARGUMENTS: ${parsed.error}`;
+  const scoped = projectPlanDirectory ? scopeProjectPlanTool(name, parsed.value, projectPlanDirectory) : null;
+  if (scoped && !scoped.ok) return 'PLAN_READ_SCOPE: This plan may read files only inside the selected project. The requested tool was not run.';
+  const toolArgs = scoped?.ok ? scoped.args : parsed.value;
   observeRequestCorrelation({
     requestId,
     conversationId,
@@ -132,17 +137,17 @@ export async function invokeBrowserChatTool(
   });
   let result: ToolResult;
   try {
-    result = await registrar.invoke(name, parsed.value, requestId);
+    result = await registrar.invoke(name, toolArgs, requestId);
   } catch (error) {
-    if (!shouldRetryTool(name, parsed.value, errorMessage(error))) throw error;
+    if (!shouldRetryTool(name, toolArgs, errorMessage(error))) throw error;
     await retryDelay();
-    result = await registrar.invoke(name, parsed.value, requestId);
+    result = await registrar.invoke(name, toolArgs, requestId);
     return toolResultText(result);
   }
-  if (result.isError !== true || !shouldRetryTool(name, parsed.value, toolResultText(result))) {
+  if (result.isError !== true || !shouldRetryTool(name, toolArgs, toolResultText(result))) {
     return toolResultText(result);
   }
   await retryDelay();
-  result = await registrar.invoke(name, parsed.value, requestId);
+  result = await registrar.invoke(name, toolArgs, requestId);
   return toolResultText(result);
 }

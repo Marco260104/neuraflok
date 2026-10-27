@@ -9,6 +9,8 @@ import { attachmentSchema } from './attachments/index.js';
 
 export const inputArgs = z.object({
   projectId: z.string().uuid().nullable().optional(),
+  /** The first project-plan turn may inspect files but must not mutate the project. */
+  projectPlanPhase: z.literal('draft').optional(),
   automation: z.enum(['off', 'goal', 'loop']).optional(),
   loopAfterTurn: z.boolean().optional(),
   objective: z.string().trim().max(16000).optional(),

@@ -330,6 +330,8 @@
   "Sub-agents · {0} recorded": "Tác nhân phụ · đã ghi {0}",
   "Plan complete": "Plan đã hoàn tất",
   "Plan": "Plan",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "Đã bật chế độ lập kế hoạch. Trợ lý sẽ đọc các tệp dự án và hỏi trước khi thay đổi.",
+  "Read relevant project files and propose a plan before making changes.": "Đọc các tệp dự án liên quan và đề xuất kế hoạch trước khi thay đổi.",
   "In progress": "Đang thực hiện",
   "Completed": "Đã hoàn tất",
   "Pending": "Đang chờ",

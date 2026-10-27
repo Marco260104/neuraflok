@@ -12,29 +12,23 @@ import { selectedSkillInstructions, type SelectedSkill } from './skill-prompt.js
 import { listSkillLibrary } from '../../skills/skill-library.js';
 import type { RoutedSkillSelection } from '../../../../contracts/skill-routing.js';
 
-type PromptScope = { sessionId?: string | null; projectId?: string | null; autoSkills?: readonly RoutedSkillSelection[]; historySummary?: string };
+type PromptScope = { sessionId?: string | null; projectId?: string | null; autoSkills?: readonly RoutedSkillSelection[]; historySummary?: string; projectPlanPhase?: 'draft'; projectPlanContext?: string };
 export type PromptLimits = { maxChars: number; maxBytes: number };
 type ProjectInstructions = { directory: string; text: string; truncated: boolean; tree?: string };
 const limits: PromptLimits = { maxChars: MAX_PROVIDER_MESSAGE_CHARS, maxBytes: Infinity };
 const cutNotice = '\n\n[Cut off because of the message limit. Read AGENTS.md yourself for the remaining instructions.]';
-const LOCAL_PROVIDER_IESTRUCTIOES = [
-  'You are an assistant working with the user in their selected workspace.',
-  'Follow the current request, the selected project instructions, and any selected Skills below. Preserve existing work and keep changes within approved folders.',
-  'Use only the capabilities listed in the workspace tool guide for this conversation. A tool result is the evidence for an action: do not claim that a file changed or a command succeeded without a successful result.',
-  'If a permission or required piece of context is missing, explain the limit clearly instead of guessing.'
-].join('\n');
-
-function defaultWorkspaceDirectory(): string | null {
-  const root = getConfig().roots.find(candidate => candidate.name.toLowerCase() !== 'skills');
-  return root ? `/${root.name}` : null;
-}
-
-function localProviderInstructions(defaultDirectory: string | null = null): string {
-  const ordinaryWorkspace = defaultDirectory
-    ? `Default workspace folder for ordinary chats: ${defaultDirectory}. Use this folder as the working directory when the user has not selected a project. Do not include or invent a file tree; inspect only task-relevant files with the available tools.`
-    : '';
-  return [LOCAL_PROVIDER_IESTRUCTIOES, ordinaryWorkspace, replyLanguageInstruction(getConfig().ui.language)]
-    .filter(Boolean).join('\n\n');
+function localProviderInstructions(project: boolean): string {
+  const conversational = [
+    'You are a conversational assistant.',
+    'Answer the user naturally and directly. Use the current message and relevant conversation history only. Do not inspect files, mention paths, run commands, or invent tool activity.'
+  ];
+  const workspace = [
+    'You are an assistant working with the user in their selected project.',
+    'Follow the current request, the selected project instructions, and any selected Skills below. Preserve existing work and keep project changes within approved folders.',
+    'Use only the capabilities listed in the workspace tool guide for this conversation. A tool result is the evidence for an action: do not claim that a file changed or a command succeeded without a successful result.',
+    'If a permission or required piece of context is missing, explain the limit clearly instead of guessing.'
+  ];
+  return [...(project ? workspace : conversational), replyLanguageInstruction(getConfig().ui.language)].join('\n\n');
 }
 
 const promptFolder = (scope: PromptScope) => scope.sessionId ? getSessionProject(scope.sessionId)
@@ -103,7 +97,7 @@ function frameProviderPrompt(text: string, instructions: string): string {
   const authored = userPromptText(text) ?? text.replace(/\r\n?/g, '\n');
   instructions = instructions.replace(/\r\n?/g, '\n');
   return instructions.trim()
-    ? `USER TASK / REQUEST:\n${authored}\n\n<WORKSPACE_CONTEXT>\n${instructions}\n</WORKSPACE_CONTEXT>\n\nUSER TASK / REQUEST (REPEATED):\n${authored}\n\nExecute the user task above immediately using the available tools.`
+    ? `<ASSISTANT_INSTRUCTIONS>\n${instructions}\n</ASSISTANT_INSTRUCTIONS>\n\nUSER MESSAGE:\n${authored}`
     : authored;
 }
 
@@ -176,12 +170,27 @@ export function fitProviderPrompt(
   agents: ProjectInstructions | null = null,
   budget = limits,
   skills: SelectedSkill[] = [],
-  extraContext: { historySummary?: string } = {}
+  extraContext: { historySummary?: string; projectPlanPhase?: 'draft'; projectPlanContext?: string } = {}
 ): string {
   const contextSections = extraContext.historySummary
-    ? [extraContext.historySummary]
+    ? [`# Recent conversation\n${extraContext.historySummary}`]
     : [];
-  return fitPrompt(text, core, agents, budget, skills, frameProviderPrompt, contextSections);
+  if (extraContext.projectPlanPhase === 'draft') contextSections.push([
+    '# Plan first',
+    'This is a project planning request. Inspect the relevant existing project files with the listed read-only tools before proposing a plan.',
+    'Do not edit or create files, run commands, start agents, or make other changes. Do not guess about files you have not read.',
+    'Then give a short, clear plan in the configured language and ask the user to approve it before starting work.'
+  ].join('\n'));
+  if (extraContext.projectPlanContext) contextSections.push(extraContext.projectPlanContext);
+  if (!agents) return fitPrompt(text, core, agents, budget, skills, frameProviderPrompt, contextSections);
+  const style = '\n\nFINAL RESPONSE STYLE: Answer the user\'s current question naturally and directly in the configured language. Keep it concise. Do not provide an audit report, tool transcript, command output, or file path list unless the user asks for those details. State only useful results and limitations; never invent work.';
+  const styleBytes = Buffer.byteLength(style, 'utf8');
+  const contentBudget = {
+    maxChars: Math.max(0, budget.maxChars - style.length),
+    maxBytes: Math.max(0, budget.maxBytes - styleBytes)
+  };
+  const framed = fitPrompt(text, core, agents, contentBudget, skills, frameProviderPrompt, contextSections);
+  return `${framed}${style}`;
 }
 
 /** Opening normal/worker messages only. Callers own first-message eligibility; follow-ups, helpers, handoff requests and resumed bootstraps never call this. */
@@ -204,11 +213,15 @@ export async function prepareProviderSessionPrompt(text: string, scope: PromptSc
   const skillScope = { projectPath: folder?.real ?? null };
   const library = await listSkillLibrary(scope.autoSkills !== undefined ? { ...skillScope, managedFromCatalog: true } : skillScope);
   const skills = await selectedSkillInstructions(authored, skillScope, library, scope.autoSkills);
-  const core = localProviderInstructions(folder ? null : defaultWorkspaceDirectory());
+  const core = localProviderInstructions(Boolean(folder));
   fitProviderPrompt(text, core, null, budget); // Required user request and provider contract.
   const agents = await projectInstructions(scope);
   if ((await promptFolder(scope))?.real !== folder?.real) throw new Error('The selected project changed during Skill preparation');
-  return fitProviderPrompt(text, core, agents, budget, skills, { historySummary: scope.historySummary });
+  return fitProviderPrompt(text, core, agents, budget, skills, {
+    historySummary: scope.historySummary,
+    projectPlanPhase: agents ? scope.projectPlanPhase : undefined,
+    projectPlanContext: agents ? scope.projectPlanContext : undefined
+  });
 }
 
 /** Explicit follow-up selection adds Skills only, never repeats opening setup. */

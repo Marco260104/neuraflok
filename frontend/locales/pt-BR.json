@@ -324,6 +324,8 @@
   "Sub-agents · {0} recorded": "Subagentes · {0} registrados",
   "Plan complete": "Plano concluído",
   "Plan": "Plano",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "O modo de planejamento está ativado. O assistente vai ler os arquivos do projeto e pedir confirmação antes de fazer alterações.",
+  "Read relevant project files and propose a plan before making changes.": "Ler os arquivos relevantes do projeto e propor um plano antes de fazer alterações.",
   "In progress": "Em andamento",
   "Completed": "Concluído",
   "Pending": "Pendente",

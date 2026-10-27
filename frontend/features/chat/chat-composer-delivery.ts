@@ -13,6 +13,8 @@ export interface ChatComposerDeliveryRuntime {
   selectedId: string | null;
   sessions: SessionSummary[];
   selectedProjectId: string | null;
+  projectPlanMode: () => boolean;
+  clearProjectPlanMode: (key?: string) => void;
   imageDrafts: Map<string, ComposerAttachment[]>;
   authoredComposerText: () => string;
   selectionGeneration: number;
@@ -93,6 +95,8 @@ export function createChatComposerDelivery(runtime: Runtime) {
     const input = $<HTMLTextAreaElement>('chatInput');
     const key = runtime.draftKey();
     const projectId = runtime.selectedId ? runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? null : runtime.selectedProjectId;
+    const projectPlan = !plan && runtime.projectPlanMode();
+    if (projectPlan && !projectId) return false;
     const images = runtime.imageDrafts.get(key) ?? [];
     const text = plan?.[0] ?? (runtime.authoredComposerText().trim() || (images.length ? 'Please look at the attached files.' : ''));
     if (!text) {
@@ -127,7 +131,7 @@ export function createChatComposerDelivery(runtime: Runtime) {
     const generation = runtime.selectionGeneration;
     const pendingOpeningId = runtime.pendingNewInput?.generation === generation ? runtime.pendingNewInput.id : null;
     const waitForOpening = sessionId === null && pendingOpeningId !== null;
-    const chosenMode = delivery ?? $<HTMLSelectElement>('sendMode').value;
+    const chosenMode = projectPlan ? 'auto' : delivery ?? $<HTMLSelectElement>('sendMode').value;
     const preparationPending = composerWarmupState(composerWarmupKey(sessionId, generation)) !== null;
     const queueAtFinish = runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration && runtime.controlledQueueAtFinish;
@@ -139,10 +143,11 @@ export function createChatComposerDelivery(runtime: Runtime) {
       ...(chosenMode === 'tool' && !plan ? { delivery: 'tool' as const } : {}),
       ...(mode === 'auto' && !plan && runtime.selectedId && runtime.controlledSessionId === runtime.selectedId && runtime.controlledSelection === generation &&
         runtime.controlledCanInject && images.some(file => 'id' in file) && injectableAttachments(images) ? { attachmentDelivery: 'tool' as const } : {}) };
-    const objective = plan ? planObjective : mode === 'finish' ? undefined : $<HTMLTextAreaElement>('sessionObjective').value.trim() || undefined;
+    const objective = projectPlan ? undefined : plan ? planObjective : mode === 'finish' ? undefined : $<HTMLTextAreaElement>('sessionObjective').value.trim() || undefined;
     const authoredSource = plan ? 'objective' as const : 'text' as const;
+    const projectPlanMetadata = projectPlan ? { projectPlanPhase: 'draft' as const } : {};
     const deferredMetadata = preparationPending ? { selectionGeneration: generation } : undefined;
-    runtime.startingInputs.set(id, { id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource, mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn',
+    runtime.startingInputs.set(id, { id, sessionId, projectId, text, ...attachmentPayload, ...projectPlanMetadata, stages: plan?.slice(1), objective, authoredSource, mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn',
       ...(deferredMetadata ? { warmupDeferred: deferredMetadata } : {}),
       dueAt, ...modelSettings, state: 'queued', owner: null, createdAt: dueAt, conversationId: null });
     runtime.replaceComposerDraft();
@@ -182,15 +187,16 @@ export function createChatComposerDelivery(runtime: Runtime) {
       const currentWebProvider = sessionId === null && isWebProviderId($<HTMLSelectElement>('webProvider').value)
         ? $<HTMLSelectElement>('webProvider').value as WebProviderId
         : undefined;
-      const result = await run(runtime.api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, stages: plan?.slice(1), objective, authoredSource,
+      const result = await run(runtime.api.sendInput({ id, sessionId, projectId, text, ...attachmentPayload, ...projectPlanMetadata, stages: plan?.slice(1), objective, authoredSource,
         ...(deferredMetadata ? { warmupDeferred: deferredMetadata } : {}),
-        automation: mode === 'finish' ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: runtime.openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, webProvider: currentWebProvider, ...modelSettings }));
+        automation: mode === 'finish' || projectPlan ? undefined : $<HTMLSelectElement>('chatAutomation').value as InputAutomation, loopAfterTurn: projectPlan ? false : runtime.openingLoopDelivery(), mode: mode === 'finish' ? 'finish' : mode === 'auto' ? 'auto' : 'after-turn', dueAt, webProvider: currentWebProvider, ...modelSettings }));
       if (runtime.cancelledStarts.has(id)) return;
       if (!result) {
         const retained = (await run(runtime.api.listInputs()))?.find(row => row.id === id);
         if (retained) {
           runtime.pendingComposerInputs = [...runtime.pendingComposerInputs.filter(row => row.id !== id), retained];
           runtime.showAutoSkillReceipt(retained);
+          if (projectPlan) runtime.clearProjectPlanMode(key);
           await runtime.adoptAcceptedOpening(retained);
           return true;
         }
@@ -207,6 +213,7 @@ export function createChatComposerDelivery(runtime: Runtime) {
       runtime.pendingComposerInputs = [...runtime.pendingComposerInputs.filter(row => row.id !== result.id), result];
       runtime.paintDetail(true);
       runtime.showAutoSkillReceipt(result);
+      if (projectPlan) runtime.clearProjectPlanMode(key);
       if (sessionId === null && runtime.selectionGeneration === generation && runtime.pendingNewInput?.id === id && result.automation &&
           ($<HTMLSelectElement>('chatAutomation').value !== result.automation || runtime.openingLoopDelivery() !== result.loopAfterTurn))
         await run(runtime.api.setInputAutomation(result.id, $<HTMLSelectElement>('chatAutomation').value as InputAutomation, runtime.openingLoopDelivery()));

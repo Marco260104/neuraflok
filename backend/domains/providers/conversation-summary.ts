@@ -35,8 +35,8 @@ function isApplicationControl(text: string): boolean {
     normalized.startsWith('INCOMPLETE_TOOL:');
 }
 
-function renderSummary(lines: SummaryLine[]): string {
-  const meaningful = lines.filter(line => line.content.trim() && !isApplicationControl(line.content));
+function renderSummary(lines: SummaryLine[], includeTools = true): string {
+  const meaningful = lines.filter(line => (includeTools || line.role !== 'tool') && line.content.trim() && !isApplicationControl(line.content));
   if (!meaningful.length) return '';
 
   // Keep the opening human goal alongside the newest exchanges, which is useful
@@ -59,7 +59,8 @@ function renderSummary(lines: SummaryLine[]): string {
 }
 
 /** Compact recent local provider history without copying image payloads or bootstrap checks. */
-export function summarizeProviderConversation(messages: readonly ProviderMessage[]): string {
+export function summarizeProviderConversation(messages: readonly ProviderMessage[], options: { includeTools?: boolean } = {}): string {
+  const includeTools = options.includeTools !== false;
   const lines: SummaryLine[] = [];
   const toolNames = new Map<string, string>();
   for (const message of messages) {
@@ -71,21 +72,22 @@ export function summarizeProviderConversation(messages: readonly ProviderMessage
         ? stripWebChatTools(message.content).trim()
         : visibleContent(message.content);
       if (content && !isApplicationControl(content)) lines.push({ role: 'assistant', content });
-      else if (calls.length) lines.push({ role: 'assistant', content: `Used tools: ${calls.map(call => call.function.name).join(', ')}.` });
+      else if (calls.length && includeTools) lines.push({ role: 'assistant', content: `Used tools: ${calls.map(call => call.function.name).join(', ')}.` });
       continue;
     }
     const content = visibleContent(message.content);
     if (message.role === 'user') {
       if (!isApplicationControl(content)) lines.push({ role: 'user', content });
-    } else if (message.role === 'tool' && content) {
+    } else if (includeTools && message.role === 'tool' && content) {
       lines.push({ role: 'tool', tool: toolNames.get(message.tool_call_id ?? ''), content });
     }
   }
-  return renderSummary(lines);
+  return renderSummary(lines, includeTools);
 }
 
 /** Fallback for older chats whose provider-local transcript file is unavailable. */
-export function summarizeSessionHistory(events: readonly SessionEvent[]): string {
+export function summarizeSessionHistory(events: readonly SessionEvent[], options: { includeTools?: boolean } = {}): string {
+  const includeTools = options.includeTools !== false;
   const lines: SummaryLine[] = [];
   for (const event of events) {
     if (event.kind === 'user_message') {
@@ -94,16 +96,17 @@ export function summarizeSessionHistory(events: readonly SessionEvent[]): string
     } else if (event.kind === 'assistant_message' && event.final) {
       const content = event.message.text;
       if (content && !isApplicationControl(content)) lines.push({ role: 'assistant', content });
-    } else if (event.kind === 'tool_call') {
+    } else if (includeTools && event.kind === 'tool_call') {
       const label = event.call.summary.title || event.call.tool;
       lines.push({ role: 'tool', tool: event.call.tool, content: label });
     }
   }
-  return renderSummary(lines);
+  return renderSummary(lines, includeTools);
 }
 
 /** Reconstructs the readable part of an older local chat when its provider thread file is absent. */
-export function sessionHistoryMessages(events: readonly SessionEvent[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+export function sessionHistoryMessages(events: readonly SessionEvent[], options: { includeTools?: boolean } = {}): Array<{ role: 'user' | 'assistant'; content: string }> {
+  const includeTools = options.includeTools !== false;
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   for (const event of events) {
     if (event.kind === 'user_message') {
@@ -112,10 +115,34 @@ export function sessionHistoryMessages(events: readonly SessionEvent[]): Array<{
     } else if (event.kind === 'assistant_message' && event.final) {
       const content = event.message.text;
       if (content && !isApplicationControl(content)) messages.push({ role: 'assistant', content });
-    } else if (event.kind === 'tool_call') {
+    } else if (includeTools && event.kind === 'tool_call') {
       const label = event.call.summary.title || event.call.tool;
       if (label) messages.push({ role: 'assistant', content: `[Recorded project action: ${label}]` });
     }
   }
   return messages;
+}
+
+/** Remove historic local actions from projectless provider chats while preserving their human-readable conversation. */
+export function textOnlyWebMessages(messages: readonly WebChatMessage[]): WebChatMessage[] {
+  const output: WebChatMessage[] = [];
+  for (const message of messages) {
+    if (message.role === 'system' || message.role === 'tool') continue;
+    if (message.role === 'user') { output.push({ role: 'user', content: message.content ?? '' }); continue; }
+    const content = typeof message.content === 'string' ? stripWebChatTools(message.content).trim() : '';
+    if (content) output.push({ role: 'assistant', content });
+  }
+  return output;
+}
+
+/** API images remain attached to user messages; historical tool traffic is never carried into a plain chat. */
+export function textOnlyApiMessages(messages: readonly ApiMessage[]): ApiMessage[] {
+  const output: ApiMessage[] = [];
+  for (const message of messages) {
+    if (message.role === 'system' || message.role === 'tool') continue;
+    if (message.role === 'user') { output.push({ role: 'user', content: message.content ?? '' }); continue; }
+    const content = typeof message.content === 'string' ? stripWebChatTools(message.content).trim() : visibleContent(message.content);
+    if (content) output.push({ role: 'assistant', content });
+  }
+  return output;
 }

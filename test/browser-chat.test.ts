@@ -17,6 +17,7 @@ import {
   createSession,
   getSession,
   readEvents,
+  readProjectPlanState,
   sessionWebProviderThreadPath,
   resetSessionStoreForTests
 } from '../backend/domains/sessions/history/store.js';
@@ -54,6 +55,7 @@ import { createBrowserChatToolRegistrar, invokeBrowserChatTool } from '../backen
 import { isWebProviderConversationId } from '../contracts/web-providers.js';
 import { confirmsWebProviderContext, prepareWebProviderContextCheck } from '../backend/domains/sessions/input/provider-context.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
+import { addProject, assignSessionProject } from '../backend/domains/workspace/projects.js';
 
 const TEST_PROVIDER_CONVERSATION = 'ds-00000000-0000-0000-0000-000000000001';
 
@@ -83,6 +85,11 @@ function configureDeepseekForTests(options: Parameters<typeof configurePageForTe
 
 function runDeepseekInput(entry: Parameters<typeof runWebProviderInput>[0], signal?: AbortSignal): Promise<string | null> {
   return runWebProviderInput(entry, 'deepseek', signal);
+}
+
+async function runDeepseekProjectInput(entry: Parameters<typeof runWebProviderInput>[0], signal?: AbortSignal): Promise<string | null> {
+  await assignSessionProject(entry.sessionId ?? entry.id, projectId);
+  return runDeepseekInput(entry, signal);
 }
 
 it('does not advertise image reading when a browser session cannot pass image bytes to local tools', () => {
@@ -191,12 +198,15 @@ it('does not retry a read when its failure is a permission or validation error',
 });
 
 let directory: string;
+let appDataDirectory: string;
+let projectId: string;
 
 beforeAll(async () => {
   directory = await makeTempDir('neuraflok-deepseek-');
-  initConfigPath(directory);
-  initDurableStore(directory);
-  initSessionStore(directory);
+  appDataDirectory = await makeTempDir('neuraflok-deepseek-data-');
+  initConfigPath(appDataDirectory);
+  initDurableStore(appDataDirectory);
+  initSessionStore(appDataDirectory);
   resetInputForTests();
   const config = defaultConfig();
   await saveConfig({
@@ -204,6 +214,7 @@ beforeAll(async () => {
     roots: [{ name: 'workspace', path: directory }],
     ui: { ...config.ui, chatExecutor: 'web' }
   });
+  projectId = (await addProject(directory)).id;
 });
 
 afterEach(async () => {
@@ -221,6 +232,7 @@ afterAll(async () => {
   resetSessionStoreForTests();
   resetDurableForTests();
   await removeTempDir(directory);
+  await removeTempDir(appDataDirectory);
 });
 
 it('bootstraps a new DeepSeek worker chat before sending its assigned task', async () => {
@@ -531,7 +543,7 @@ it('invokes real Core apply_patch from a mocked DeepSeek web turn and records th
   const input = await enqueueInput({
     id: randomUUID(), sessionId: null, text: 'Add hello.txt with that greeting.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(input);
+  await runDeepseekProjectInput(input);
   expect(await fs.readFile(path.join(directory, 'hello.txt'), 'utf8')).toBe('hello from deepseek\n');
   const row = (await listInputs()).find(entry => entry.id === input.id);
   expect(row?.state).toBe('sent');
@@ -590,7 +602,7 @@ it('reviews tool-assisted work and keeps going when the requested project is sti
     id: randomUUID(), sessionId: null, text: request, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
 
-  const turnId = await runDeepseekInput(input);
+  const turnId = await runDeepseekProjectInput(input);
 
   if (!turnId) {
     await flushRecorder();
@@ -627,7 +639,7 @@ it('keeps later tool results and the original request when earlier output must b
     id: randomUUID(), sessionId: null, text: 'Inspect both files and compare them.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
 
-  await runDeepseekInput(input);
+  await runDeepseekProjectInput(input);
 
   expect(pages[1]!).toContain('SECOND_RESULT_MARKER');
   expect(pages[1]!).toContain('ACTIVE REQUEST: Inspect both files and compare them.');
@@ -651,7 +663,7 @@ it('retries an incomplete branded tool fence and then apply_patch writes the fil
   const input = await enqueueInput({
     id: randomUUID(), sessionId: null, text: 'Write after-repair.txt', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(input);
+  await runDeepseekProjectInput(input);
   expect(pages[1]).toContain('INCOMPLETE_TOOL');
   expect(await fs.readFile(path.join(directory, 'after-repair.txt'), 'utf8')).toBe('repaired\n');
 });
@@ -670,7 +682,7 @@ it('invokes apply_patch from a DeepSeek tool banner without backticks', async ()
   const input = await enqueueInput({
     id: randomUUID(), sessionId: null, text: 'Write from-banner.txt', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(input);
+  await runDeepseekProjectInput(input);
   expect(await fs.readFile(path.join(directory, 'from-banner.txt'), 'utf8')).toBe('banner\n');
 });
 
@@ -698,9 +710,12 @@ it('sends instructions and a bounded prior-history summary on a DeepSeek follow-
   expect(pages[1]).toContain('RECENT CONVERSATION SUMMARY');
   expect(pages[1]).toContain('first job');
   expect(pages[1]).toContain('noted');
-  expect(pages[1]).toContain('Default workspace folder for ordinary chats');
-  expect(pages[1]).toContain('apply_patch');
+  expect(pages[1]).toContain('Answer the user naturally and directly');
+  expect(pages[1]).not.toContain('Default workspace folder for ordinary chats');
+  expect(pages[1]).not.toContain('apply_patch');
+  expect(pages[1]).not.toContain('/workspace');
   expect(pages[1]).not.toContain('Available tools');
+  expect(pages[1]!.match(/USER MESSAGE:\nsecond job/g)).toHaveLength(1);
   expect(fresh).toEqual([false, false]);
 });
 
@@ -750,13 +765,13 @@ it('rebuilds a lost DeepSeek page from the saved local transcript', async () => 
     id: randomUUID(), sessionId: null, text: 'Yesterday I was implementing the import flow.',
     mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(first);
+  await runDeepseekProjectInput(first);
   loseNextFollowup = true;
   const followup = await enqueueInput({
     id: randomUUID(), sessionId: first.id, text: 'Continue from where we left off.',
     mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(followup);
+  await runDeepseekProjectInput(followup);
 
   expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
   expect(pages[2]!.text).toContain('RECENT CONVERSATION SUMMARY');
@@ -812,13 +827,15 @@ it('sends setup once, waits for its acknowledgement, then sends authored message
   const running = runDeepseekInput(first);
   await vi.waitFor(() => expect(pages).toHaveLength(1));
   expect(pages[0]!.fresh).toBe(true);
-  expect(pages[0]!.text).toContain('Available tools');
+  expect(pages[0]!.text).toContain('Answer naturally and directly');
+  expect(pages[0]!.text).not.toContain('Available tools');
   expect(pages[0]!.text).toContain('Do not run tools or execute examples');
   expect(pages[0]!.text).not.toContain('MY_ACTUAL_REQUEST');
   acknowledge({ text: 'NEURAFLOK_READY' });
   await running;
   expect(pages[1]).toMatchObject({ fresh: false, text: expect.stringContaining('MY_ACTUAL_REQUEST') });
-  expect(pages[1]!.text).toContain('WORKSPACE_CONTEXT');
+  expect(pages[1]!.text).toContain('ASSISTANT_INSTRUCTIONS');
+  expect(pages[1]!.text).not.toContain('PROJECT FILE TREE');
   const second = await enqueueInput({ id: randomUUID(), sessionId: first.id, text: 'MY_FOLLOWUP', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null });
   await runDeepseekInput(second);
   expect(pages).toHaveLength(3);
@@ -1182,13 +1199,13 @@ it('restores an old DeepSeek transcript before it lets the chat pass readiness',
   const first = await enqueueInput({
     id: randomUUID(), sessionId: null, text: previousRequest, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(first);
+  await runDeepseekProjectInput(first);
   loseContext = true;
   const warmup = await enqueueInput({
     id: randomUUID(), sessionId: first.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
     mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(warmup);
+  await runDeepseekProjectInput(warmup);
 
   expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
   expect(pages[3]!.text).toContain('Available tools');
@@ -1232,6 +1249,125 @@ it('records a simple greeting reply without calling a Core tool', async () => {
   expect(events.filter(event => event.kind === 'tool_call')).toHaveLength(0);
 });
 
+it('delivers a very long ordinary question once without adding project context or tool instructions', async () => {
+  const pages: string[] = [];
+  const request = `NF_LONG_START ${'synthetic ordinary chat text '.repeat(900)} NF_LONG_END`;
+  configureDeepseekForTests({ complete: async text => {
+    pages.push(text);
+    return { text: 'I received the complete long question.' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: request, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(input);
+
+  expect(pages).toHaveLength(1);
+  expect(pages[0]).toContain('NF_LONG_START');
+  expect(pages[0]).toContain('NF_LONG_END');
+  expect(pages[0]!.match(/USER MESSAGE:\n/g)).toHaveLength(1);
+  expect(pages[0]).not.toContain('PROJECT FILE TREE');
+  expect(pages[0]).not.toContain('Available tools');
+  expect(pages[0]).not.toContain('/workspace');
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'I received the complete long question.')).toBe(true);
+  expect(events.filter(event => event.kind === 'tool_call')).toHaveLength(0);
+});
+
+it('keeps a normal DeepSeek chat plain when the provider attempts a local tool call', async () => {
+  const pages: string[] = [];
+  let answer = 0;
+  configureDeepseekForTests({ complete: async text => {
+    pages.push(text);
+    if (answer++ === 0) return { text: '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/hello.txt"]}}\n```' };
+    return { text: 'La respuesta breve es 42.' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: '¿Cuánto es seis por siete?',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(input);
+
+  expect(pages[0]).toContain('Answer the user naturally and directly');
+  expect(pages[0]).not.toContain('Available tools');
+  expect(pages[0]).not.toContain('/workspace');
+  expect(pages[1]).toContain('normal chat with no file or command tools');
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'tool_call')).toHaveLength(0);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'La respuesta breve es 42.')).toBe(true);
+});
+
+it('reads files in Plan mode, blocks edits before approval, and executes after explicit approval', async () => {
+  const target = path.join(directory, 'plan-target.txt');
+  await fs.writeFile(target, 'before\n', 'utf8');
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  let reply = 0;
+  const patch = '*** Begin Patch\n*** Update File: /workspace/plan-target.txt\n@@\n-before\n+after\n*** End Patch';
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    switch (reply++) {
+      case 0:
+        return { text: '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/plan-target.txt"]}}\n```' };
+      case 1:
+        return { text: 'Plan: Update the one-line value and verify the file.' };
+      case 2:
+        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'apply_patch', arguments: { patch } })}\n\`\`\`` };
+      case 3:
+        return { text: 'I revised the plan to include the alternate idea.' };
+      case 4:
+        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'apply_patch', arguments: { patch } })}\n\`\`\`` };
+      case 5:
+        return { text: 'I made the change.' };
+      case 6:
+        expect(text).toContain('COMPLETION REVIEW');
+        return { text: 'The approved change is complete and verified.' };
+      default:
+        throw new Error('The project-plan workflow requested an unexpected provider turn.');
+    }
+  } });
+  // First draft, then an unapproved edit attempt is rejected and the plan is revised read-only.
+  const draft = await enqueueInput({
+    id: randomUUID(), sessionId: null, projectId, projectPlanPhase: 'draft',
+    text: 'Change the value after reviewing the file.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(draft);
+
+  expect(await fs.readFile(target, 'utf8')).toBe('before\n');
+  expect(await readProjectPlanState(draft.id)).toMatchObject({ request: draft.text, plan: expect.stringContaining('Update the one-line value') });
+  expect(pages[0]).toMatchObject({ fresh: true });
+  expect(pages[0]!.text).toContain('Available read-only tools');
+  expect(pages[0]!.text).not.toContain('"name":"apply_patch"');
+  expect(pages[1]!.text).toContain('# Plan first');
+  await flushRecorder();
+  let events = await readEvents(draft.id);
+  expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'read')).toHaveLength(1);
+  expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'apply_patch')).toHaveLength(0);
+
+  const review = await enqueueInput({
+    id: randomUUID(), sessionId: draft.id, text: 'Please include the alternate idea in your plan.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(review);
+  expect(await fs.readFile(target, 'utf8')).toBe('before\n');
+  expect(await readProjectPlanState(draft.id)).toMatchObject({ plan: expect.stringContaining('alternate idea') });
+  expect(pages[3]!.text).toContain('Plan awaiting approval');
+  expect(pages[4]!.text).toContain('non-read-only tool request was blocked');
+
+  const approved = await enqueueInput({
+    id: randomUUID(), sessionId: draft.id, text: 'Aprobar', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(approved);
+  expect(await fs.readFile(target, 'utf8')).toBe('after\n');
+  expect(await readProjectPlanState(draft.id)).toBeNull();
+  await flushRecorder();
+  events = await readEvents(draft.id);
+  expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'apply_patch')).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'The approved change is complete and verified.')).toBe(true);
+  expect(pages[5]!.text).toContain('The user explicitly approved this plan.');
+});
+
 it('records a chat_error after accept when the page refuses, without replaying the send', async () => {
   configureDeepseekForTests({
     complete: async () => {
@@ -1265,7 +1401,7 @@ it('returns unknown-tool text to the model instead of invoking a non-allowlisted
   const input = await enqueueInput({
     id: randomUUID(), sessionId: null, text: 'spawn a worker', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(input);
+  await runDeepseekProjectInput(input);
   expect(pages[1]).toContain('UNKNOWN_TOOL');
   await flushRecorder();
   const events = await readEvents(input.id);

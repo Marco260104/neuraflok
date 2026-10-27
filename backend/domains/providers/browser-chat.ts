@@ -2,11 +2,15 @@
 import { randomUUID } from 'node:crypto';
 import {
   webChatRoundReminder,
+  WEB_CHAT_READ_ONLY_TOOLS,
   formatWebChatResult,
   incompleteWebChatTool,
   incompleteToolNotice,
+  incompletePlanToolNotice,
   parseWebChatTools,
   stripWebChatTools,
+  webPlainChatInstructions,
+  webProjectPlanToolGuide,
   webToolGuide,
   type WebChatMessage,
   type WebChatThread
@@ -45,10 +49,14 @@ import {
 import { recordDeliveredInput } from '../sessions/input/input-history.js';
 import { noteLocalAgentTurnStarted } from '../automation/local-agent-observations.js';
 import {
-  getSession
+  clearProjectPlanState,
+  getSession,
+  readProjectPlanState,
+  updateProjectPlanState
 } from '../sessions/history/store.js';
 import { readSessionEvents } from '../sessions/history/read-model.js';
-import { summarizeProviderConversation, summarizeSessionHistory, sessionHistoryMessages } from './conversation-summary.js';
+import { summarizeProviderConversation, summarizeSessionHistory, sessionHistoryMessages, textOnlyWebMessages } from './conversation-summary.js';
+import { projectPlanAction, projectPlanContext } from './project-plan-flow.js';
 import {
   advertisedBrowserChatTools,
   createBrowserChatToolRegistrar,
@@ -392,18 +400,40 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   signal?.throwIfAborted();
   const sessionId = entry.sessionId ?? entry.id;
   const session = await getSession(sessionId);
+  const projectChat = Boolean(session?.projectId);
+  if (entry.projectPlanPhase === 'draft' && !projectChat) {
+    throw new Error('Plan mode is available only in a chat linked to a project.');
+  }
+  const pendingPlan = projectChat ? await readProjectPlanState(sessionId) : null;
+  const planStage = !projectChat ? null : entry.projectPlanPhase === 'draft'
+    ? 'draft'
+    : pendingPlan ? projectPlanAction(entry.text) ?? 'review' : null;
+  const projectPlanReadOnly = planStage !== null && planStage !== 'approved';
   const conversationId = resolveConversation(provider, entry, session?.conversationId ?? null);
   const registrar = createBrowserChatToolRegistrar();
   const guideCtx = await getBrowserChatGuideContext(sessionId);
-  const reminder = webChatRoundReminder(guideCtx);
-  const system = webToolGuide(advertisedBrowserChatTools(registrar), guideCtx);
+  const allTools = advertisedBrowserChatTools(registrar);
+  const planTools = allTools.filter(tool => (WEB_CHAT_READ_ONLY_TOOLS as readonly string[]).includes(tool.name));
+  if (projectPlanReadOnly && (!guideCtx.project || !planTools.some(tool => tool.name === 'read'))) {
+    throw new Error('Plan mode needs a readable project folder and file-reading permission. No message was sent.');
+  }
+  const reminder = !projectChat ? '' : projectPlanReadOnly
+    ? 'Only read or search relevant project files. Do not edit, run commands, or use other tools. Answer the current request and wait for explicit plan approval before making changes.'
+    : webChatRoundReminder(guideCtx);
+  const system = !projectChat ? webPlainChatInstructions(guideCtx.language)
+    : projectPlanReadOnly ? webProjectPlanToolGuide(planTools, guideCtx)
+      : webToolGuide(allTools, guideCtx);
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
   const history = !prior && session?.conversationId
     ? await readSessionEvents(sessionId, { limit: 160 })
     : null;
-  const priorMessages = prior?.messages ?? sessionHistoryMessages(history?.events ?? []);
+  const recoveredMessages = sessionHistoryMessages(history?.events ?? [], { includeTools: projectChat });
+  const priorMessages = projectChat
+    ? prior?.messages ?? recoveredMessages
+    : textOnlyWebMessages(prior?.messages ?? recoveredMessages);
   let messages = withWebProviderSystem(priorMessages, system);
-  const historySummary = summarizeProviderConversation(priorMessages) || summarizeSessionHistory(history?.events ?? []);
+  const historySummary = summarizeProviderConversation(priorMessages, { includeTools: projectChat }) ||
+    summarizeSessionHistory(history?.events ?? [], { includeTools: projectChat });
   const priorAuthoredRequest = await latestAuthoredRequest(sessionId, entry.warmup ? undefined : entry.id);
   // An automatic opening warmup can leave a setup message and its ACK in the
   // provider transcript before the user sends anything. That is not prior chat
@@ -423,7 +453,11 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   const opening = isOpening(messages) && (!hasPriorAuthoredContext ||
     (!session?.conversationId && !entry.conversationId) || session?.origin?.kind === 'worker' || openingWarmup);
   const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, {
-    historySummary: opening || !hasPriorAuthoredContext ? undefined : historySummary
+    historySummary: opening || !hasPriorAuthoredContext ? undefined : historySummary,
+    projectPlanPhase: planStage === 'draft' ? 'draft' : undefined,
+    projectPlanContext: planStage && planStage !== 'draft'
+      ? projectPlanContext(pendingPlan ?? { request: entry.text, plan: '' }, planStage)
+      : undefined
   });
   const bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
   const userMessageId = randomUUID();
@@ -507,6 +541,8 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     let assistantMessageId = randomUUID();
     let lastObservedClean = '';
     let idleRecoveries = 0;
+    let plainTextRetries = 0;
+    let prohibitedPlanRetries = 0;
     let executedToolCalls = 0;
     let reviewedToolCalls = 0;
 
@@ -570,6 +606,22 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         const raw = completion.text ?? '';
         const calls = parseWebChatTools(raw);
         const assistantContent = stripWebChatTools(raw);
+        if (!projectChat && (calls.length || incompleteWebChatTool(raw))) {
+          if (plainTextRetries++ === 0) {
+            pageText = 'Answer the user\'s current message directly in natural text. This is a normal chat with no file or command tools. Do not emit tool syntax.';
+            continue;
+          }
+          assistantText = assistantContent || 'I could not produce a plain-text response. Please send the question again.';
+          break;
+        }
+        if (projectPlanReadOnly && calls.some(call => !(WEB_CHAT_READ_ONLY_TOOLS as readonly string[]).includes(call.function.name))) {
+          if (prohibitedPlanRetries++ === 0) {
+            pageText = 'A non-read-only tool request was blocked and did not run. Continue by reading relevant project files with read/find only, then propose a concise plan without changing anything.';
+            continue;
+          }
+          assistantText = 'I could not prepare a safe read-only plan for this request. Please try Plan again.';
+          break;
+        }
         if (round === MAX_TOOL_ROUNDS && calls.length) {
           assistantText = assistantContent || `The model reached the ${MAX_TOOL_ROUNDS}-round tool limit before returning a final answer. The completed work is saved; send a follow-up to continue.`;
           thread.messages = trimWebProviderThread([...thread.messages, { role: 'assistant', content: assistantText }]);
@@ -583,10 +635,10 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         if (!calls.length) {
           if (incompleteWebChatTool(raw) && incompleteTries < MAX_INCOMPLETE_TOOL) {
             incompleteTries++;
-            pageText = incompleteToolNotice(guideCtx);
+            pageText = projectPlanReadOnly ? incompletePlanToolNotice() : incompleteToolNotice(guideCtx);
             continue;
           }
-          if (executedToolCalls > reviewedToolCalls) {
+          if (!projectPlanReadOnly && executedToolCalls > reviewedToolCalls) {
             reviewedToolCalls = executedToolCalls;
             pageText = webProviderCompletionReview(entry);
             thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: pageText }]);
@@ -615,7 +667,8 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         const results: Array<{ name: string; content: string }> = [];
         for (const call of calls) {
           abort.signal.throwIfAborted();
-          const content = await invokeBrowserChatTool(live, call, requestId, ownedConversation, sessionId);
+          const content = await invokeBrowserChatTool(live, call, requestId, ownedConversation, sessionId,
+            projectPlanReadOnly ? guideCtx.project : undefined);
           executedToolCalls++;
           results.push({ name: call.function.name, content });
           thread.messages = trimWebProviderThread([...thread.messages, {
@@ -628,6 +681,16 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         pageText = webProviderRoundFollowup(entry, results, reminder, round === MAX_TOOL_ROUNDS - 1);
       }
       if (!assistantText) assistantText = '(no assistant text)';
+      const usablePlanReply = assistantText !== '(no assistant text)' && !/could not prepare a safe read-only plan/i.test(assistantText);
+      if (projectChat && usablePlanReply) {
+        if (planStage === 'draft') {
+          await updateProjectPlanState(sessionId, ownedConversation, { request: entry.text, plan: assistantText }, now());
+        } else if (planStage === 'review' && pendingPlan) {
+          await updateProjectPlanState(sessionId, ownedConversation, { request: pendingPlan.request, plan: assistantText }, now());
+        } else if (planStage === 'approved' || planStage === 'cancel') {
+          await clearProjectPlanState(sessionId, ownedConversation);
+        }
+      }
       await observe(ownedConversation, [
         {
           kind: 'assistant_message',

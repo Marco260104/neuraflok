@@ -349,6 +349,8 @@
   "Sub-agents · {0} recorded": "子智能体 · {0} 条记录",
   "Plan complete": "计划已完成",
   "Plan": "计划",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "计划模式已开启。助手会读取项目文件，并在进行更改前征求确认。",
+  "Read relevant project files and propose a plan before making changes.": "在进行更改前读取相关项目文件并提出计划。",
   "In progress": "进行中",
   "Completed": "已完成",
   "Pending": "待处理",

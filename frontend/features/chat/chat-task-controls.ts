@@ -1,6 +1,7 @@
 import { supportsFinishAutomation } from '../../../contracts/automation/completion-policy.js';
 import type { InputAutomation } from '../../../contracts/input.js';
 import type { AppState } from '../../../contracts/types.js';
+import type { SessionSummary } from '../../../contracts/session.js';
 import type { TaskPlanDraft } from './chat-task-plan.js';
 import { observedComposerModel } from './chat-models.js';
 import { $, el, icon } from '../../shared/dom.js';
@@ -9,12 +10,19 @@ import { t, ui } from '../../shared/i18n.js';
 export interface ChatTaskControlsRuntime {
   draftKey(): string;
   selectedId: string | null;
+  selectedProjectId: string | null;
+  sessions: SessionSummary[];
   selectionGeneration: number;
   controlledSessionId: string | null;
   controlledSelection: number;
   goalDraftStage(): string | undefined;
   hasFinishGoalDraft(): boolean;
-  taskPlans: { getPlan(key: string): TaskPlanDraft | null };
+  taskPlans: {
+    getPlan(key: string): TaskPlanDraft | null;
+    projectPlanMode(key?: string): boolean;
+    toggleProjectPlanMode(key?: string): void;
+    clearProjectPlanMode(key?: string): void;
+  };
   state(): AppState | null;
   cancelGoalRequest(): void;
   advanceGoalIntent(): void;
@@ -25,6 +33,25 @@ export interface ChatTaskControlsRuntime {
 // Owns task and automation presentation for the chat composer.
 export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
   let objectiveEditMode: 'goal' | 'loop' | null = null;
+
+  function isProjectChat(): boolean {
+    return runtime.selectedId
+      ? Boolean(runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId)
+      : Boolean(runtime.selectedProjectId);
+  }
+
+  function projectPlanMode(): boolean {
+    return runtime.taskPlans.projectPlanMode(runtime.draftKey());
+  }
+
+  function toggleProjectPlanMode(): void {
+    if (!isProjectChat()) return;
+    runtime.taskPlans.toggleProjectPlanMode(runtime.draftKey());
+  }
+
+  function clearProjectPlanMode(key = runtime.draftKey()): void {
+    runtime.taskPlans.clearProjectPlanMode(key);
+  }
 
   function goalReachedShown(): boolean {
     return runtime.controlledSessionId === runtime.selectedId && runtime.controlledSelection === runtime.selectionGeneration &&
@@ -125,11 +152,17 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     const loop = editMode === 'loop';
     ui(document.querySelector('label[for="sessionObjective"]')!, 'textContent', () => loop ? t('Loop instructions') : t('Goal'));
     ui($<HTMLTextAreaElement>('sessionObjective'), 'placeholder', () => loop ? t('What should each continuation focus on?') : t('Optional. Leave empty to work toward what you asked in this chat.'));
-    const goalBtn = document.getElementById('composerGoalBtn');
-    if (goalBtn) {
-      const isGoal = mode === 'goal';
-      goalBtn.classList.toggle('is-active', isGoal);
-      goalBtn.setAttribute('aria-pressed', String(isGoal));
+    const planBtn = document.getElementById('composerPlanBtn');
+    if (planBtn) {
+      planBtn.hidden = !isProjectChat();
+      planBtn.classList.toggle('is-active', projectPlanMode());
+      planBtn.setAttribute('aria-pressed', String(projectPlanMode()));
+      ui(planBtn, 'aria-label', () => t('Plan'));
+      const label = planBtn.querySelector('span');
+      if (label) ui(label, 'textContent', () => t('Plan'));
+      ui(planBtn, 'title', () => projectPlanMode()
+        ? t('Plan mode is on. The assistant will read project files and ask before making changes.')
+        : t('Read relevant project files and propose a plan before making changes.'));
     }
     paintTaskActions();
   }
@@ -156,6 +189,10 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     paintTaskActions,
     paintLoopDelivery,
     openingLoopDelivery,
-    paintAutomationSwitch
+    paintAutomationSwitch,
+    isProjectChat,
+    projectPlanMode,
+    toggleProjectPlanMode,
+    clearProjectPlanMode
   };
 }

@@ -100,6 +100,8 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get selectedId() { return bindings.selectedId; },
     get sessions() { return bindings.sessions; },
     get selectedProjectId() { return bindings.selectedProjectId; },
+    projectPlanMode: () => bindings.chatTaskControls?.projectPlanMode() ?? false,
+    clearProjectPlanMode: (key?: string) => bindings.chatTaskControls?.clearProjectPlanMode(key),
     get imageDrafts() { return imageDrafts; },
     authoredComposerText: bindings.authoredComposerText,
     get selectionGeneration() { return bindings.selectionGeneration; },
@@ -174,6 +176,8 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
   bindings.chatTaskControls = createChatTaskControls({
     draftKey: bindings.draftKey,
     get selectedId() { return bindings.selectedId; },
+    get selectedProjectId() { return bindings.selectedProjectId; },
+    get sessions() { return bindings.sessions; },
     get selectionGeneration() { return bindings.selectionGeneration; },
     get controlledSessionId() { return bindings.controlledSessionId; },
     get controlledSelection() { return bindings.controlledSelection; },

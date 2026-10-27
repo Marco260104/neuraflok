@@ -342,6 +342,8 @@
   "Sub-agents · {0} recorded": "Субагенты · записано: {0}",
   "Plan complete": "План выполнен",
   "Plan": "План",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "Режим планирования включён. Ассистент прочитает файлы проекта и запросит подтверждение перед внесением изменений.",
+  "Read relevant project files and propose a plan before making changes.": "Прочитать нужные файлы проекта и предложить план до внесения изменений.",
   "In progress": "В работе",
   "Completed": "Завершено",
   "Pending": "Ожидает",

@@ -13,6 +13,7 @@ export interface ChatMainActionsRuntime {
   controlledSelection: number;
   hasComposerImages: () => boolean;
   sendComposer: (delivery?: 'finish') => Promise<boolean | void>;
+  toggleProjectPlanMode: () => void;
   paintDeliveryControls: () => void;
   refreshSessionControls: () => Promise<void>;
   selectNewChat: (projectId?: string | null) => void;
@@ -47,11 +48,7 @@ export function bindChatMainActions(runtime: ChatMainActionsRuntime): void {
       finally { button.disabled = false; if (runtime.selectedId === id) void runtime.refreshSessionControls(); }
     });
   }
-  $('composerGoalBtn').addEventListener('click', () => {
-    const select = $<HTMLSelectElement>('chatAutomation');
-    select.value = select.value === 'goal' ? 'off' : 'goal';
-    select.dispatchEvent(new Event('change'));
-  });
+  $('composerPlanBtn').addEventListener('click', () => runtime.toggleProjectPlanMode());
   $('composerProjectPill').addEventListener('click', () => $('addProject').click());
   $('generateFinishGoal').addEventListener('click', async () => {
     const button = $<HTMLButtonElement>('generateFinishGoal');

@@ -342,6 +342,8 @@
   "Sub-agents · {0} recorded": "Yardımcı ajanlar · {0} kayıtlı",
   "Plan complete": "Plan tamamlandı",
   "Plan": "Plan",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "Plan modu açık. Asistan proje dosyalarını okuyacak ve değişiklik yapmadan önce onay isteyecek.",
+  "Read relevant project files and propose a plan before making changes.": "Değişiklik yapmadan önce ilgili proje dosyalarını okuyup bir plan öner.",
   "In progress": "Devam ediyor",
   "Completed": "Tamamlandı",
   "Pending": "Bekliyor",

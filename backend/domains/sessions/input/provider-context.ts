@@ -73,9 +73,21 @@ async function attachedText(attachments: readonly InputAttachment[] | undefined,
 
 /** Prepare the exact text that a local executor sends. Opening turns use the provider tool guide plus the selected project's AGENTS.md and frozen Skills; later turns keep language and project directory and add only explicitly selected Skills. File bytes are read from the validated attachment store and bounded first. */
 export async function prepareLocalProviderPrompt(
-  entry: InputEntry, sessionId: string, options: { allowImageAttachments?: boolean; historySummary?: string } = {}
+  entry: InputEntry, sessionId: string, options: {
+    allowImageAttachments?: boolean;
+    historySummary?: string;
+    projectPlanPhase?: 'draft';
+    projectPlanContext?: string;
+  } = {}
 ): Promise<string> {
-  const scope = { sessionId, projectId: entry.projectId, autoSkills: entry.autoSkills, historySummary: options.historySummary };
+  const scope = {
+    sessionId,
+    projectId: entry.projectId,
+    autoSkills: entry.autoSkills,
+    historySummary: options.historySummary,
+    projectPlanPhase: options.projectPlanPhase ?? entry.projectPlanPhase,
+    projectPlanContext: options.projectPlanContext
+  };
   const base = await prepareProviderSessionPrompt(entry.text, scope, LOCAL_PROVIDER_PROMPT_LIMITS, entry.text);
   const files = await attachedText(entry.attachments, options.allowImageAttachments === true);
   const prepared = `${base}${files}`;

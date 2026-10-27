@@ -240,7 +240,7 @@ const sessionDocuments = createSessionDocuments({
   sessionDirectory: sessionDir,
   waitForSessionQueue: async id => { await liveState().getOpenSession(id)?.queue; }
 });
-export const { readSessionPlan, updateSessionPlan } = sessionDocuments;
+export const { readSessionPlan, updateSessionPlan, readProjectPlanState, updateProjectPlanState, clearProjectPlanState } = sessionDocuments;
 
 export async function pruneSessions(_retainDays: number): Promise<number> {
   return 0;

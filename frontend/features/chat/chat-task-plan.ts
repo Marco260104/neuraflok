@@ -38,6 +38,7 @@ export function createChatTaskPlan(runtime: Runtime) {
 
   // Planning belongs to its draft key. Completed stages own their captured objective independently of composer edits; existing sessions hand them to the durable queue.
   const taskPlans = new Map<string, TaskPlanDraft>();
+  const projectPlanModes = new Set<string>();
   function currentPreparedPlan():
     (TaskPlanDraft & { stages: string[] }) | null {
     const plan = taskPlans.get(runtime.draftKey());
@@ -362,6 +363,21 @@ export function createChatTaskPlan(runtime: Runtime) {
     return taskPlans.has(key);
   }
 
+  function projectPlanMode(key = runtime.draftKey()): boolean {
+    return projectPlanModes.has(key);
+  }
+
+  function toggleProjectPlanMode(key = runtime.draftKey()): void {
+    if (projectPlanModes.has(key)) projectPlanModes.delete(key);
+    else projectPlanModes.add(key);
+    if (runtime.draftKey() === key) runtime.paintTaskActions();
+  }
+
+  function clearProjectPlanMode(key = runtime.draftKey()): void {
+    projectPlanModes.delete(key);
+    if (runtime.draftKey() === key) runtime.paintTaskActions();
+  }
+
   function setPlan(key: string, plan: TaskPlanDraft): void {
     taskPlans.set(key, plan);
   }
@@ -375,6 +391,9 @@ export function createChatTaskPlan(runtime: Runtime) {
     sendPreparedPlan,
     getPlan,
     hasPlan,
+    projectPlanMode,
+    toggleProjectPlanMode,
+    clearProjectPlanMode,
     setPlan,
   };
 }

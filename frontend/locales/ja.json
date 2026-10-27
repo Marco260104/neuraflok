@@ -349,6 +349,8 @@
   "Sub-agents · {0} recorded": "サブエージェント · {0}件の記録",
   "Plan complete": "計画が完了しました",
   "Plan": "計画",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "プランモードが有効です。アシスタントはプロジェクトファイルを読み、変更前に確認を求めます。",
+  "Read relevant project files and propose a plan before making changes.": "変更を加える前に関連するプロジェクトファイルを読み、計画を提案します。",
   "In progress": "進行中",
   "Completed": "完了",
   "Pending": "待機中",

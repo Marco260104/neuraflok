@@ -324,6 +324,8 @@
   "Sub-agents · {0} recorded": "서브에이전트 · {0}개 기록됨",
   "Plan complete": "플랜 완료",
   "Plan": "플랜",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "계획 모드가 켜져 있습니다. 어시스턴트는 프로젝트 파일을 읽고 변경 전에 확인을 요청합니다.",
+  "Read relevant project files and propose a plan before making changes.": "변경하기 전에 관련 프로젝트 파일을 읽고 계획을 제안합니다.",
   "In progress": "진행 중",
   "Completed": "완료",
   "Pending": "대기 중",

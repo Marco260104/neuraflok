@@ -504,6 +504,8 @@
   "Sub-agents · {0} recorded": "子代理 · {0} 條記錄",
   "Plan complete": "計畫已完成",
   "Plan": "計畫",
+  "Plan mode is on. The assistant will read project files and ask before making changes.": "計畫模式已開啟。助理會讀取專案檔案，並在變更前徵求確認。",
+  "Read relevant project files and propose a plan before making changes.": "在進行變更前閱讀相關專案檔案並提出計畫。",
   "In progress": "進行中",
   "Completed": "已完成",
   "Pending": "待處理",
