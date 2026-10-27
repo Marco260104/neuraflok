@@ -254,8 +254,25 @@
 .composer :is(#attachmentMenu > summary, #composerSettings > summary, #createPlan, #contextMeterButton) { box-sizing: border-box; height: 36px; min-height: 36px; border-radius: 8px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .composer #attachmentMenu > summary { padding: 0; }
 .composer :is(#createPlan, #contextMeterButton):disabled { cursor: default; }
+.composer .composer-goal-pill {
+  box-sizing: border-box; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px;
+  min-width: 36px; height: 36px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--pill, 999px);
+  background: var(--sunk); color: var(--soft); font: inherit; font-size: calc(12px * var(--text-scale, 1)); font-weight: 600;
+  line-height: 1; white-space: nowrap; cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.composer .composer-goal-pill[hidden] { display: none; }
+.composer .composer-goal-pill > .ico { flex: none; --ico: 16px; --glyph: 16px; }
+.composer .composer-goal-pill.is-active,
+.composer .composer-goal-pill[aria-pressed='true'] {
+  border-color: var(--accent-edge, var(--accent)); background: var(--accent-fill, var(--accent)); color: var(--on-accent, var(--page));
+  box-shadow: var(--shadow-border);
+}
 @media (hover: hover) and (pointer: fine) {
   .composer :is(button, summary):where(:not(.send-button):not(:disabled):not([aria-disabled=true])):hover { background: var(--hover); color: var(--ink); }
+  .composer .composer-goal-pill:not(.is-active):hover { border-color: var(--edge); }
+  .composer .composer-goal-pill.is-active:hover,
+  .composer .composer-goal-pill[aria-pressed='true']:hover { background: var(--accent-fill, var(--accent)); color: var(--on-accent, var(--page)); }
 }
 .composer :is(button, summary):where(:not(.send-button):not(:disabled):not([aria-disabled=true])):active { background: var(--control-pressed); }
 .composer :is(button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -276,16 +293,19 @@
   .composer-primary-controls { gap: 1px; }
   .composer #composerSettings > summary { gap: 4px; padding-inline: 6px; }
   .composer #createPlan { gap: 4px; padding-inline: 6px; }
+  .composer #composerPlanBtn { gap: 4px; padding-inline: 7px; }
 }
 @container chat-session (max-width: 520px) {
   .composer { width: calc(100% - 24px); padding-inline: 8px; gap: 3px; grid-template-columns: minmax(0, 1fr) auto minmax(0, 84px) 36px; }
   .composer-primary-controls { gap: 0; }
   .composer #attachmentMenu > summary,
   .composer #composerSettings > summary,
-  .composer #createPlan { width: 32px; padding: 0; }
+  .composer #createPlan,
+  .composer #composerPlanBtn { width: 32px; padding: 0; }
   #composerModeLabel,
   #composerSettings > summary .picker-chevron,
   #createPlan > span,
+  #composerPlanBtn > span,
   #contextMeterCompact { display: none; }
   .composer #contextMeterButton { width: 28px; padding: 0; }
 }

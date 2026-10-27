@@ -16,6 +16,7 @@ import { configureIntegratedBrowserSession } from './session-setup.js';
 import type { ModelEvent } from './tabs/model-contracts.js';
 import { createIntegratedBrowserProviderPages } from './provider-pages.js';
 import { createIntegratedBrowserWindowHost, integratedBrowserPageBackground } from './window-host.js';
+import { loadFreshIntegratedExtension } from './extension-loading.js';
 import { integratedBrowserRendererUrl } from './renderer-url.js';
 
 const PARTITION = 'persist:neural-jam-browser';
@@ -141,7 +142,10 @@ export class IntegratedBrowser {
     const ses = session.fromPartition(PARTITION);
     this.configure(ses);
     this.ses = ses;
-    const extension = await ses.extensions.loadExtension(dir);
+    const extension = await loadFreshIntegratedExtension(
+      () => ses.clearStorageData({ storages: ['serviceworkers'] }),
+      () => ses.extensions.loadExtension(dir)
+    );
     this.extensionId = extension.id;
     try { this.companionIcon = `data:image/png;base64,${readFileSync(path.join(dir, 'icons', 'icon32.png')).toString('base64')}`; }
     catch { this.companionIcon = null; }
