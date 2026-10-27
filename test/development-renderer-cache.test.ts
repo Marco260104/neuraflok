@@ -1,5 +1,10 @@
 import { expect, it, vi } from 'vitest';
-import { loadFreshDevelopmentRenderer } from '../backend/application/window-load.js';
+import { freshDevelopmentRendererUrl, loadFreshDevelopmentRenderer } from '../backend/application/window-load.js';
+
+it('gives each development renderer load a fresh URL while preserving existing query options', () => {
+  expect(freshDevelopmentRendererUrl('http://localhost:5173/?mode=dev', 42))
+    .toBe('http://localhost:5173/?mode=dev&nf-renderer-boot=42');
+});
 
 it('clears cached assets before opening the development renderer', async () => {
   const calls: string[] = [];
