@@ -5,18 +5,7 @@ export function createDeepseekSessionResolver({
   const { readProviderTab, writeProviderTab } = state;
   const READ_MS = 8_000;
 
-  function conversationPageUrl(value) {
-    try {
-      const url = new URL(String(value || ''));
-      if (url.protocol !== 'https:' || url.hostname !== 'chat.deepseek.com' || url.port ||
-          !/^\/a\/chat\/s\/[^/]+\/?$/.test(url.pathname)) return null;
-      url.search = '';
-      url.hash = '';
-      return url.href.replace(/\/$/, '');
-    } catch {
-      return null;
-    }
-  }
+  const conversationPageUrl = deepseekConversationPageUrl;
 
   async function rememberConversationPage(offer, tabId) {
     if (!Number.isInteger(tabId)) return;
@@ -106,4 +95,17 @@ export function createDeepseekSessionResolver({
   }
 
   return { conversationPageUrl, rememberConversationPage, resolveExistingDeepseekTab };
+}
+
+export function deepseekConversationPageUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    if (url.protocol !== 'https:' || url.hostname !== 'chat.deepseek.com' || url.port ||
+        !/^\/a\/chat\/s\/[^/]+\/?$/.test(url.pathname)) return null;
+    url.search = '';
+    url.hash = '';
+    return url.href.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
 }

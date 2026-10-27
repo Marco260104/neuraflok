@@ -142,6 +142,9 @@ export function createWebProviderPageExecutor({ chrome, activeTabs, call, tabRep
             await restoreProviderTab(offer.provider, tab.id);
           }
         }
+        if (offer.fresh !== true && await restoreProviderTab(offer.provider, tab.id) === false) {
+          throw new Error(`Could not refresh the ${offer.provider.toUpperCase()} chat controls. Reload the provider page and retry.`);
+        }
         const statusType = providerPageType(offer.provider, 'status');
         let status = await tabReply(tab.id, { type: statusType });
         if (!status || status.provider !== offer.provider || typeof status.signedIn !== 'boolean') {

@@ -69,5 +69,8 @@ export function warmupDeferredProgress(
   }
   if (warmupPhase === 'opening') return 'reading';
   if (dispatchedInput) return null;
-  return pending.some(entry => ['queued', 'browser'].includes(entry.state)) ? 'reading' : null;
+  // A queued after-turn message has not been handed to the provider yet. Keep
+  // it in the queue without painting a permanent "reading" spinner after the
+  // chat preparation failed or the app restarted.
+  return null;
 }

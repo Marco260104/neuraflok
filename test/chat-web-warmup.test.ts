@@ -72,7 +72,7 @@ it('waits for the matching DeepSeek acknowledgement while existing messages stay
   expect(composerWarmupState(sessionId)).toEqual({ phase: 'opening', generation: 1, priorTurnWorking: true });
   await vi.waitFor(() => expect(composerWarmupState(sessionId)).toBeNull());
   expect(sendInput).toHaveBeenCalledTimes(1);
-  expect(sendInput.mock.calls[0]![0]).toMatchObject({ sessionId, warmup: true, authoredSource: 'none', mode: 'after-turn' });
+  expect(sendInput.mock.calls[0]![0]).toMatchObject({ sessionId, warmup: true, authoredSource: 'none', mode: 'auto' });
   expect(runtime.pendingComposerInputs[0]).toMatchObject({ id: 'early-message', state: 'queued' });
   expect(runtime.paintDeliveryControls).toHaveBeenCalled();
   expect(runtime.paintPreparationStatus).toHaveBeenCalled();

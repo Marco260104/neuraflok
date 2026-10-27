@@ -2169,5 +2169,8 @@
   "Your message will be queued until the model is ready.": "Sua mensagem ficará na fila até que o modelo esteja pronto.",
   "The model could not confirm this chat context. Retry to release queued messages.": "O modelo não conseguiu confirmar o contexto deste chat. Tente novamente para liberar as mensagens na fila.",
   "Chat context not verified": "Contexto do chat não verificado",
-  "Chat is ready.": "O chat está pronto."
+  "Chat is ready.": "O chat está pronto.",
+  "Waiting for provider…": "Aguardando o provedor…",
+  "Open this chat": "Abrir este chat",
+  "Open this chat in its provider": "Abrir este chat no provedor correspondente"
 }

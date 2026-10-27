@@ -28,6 +28,7 @@ interface FakeNode {
   className: string;
   hidden: boolean;
   value: string;
+  _valueTracker?: { setValue(value: string): void; getValue(): string };
   textContent: string;
   innerText: string;
   parent: FakeNode | null;
@@ -36,9 +37,11 @@ interface FakeNode {
   d?: string;
   key?: string;
   tagName: string;
+  shadowRoot?: FakeNode | null;
   getAttribute(name: string): string | null;
   querySelector(selector: string): FakeNode | null;
   querySelectorAll(selector: string): FakeNode[];
+  matches(selector: string): boolean;
   closest(selector: string): FakeNode | null;
   getClientRects(): Array<{ width: number; height: number }>;
   click(): void;
@@ -62,6 +65,7 @@ function node(tag: string, attrs: Record<string, string> = {}, children: FakeNod
     events: [],
     d: attrs.d,
     key: attrs.key,
+    shadowRoot: null,
     getAttribute(name) {
       if (name === 'd') return this.d ?? null;
       if (name === 'id') return this.id ?? null;
@@ -74,6 +78,9 @@ function node(tag: string, attrs: Record<string, string> = {}, children: FakeNod
     },
     querySelectorAll(selector) {
       return collect(this).filter(candidate => matches(candidate, selector));
+    },
+    matches(selector) {
+      return matchOne(this, selector);
     },
     closest(selector) {
       let current: FakeNode | null = this;
@@ -125,7 +132,11 @@ function hasClass(candidate: FakeNode, name: string): boolean {
 }
 
 function matchSimple(candidate: FakeNode, selector: string): boolean {
+  if (selector === '*') return true;
   if (selector === '[role="button"]') return candidate.getAttribute('role') === 'button';
+  if (selector === '[role="textbox"]') return candidate.getAttribute('role') === 'textbox';
+  if (selector === '[contenteditable="true"]') return candidate.getAttribute('contenteditable') === 'true';
+  if (selector === '[contenteditable]') return candidate.getAttribute('contenteditable') !== null;
   if (selector === 'textarea#chat-input') return candidate.tagName === 'TEXTAREA' && candidate.id === 'chat-input';
   if (selector === 'textarea[name="search"]') return candidate.tagName === 'TEXTAREA' && candidate.name === 'search';
   if (selector === '#chat-input') return candidate.id === 'chat-input';
@@ -157,22 +168,36 @@ Object.defineProperty(HTMLTextAreaElement.prototype, 'value', {
   set(value: string) { nativeValues.set(this, String(value)); }
 });
 
-function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolean; title?: string } = {}): {
+function load(body: FakeNode[], options: { composer?: boolean; composerId?: boolean; composerPlaceholder?: string; hiddenSearch?: boolean | 'aria-hidden' | 'visible'; sendRole?: boolean; title?: string } = {}): {
   api: DeepseekDomApi;
   composer: FakeNode | null;
   send: FakeNode;
   attach: FakeNode;
   stop: FakeNode;
-  document: { getElementById(id: string): FakeNode | null };
+  document: { getElementById(id: string): FakeNode | null; body: FakeNode; visibilityState?: string; hidden?: boolean };
   sessionStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void };
   listeners: Array<(message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown>;
+  presenceObservers: Array<{ notify(): void }>;
+  presenceMessages: Array<{ signedIn?: boolean }>;
   context: vm.Context;
 } {
-  const composer = options.composer === false ? null : node('textarea', { id: 'chat-input', name: 'search' });
+  const composer = options.composer === false ? null : node('textarea', {
+    ...(options.composerId === false ? {} : { id: 'chat-input' }),
+    ...(options.composerPlaceholder ? { placeholder: options.composerPlaceholder } : {}),
+    name: 'search'
+  });
   if (composer) {
     Object.setPrototypeOf(composer, HTMLTextAreaElement.prototype);
     Reflect.deleteProperty(composer, 'value');
   }
+  const hiddenSearch = options.hiddenSearch ? node('textarea', {
+    name: 'search',
+    ...(options.hiddenSearch === 'aria-hidden' ? { 'aria-hidden': 'true' } : {})
+  }) : null;
+  if (hiddenSearch && options.hiddenSearch === true) hiddenSearch.hidden = true;
+  const composerRoot = composer && options.composerId === false
+    ? node('div', { class: 'ds-input' }, [composer])
+    : composer;
   const sendPath = node('path', { d: 'M8.3125 0.98abc' });
   const attachPath = node('path', { d: 'M5.5498 attach' });
   const stopPath = node('path', { d: 'M2 4.88stop' });
@@ -182,16 +207,17 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
   const attach = node('button', {}, [node('svg', {}, [attachPath])]);
   const stop = node('button', {}, [node('svg', {}, [stopPath])]);
   stop.hidden = true;
-  const roots = [...(composer ? [composer] : []), send, attach, stop, ...body];
+  const documentBody = node('body');
+  const roots = [...(hiddenSearch ? [hiddenSearch] : []), ...(composerRoot ? [composerRoot] : []), send, attach, stop, ...body];
   const extras: FakeNode[] = [];
   const documentElement = node('html');
   const document = {
     title: options.title ?? '',
     querySelector(selector: string) {
-      return roots.flatMap(collect).find(candidate => matches(candidate, selector)) ?? null;
+      return [...roots.flatMap(collect), ...collect(documentBody)].find(candidate => matches(candidate, selector)) ?? null;
     },
     querySelectorAll(selector: string) {
-      return roots.flatMap(collect).filter(candidate => matches(candidate, selector));
+      return [...roots.flatMap(collect), ...collect(documentBody)].filter(candidate => matches(candidate, selector));
     },
     getElementById(id: string) {
       return extras.find(candidate => candidate.id === id) ?? null;
@@ -201,10 +227,17 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
       extras.push(created);
       return created;
     },
+    addEventListener() {},
     documentElement,
-    body: node('body')
+    body: documentBody
   };
   const listeners: Array<(message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown> = [];
+  const presenceObservers: Array<{ notify(): void }> = [];
+  const presenceMessages: Array<{ signedIn?: boolean }> = [];
+  class FakeMutationObserver {
+    constructor(private readonly callback: () => void) {}
+    observe() { presenceObservers.push({ notify: () => this.callback() }); }
+  }
   const sessionRows = new Map<string, string>();
   const sessionStorage = {
     getItem(key: string) { return sessionRows.get(key) ?? null; },
@@ -213,14 +246,19 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
   };
   const context = vm.createContext({
     document,
-    window: { HTMLTextAreaElement, Event },
+    window: { HTMLTextAreaElement, Event, addEventListener() {} },
     Event,
+    MutationObserver: FakeMutationObserver,
+    addEventListener() {},
     Date,
     URL,
     location: { href: 'https://chat.deepseek.com/' },
     sessionStorage,
     setTimeout,
-    chrome: { runtime: { onMessage: { addListener(fn: (typeof listeners)[number]) { listeners.push(fn); } } } },
+    chrome: { runtime: {
+      onMessage: { addListener(fn: (typeof listeners)[number]) { listeners.push(fn); } },
+      sendMessage(message: { signedIn?: boolean }) { presenceMessages.push(message); }
+    } },
     globalThis: undefined as unknown
   });
   context.globalThis = context;
@@ -236,6 +274,8 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
     document,
     sessionStorage,
     listeners,
+    presenceObservers,
+    presenceMessages,
     context
   };
 }
@@ -265,6 +305,81 @@ it('sets the native textarea value and reports Stop while generating', () => {
   send.hidden = true;
   expect(api.stopButton()).toBe(stop);
   expect(api.generating()).toBe(true);
+});
+
+it('leaves React able to observe the native textarea value change', () => {
+  const { api, composer } = load([]);
+  let trackedValue = '';
+  let observedValue = '';
+  composer!._valueTracker = {
+    setValue(value) { trackedValue = value; },
+    getValue() { return trackedValue; }
+  };
+  composer!.addEventListener('input', () => {
+    if (composer!.value !== composer!._valueTracker!.getValue()) {
+      observedValue = composer!.value;
+      composer!._valueTracker!.setValue(composer!.value);
+    }
+  });
+
+  api.setValue(composer!, 'React must receive this message');
+
+  expect(observedValue).toBe('React must receive this message');
+});
+
+it('ignores a hidden DeepSeek search textarea when locating the chat composer', () => {
+  const { api, composer } = load([], { composerId: false, hiddenSearch: true });
+
+  expect(api.composer()).toBe(composer);
+});
+
+it('does not mistake an aria-hidden search textarea with layout bounds for the chat composer', () => {
+  const { api, composer } = load([], { composerId: false, hiddenSearch: 'aria-hidden' });
+
+  expect(api.composer()).toBe(composer);
+});
+
+it('does not use a visible standalone search textarea as the chat composer', () => {
+  const { api } = load([], { composer: false, hiddenSearch: 'visible' });
+
+  expect(api.composer()).toBeNull();
+});
+
+it('finds and fills a contenteditable DeepSeek composer', () => {
+  const edit = node('div', { class: 'ds-input__textarea', contenteditable: 'true', role: 'textbox' });
+  const root = node('div', { class: 'ds-input' }, [edit]);
+  const { api } = load([root], { composer: false });
+
+  expect(api.composer()).toBe(edit);
+  api.setValue(edit, 'Synthetic contenteditable message');
+  expect(edit.textContent).toBe('Synthetic contenteditable message');
+  expect(edit.innerText).toBe('Synthetic contenteditable message');
+  expect(edit.events).toContain('input');
+});
+
+it('updates DeepSeek presence after the composer mounts after initial injection', async () => {
+  const { api, document, presenceMessages, presenceObservers } = load([], { composer: false });
+  expect(presenceMessages.at(-1)?.signedIn).toBe(false);
+
+  const edit = node('div', { class: 'ds-input__textarea', contenteditable: 'plaintext-only', role: 'textbox' });
+  document.body.appendChild(node('div', { class: 'ds-input' }, [edit]));
+  presenceObservers[0]!.notify();
+
+  expect(api.composer()).toBe(edit);
+  await vi.waitFor(() => expect(presenceMessages.at(-1)?.signedIn).toBe(true));
+});
+
+it('refreshes an existing page adapter in place after DeepSeek SPA reinjection', () => {
+  const { api, composer, context } = load([]);
+  const previousSetter = vi.fn();
+  (api as unknown as { setValue: typeof previousSetter }).setValue = previousSetter;
+
+  vm.runInContext(domSource, context, { filename: 'deepseek-dom-reinjected.js' });
+
+  expect((context as unknown as { NEURAFLOK_DEEPSEEK: DeepseekDomApi }).NEURAFLOK_DEEPSEEK).toBe(api);
+  expect(api.setValue).not.toBe(previousSetter);
+  api.setValue(composer!, 'fresh adapter after route change');
+  expect(composer!.value).toBe('fresh adapter after route change');
 });
 
 it('waits for a long DeepSeek generation to finish before sending the next tool round', async () => {
@@ -354,6 +469,129 @@ it('treats a missing composer as signed out so the driver can ask for sign-in', 
   const { api } = load([], { composer: false });
   expect(api.composer()).toBeNull();
   expect(api.signedIn()).toBe(false);
+});
+
+it('finds the mounted composer while Electron restores its client layout', () => {
+  const historyLink = node('a', { href: '/a/chat/s/00000000-0000-0000-0000-000000000001' });
+  const { api, composer } = load([historyLink]);
+  if (composer) composer.getClientRects = () => [];
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('recognizes an authenticated workspace with DeepSeek\'s newer composer markup while layout is restoring', () => {
+  const historyLink = node('a', { href: '/a/chat/s/00000000-0000-0000-0000-000000000001' });
+  const { api, composer } = load([historyLink], { composerId: false });
+  if (composer) composer.getClientRects = () => [];
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('does not discard DeepSeek\'s message composer when its textarea is named search', () => {
+  const { api, composer } = load([], { composerId: false, composerPlaceholder: 'Mensaje a DeepSeek' });
+
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('recognizes the authenticated DeepSeek landing page before history links mount', () => {
+  const composer = node('textarea');
+  composer.getClientRects = () => [];
+  const { api } = load([composer], { composer: false });
+
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('does not treat DeepSeek email and password fields as a connected chat', () => {
+  const email = node('input', { type: 'email', name: 'email' });
+  const password = node('input', { type: 'password', name: 'password' });
+  const { api } = load([email, password], { composer: false });
+
+  expect(api.composer()).toBeNull();
+  expect(api.signedIn()).toBe(false);
+});
+
+it('recognizes a signed-in workspace from conversation history even when new chat is not a button', () => {
+  const newChat = node('div', { text: 'Nuevo chat' });
+  const historyLink = node('a', { href: '/a/chat/s/00000000-0000-0000-0000-000000000001' });
+  const { api } = load([newChat, historyLink], { composer: false });
+
+  expect(api.composer()).toBeNull();
+  expect(api.signedIn()).toBe(true);
+});
+
+it('finds DeepSeek editable controls inside an open shadow root while layout is restoring', () => {
+  const shadowComposer = node('textarea');
+  shadowComposer.getClientRects = () => [];
+  const host = node('deepseek-composer');
+  host.shadowRoot = node('div', {}, [shadowComposer]);
+  const { api } = load([host], { composer: false });
+
+  expect(api.composer()).toBe(shadowComposer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('searches open shadow roots even when an unrelated top-level input exists', () => {
+  const auxiliaryInput = node('input');
+  auxiliaryInput.hidden = true;
+  const shadowComposer = node('textarea');
+  shadowComposer.getClientRects = () => [];
+  const host = node('deepseek-composer');
+  host.shadowRoot = node('div', {}, [shadowComposer]);
+  const { api } = load([auxiliaryInput, host], { composer: false });
+
+  expect(api.composer()).toBe(shadowComposer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('prefers a visible shadow textarea over an unrelated top-level input', () => {
+  const auxiliaryInput = node('input');
+  const shadowComposer = node('textarea');
+  const host = node('deepseek-composer');
+  host.shadowRoot = node('div', {}, [shadowComposer]);
+  const { api } = load([auxiliaryInput, host], { composer: false });
+
+  expect(api.composer()).toBe(shadowComposer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('can drive mounted composer and send controls when an inactive browser tab has no client rects', () => {
+  const inactiveComposer = node('textarea', { id: 'chat-input' });
+  inactiveComposer.getClientRects = () => [];
+  const newChat = node('button', { text: 'Nuevo chat' });
+  newChat.getClientRects = () => [];
+  const { api, send, context } = load([inactiveComposer, newChat], { composer: false });
+  send.getClientRects = () => [];
+  context.document.visibilityState = 'hidden';
+
+  expect(api.signedIn()).toBe(true);
+  expect(api.composer()).toBe(inactiveComposer);
+  expect(api.sendButton()).toBe(send);
+  expect(api.newChat()).toBe(newChat);
+});
+
+it('drives layoutless controls when Electron leaves a background document marked visible', () => {
+  const composer = node('textarea', { id: 'chat-input' });
+  composer.getClientRects = () => [];
+  const { api, send, context } = load([composer], { composer: false });
+  send.getClientRects = () => [];
+  context.document.visibilityState = 'visible';
+  context.document.hidden = false;
+
+  expect(api.composer()).toBe(composer);
+  expect(api.sendButton()).toBe(send);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('does not treat CSS-hidden or disabled background controls as visible', () => {
+  const hiddenComposer = node('textarea', { id: 'chat-input', hidden: 'true' });
+  hiddenComposer.hidden = true;
+  hiddenComposer.getClientRects = () => [];
+  const { api, context } = load([hiddenComposer], { composer: false });
+  context.document.visibilityState = 'hidden';
+
+  expect(api.composer()).toBeNull();
 });
 
 it('answers neuraflok-deepseek-status and marks the page so the companion shows on DeepSeek', () => {
@@ -482,6 +720,78 @@ it('complete skips a user markdown echo of the sent prompt', async () => {
   const kept = listeners[0]!({ type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000001', conversationId: SESSION_ID, fresh: true, text: 'hello from NEURAFLOK' }, {}, (value) => { reply = value; });
   expect(kept).toBe(true);
   await vi.waitFor(() => expect(reply).toMatchObject({ text: 'reply from DeepSeek' }));
+});
+
+it('retries insertion when DeepSeek replaces the composer during a React update', async () => {
+  const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, composer, listeners, send } = load([assistant]);
+  const replacement = node('textarea', { id: 'chat-input' });
+  Object.setPrototypeOf(replacement, HTMLTextAreaElement.prototype);
+  Reflect.deleteProperty(replacement, 'value');
+
+  let liveComposer = composer;
+  let insertions = 0;
+  const setValue = api.setValue;
+  api.composer = () => liveComposer;
+  api.setValue = (target, text) => {
+    insertions += 1;
+    if (insertions === 1) {
+      // Simulate DeepSeek replacing its controlled textarea after the first
+      // input event, before the new node adopts React's state.
+      liveComposer = replacement;
+      return;
+    }
+    setValue(target, text);
+  };
+  send.click = function click() {
+    this.events.push('click');
+    assistant.textContent = 'Recovered reply';
+    assistant.innerText = assistant.textContent;
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000010',
+    conversationId: SESSION_ID,
+    text: 'Synthetic follow-up'
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Recovered reply' }));
+  expect(insertions).toBeGreaterThan(1);
+  expect(replacement.value).toBe('Synthetic follow-up');
+  expect(send.events).toContain('click');
+});
+
+it('accepts a multiline contenteditable when DeepSeek normalizes paragraph whitespace', async () => {
+  const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, listeners, send } = load([assistant]);
+  const editable = node('div', { contenteditable: 'plaintext-only', role: 'textbox' });
+  Reflect.deleteProperty(editable, 'value');
+  const originalSetValue = api.setValue;
+  api.composer = () => editable;
+  api.setValue = (target, text) => {
+    originalSetValue(target, text);
+    // DeepSeek's editable can paint a pasted blank paragraph as one line break.
+    target.innerText = target.textContent.replace(/\n{2,}/g, '\n');
+  };
+  send.click = function click() {
+    this.events.push('click');
+    assistant.textContent = 'Multiline message accepted';
+    assistant.innerText = assistant.textContent;
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000011',
+    conversationId: SESSION_ID,
+    fresh: true,
+    text: 'First line\n\nSecond line'
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Multiline message accepted' }));
+  expect(send.events).toContain('click');
 });
 
 it('reports a missing send control separately from signed-out', async () => {
@@ -679,6 +989,52 @@ it('clicks New chat when the complete message asks for a fresh DeepSeek chat', a
   listeners[0]!({ type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000005', conversationId: SESSION_ID, text: 'hi', fresh: true }, {}, (value) => { reply = value; });
   await vi.waitFor(() => expect(reply).toMatchObject({ text: 'fresh reply' }));
   expect(starter.events).toContain('click');
+});
+
+it('chooses the labeled New chat control instead of the home link', () => {
+  const home = node('a', { href: '/', text: 'Home' });
+  const starter = node('button', { 'aria-label': 'New chat' });
+  const { api } = load([home, starter]);
+
+  expect(api.newChat()).toBe(starter);
+});
+
+it.each([
+  { label: 'very short', question: 'Hi' },
+  { label: 'very long', question: 'Please inspect the project context and propose a safe edit. '.repeat(400) }
+])('takes the reply baseline after switching to a fresh conversation for a $label question', async ({ question }) => {
+  const oldAnswer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Previous conversation answer' });
+  const starter = node('button', { 'aria-label': 'New chat' });
+  const { listeners, send, api, composer } = load([oldAnswer, starter]);
+  const originalNewChatClick = starter.click.bind(starter);
+  starter.click = function click() {
+    originalNewChatClick();
+    oldAnswer.textContent = '';
+    oldAnswer.innerText = '';
+  };
+  let submitted = '';
+  send.click = function click() {
+    this.events.push('click');
+    submitted = composer?.value ?? '';
+    oldAnswer.textContent = 'Fresh conversation answer';
+    oldAnswer.innerText = 'Fresh conversation answer';
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000010',
+    conversationId: SESSION_ID,
+    text: question,
+    fresh: true,
+    before: 'Previous conversation answer',
+    beforeIdentity: 'message:previous-answer'
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Fresh conversation answer' }));
+  expect(submitted).toBe(question);
+  expect(reply).toMatchObject({ before: '', beforeIdentity: '' });
+  expect(api.lastAnswer()).toBe('Fresh conversation answer');
 });
 
 it('never binds a new local session to an existing DeepSeek conversation without a new-chat control', async () => {

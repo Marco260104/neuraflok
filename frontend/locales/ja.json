@@ -2169,5 +2169,8 @@
   "Your message will be queued until the model is ready.": "モデルの準備ができるまで、メッセージはキューに入ります。",
   "The model could not confirm this chat context. Retry to release queued messages.": "モデルがチャットのコンテキストを確認できませんでした。再試行すると、キュー内のメッセージが送信されます。",
   "Chat context not verified": "チャットのコンテキストを確認できませんでした",
-  "Chat is ready.": "チャットの準備ができました。"
+  "Chat is ready.": "チャットの準備ができました。",
+  "Waiting for provider…": "プロバイダーの応答を待っています…",
+  "Open this chat": "このチャットを開く",
+  "Open this chat in its provider": "このチャットを対応するプロバイダーで開く"
 }

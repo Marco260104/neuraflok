@@ -260,9 +260,10 @@ export function createChatSessionRow(runtime: Runtime) {
         items.push({
           action: 'open',
           icon: 'i-out',
-          label: () => t('Open provider'),
-          title: () => t('Open this provider in your browser'),
-          run: () => void run(api.openWebProvider(provider)),
+          label: () => t('Open this chat'),
+          title: () => t('Open this chat in its provider'),
+          // Open the provider page linked to this saved session. A generic provider home page loses the conversation history needed to diagnose and continue a chat.
+          run: () => void run(api.openSessionChat(summary.id)),
         });
       // Blocking removes this chat's local tool access; the provider controls model generation. A resumed row can release a policy inherited from its committed predecessors.
       const blocked = effectivePolicy === 'blocked';

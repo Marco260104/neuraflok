@@ -47,8 +47,16 @@ vi.mock('../backend/domains/browser/bridge.js', async (importOriginal) => {
   return {
     ...actual,
     startBridge: vi.fn(async () => true),
+    browserWakeConnected: () => true,
     webProvidersStatus: () => providerBrowser.presence
   };
+});
+vi.mock('../backend/domains/browser/browser-wake.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../backend/domains/browser/browser-wake.js')>();
+  return { ...actual, wakeBrowserWork: () => {
+    const lastSeenAt = Date.now();
+    for (const presence of Object.values(providerBrowser.presence)) presence.lastSeenAt = lastSeenAt;
+  } };
 });
 vi.mock('../backend/domains/browser/embedded/selection.js', () => ({
   loadIntegratedBrowser: async () => ({ openProvider: providerBrowser.openProvider })

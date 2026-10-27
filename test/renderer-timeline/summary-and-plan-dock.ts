@@ -423,10 +423,11 @@ it('shows Send directly alone for a running turn, keeps After this turn selected
 });
 
 it('shows elapsed work for the exact recorded turn without exposing lifecycle rows', async () => {
-  const { w, append } = await boot([{ seq: 1, time: T0, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
+  const startedAt = Date.now();
+  const { w, append } = await boot([{ seq: 1, time: startedAt, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
   expect(w.document.getElementById('chatState')!.textContent).toMatch(/^Working for /);
   (w as any).api.getSessionControls = (id: string) => Promise.resolve({ ok: true, data: { sessionId: id, automation: 'off', activeTurnId: null, finishHeld: false, blocked: '', job: null } });
-  await append([{ seq: 2, time: T0 + 65_000, source: 'extension', kind: 'turn_end', turnId: 'held-turn', outcome: 'completed' }]);
+  await append([{ seq: 2, time: startedAt + 65_000, source: 'extension', kind: 'turn_end', turnId: 'held-turn', outcome: 'completed' }]);
   expect(w.document.getElementById('chatState')!.textContent).toBe('Worked for 1m 5s');
 });
 

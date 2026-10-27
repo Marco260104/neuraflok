@@ -125,6 +125,37 @@ it('uses structured API tool calls, carries project files as bounded text contex
   expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(true);
 });
 
+it('continues an older API chat from the recorded history summary when its provider thread is unavailable', async () => {
+  const bodies: Array<{ messages: Array<{ role: string; content?: string | null | Array<unknown> }> }> = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as typeof bodies[number]);
+    const content = bodies.length === 1
+      ? 'I recorded the project marker NF_API_HISTORY_42.'
+      : 'I continued from the recorded marker.';
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content } }] });
+  }));
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Remember marker NF_API_HISTORY_42 for the next step.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(first);
+  await flushRecorder();
+  await fs.rm(sessionApiThreadPath(first.id), { force: true });
+
+  const followup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'Continue using the earlier marker.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(followup);
+
+  const current = String(bodies[1]?.messages.at(-1)?.content ?? '');
+  expect(current).toContain('RECENT CONVERSATION SUMMARY');
+  expect(current).toContain('NF_API_HISTORY_42');
+  expect(current).toContain('Default workspace folder for ordinary chats');
+  expect(current).not.toContain('PROJECT FILE TREE');
+  expect(bodies[1]?.messages.some(message => String(message.content ?? '').includes('Remember marker NF_API_HISTORY_42'))).toBe(true);
+});
+
 it('stops the exact API generation through its request signal', async () => {
   let signal: AbortSignal | null | undefined;
   const urls: string[] = [];

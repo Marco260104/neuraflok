@@ -331,7 +331,7 @@ describe('the session-row chat actions', () => {
 
   it('opens and blocks only recorded conversations, and never selects or deletes the adjacent row', () => {
     // Open and Block are offered only on the branch of a row that has a conversation.
-    expect(chatSessionRowSource).toMatch(/if \(summary\.conversationId === null\) \{[\s\S]*?\} else \{[\s\S]*?const provider = providerForConversationId\(summary\.conversationId\);\s*if \(provider\)\s*items\.push\(\{[\s\S]*?api\.openWebProvider\(provider\)/);
+    expect(chatSessionRowSource).toMatch(/if \(summary\.conversationId === null\) \{[\s\S]*?\} else \{[\s\S]*?const provider = providerForConversationId\(summary\.conversationId\);\s*if \(provider\)\s*items\.push\(\{[\s\S]*?api\.openSessionChat\(summary\.id\)/);
     expect(chatSessionRowSource).toMatch(/if \(summary\.conversationId === null\) \{[\s\S]*?\} else \{[\s\S]*?runtime\.toggleSessionBlock\(summary\.id/);
     // The row's button does not select it, and the menu's items live outside the row, in the document body, so choosing one can neither select nor delete the row under the pointer.
     expect(chatSessionRowSource).toMatch(/more\.addEventListener\('click', \(event\) => \{\s*event\.stopPropagation\(\)/);

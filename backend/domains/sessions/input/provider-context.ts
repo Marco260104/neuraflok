@@ -1,6 +1,6 @@
 import type { InputAttachment } from '../../../../contracts/input.js';
 import { readProviderTextAttachment } from './attachments/index.js';
-import { prepareProviderSessionPrompt, prepareProviderSkillFollowup } from './prompt.js';
+import { prepareProviderSessionPrompt } from './prompt.js';
 import type { InputEntry } from './input.js';
 
 /** Leave room for the web adapter's transport guide inside its own message ceiling. */
@@ -73,12 +73,10 @@ async function attachedText(attachments: readonly InputAttachment[] | undefined,
 
 /** Prepare the exact text that a local executor sends. Opening turns use the provider tool guide plus the selected project's AGENTS.md and frozen Skills; later turns keep language and project directory and add only explicitly selected Skills. File bytes are read from the validated attachment store and bounded first. */
 export async function prepareLocalProviderPrompt(
-  entry: InputEntry, sessionId: string, opening: boolean, options: { allowImageAttachments?: boolean } = {}
+  entry: InputEntry, sessionId: string, options: { allowImageAttachments?: boolean; historySummary?: string } = {}
 ): Promise<string> {
-  const scope = { sessionId, projectId: entry.projectId, autoSkills: entry.autoSkills };
-  const base = opening
-    ? await prepareProviderSessionPrompt(entry.text, scope, LOCAL_PROVIDER_PROMPT_LIMITS, entry.text)
-    : await prepareProviderSkillFollowup(entry.text, entry.text, LOCAL_PROVIDER_PROMPT_LIMITS, scope);
+  const scope = { sessionId, projectId: entry.projectId, autoSkills: entry.autoSkills, historySummary: options.historySummary };
+  const base = await prepareProviderSessionPrompt(entry.text, scope, LOCAL_PROVIDER_PROMPT_LIMITS, entry.text);
   const files = await attachedText(entry.attachments, options.allowImageAttachments === true);
   const prepared = `${base}${files}`;
   if (prepared.length > LOCAL_PROVIDER_PROMPT_LIMITS.maxChars || Buffer.byteLength(prepared, 'utf8') > LOCAL_PROVIDER_PROMPT_LIMITS.maxBytes) {

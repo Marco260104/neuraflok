@@ -143,8 +143,13 @@ it('reads only the linked folder, refreshes its contents, and leaves unfiled cha
 });
 
 it('builds a provider-native workspace context without the old MCP-client prompt or frame', async () => {
-  await fs.mkdir(path.join(directory, 'provider-project'), { recursive: true });
+  await fs.mkdir(path.join(directory, 'provider-project', 'src'), { recursive: true });
+  await fs.mkdir(path.join(directory, 'provider-project', 'node_modules', 'sample'), { recursive: true });
   await fs.writeFile(path.join(directory, 'provider-project', 'AGENTS.md'), 'Keep the existing architecture intact.');
+  await fs.writeFile(path.join(directory, 'provider-project', 'src', 'index.ts'), 'export const ready = true;');
+  await fs.writeFile(path.join(directory, 'provider-project', 'node_modules', 'sample', 'index.js'), 'private dependency');
+  await fs.writeFile(path.join(directory, 'provider-project', '.env'), 'PRIVATE_TREE_NAME_ONLY');
+  await fs.writeFile(path.join(directory, 'provider-project', 'id_rsa'), 'PRIVATE_KEY_NAME_ONLY');
   const project = await addProject(path.join(directory, 'provider-project'));
   const prompt = await prepareProviderSessionPrompt(
     'Review the project and explain the safest next change.',
@@ -154,6 +159,12 @@ it('builds a provider-native workspace context without the old MCP-client prompt
   expect(prompt).toContain('<WORKSPACE_CONTEXT>');
   expect(prompt).toContain('You are an assistant working with the user in their selected workspace.');
   expect(prompt).toContain('# AGENTS.md instructions for /work/provider-project');
+  expect(prompt).toContain('PROJECT FILE TREE (names only; bounded)');
+  expect(prompt).toContain('src/');
+  expect(prompt).toContain('index.ts');
+  expect(prompt).not.toContain('node_modules');
+  expect(prompt).not.toContain('PRIVATE_TREE_NAME_ONLY');
+  expect(prompt).not.toContain('id_rsa');
   expect(prompt).toContain('Review the project and explain the safest next change.');
   expect(prompt).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
 });
@@ -206,19 +217,44 @@ it('tells the provider to reply in the configured interface language', async () 
   expect(prompt).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
 });
 
-it('keeps language and project directory on later provider turns without repeating AGENTS.md', async () => {
+it('keeps project tree, instructions, language, and recent summary on later provider turns', async () => {
   await fs.mkdir(path.join(directory, 'follow-project'), { recursive: true });
   await fs.writeFile(path.join(directory, 'follow-project', 'AGENTS.md'), 'DO_NOT_REPEAT_ON_FOLLOWUP');
+  await fs.mkdir(path.join(directory, 'follow-project', 'packages', 'service'), { recursive: true });
+  await fs.writeFile(path.join(directory, 'follow-project', 'packages', 'service', 'index.ts'), 'export const version = 42;');
   const project = await addProject(path.join(directory, 'follow-project'));
   await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }], ui: { ...defaultConfig().ui, language: 'es' } });
   const opening = await prepareProviderSessionPrompt('Escribe un README', { projectId: project.id });
   expect(opening).toContain('Reply in Spanish');
   expect(opening).toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
-  const followup = await prepareProviderSkillFollowup('Continúa con el README', 'Continúa con el README', undefined, { projectId: project.id });
+  const summary = 'Original request: Update the project safely.\nAssistant: The service package was reviewed.';
+  const followup = await prepareProviderSkillFollowup('Continúa con el README', 'Continúa con el README', undefined, {
+    projectId: project.id, historySummary: summary
+  });
   expect(followup).toContain('Reply in Spanish');
   expect(followup).toContain('Selected project directory: /work/follow-project');
   expect(followup).toContain('For exec_command, set workdir to /work/follow-project and use relative paths in cmd. Never put /work/follow-project inside cmd.');
-  expect(followup).not.toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
+  expect(followup).toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
+  expect(followup).toContain('PROJECT FILE TREE');
+  expect(followup).toContain('packages/');
+  expect(followup).toContain('index.ts');
+  expect(followup).toContain(summary);
   expect(followup).toContain('Continúa con el README');
   expect(followup).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
+});
+
+it('uses the configured default folder and never adds a file tree to an ordinary chat', async () => {
+  const session = await createSession({ title: 'Ordinary chat' });
+  await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }] });
+  const opening = await prepareProviderSessionPrompt('Answer briefly.', { sessionId: session.id });
+  const followup = await prepareProviderSkillFollowup('One more thing.', 'One more thing.', undefined, {
+    sessionId: session.id,
+    historySummary: 'User: The earlier answer mentioned marker NF_OLD_CHAT_42.'
+  });
+  for (const prompt of [opening, followup]) {
+    expect(prompt).toContain('Default workspace folder for ordinary chats: /work');
+    expect(prompt).toContain('Do not include or invent a file tree');
+    expect(prompt).not.toContain('PROJECT FILE TREE');
+  }
+  expect(followup).toContain('NF_OLD_CHAT_42');
 });

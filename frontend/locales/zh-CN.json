@@ -2169,5 +2169,8 @@
   "Your message will be queued until the model is ready.": "模型准备就绪前，您的消息会先进入队列。",
   "The model could not confirm this chat context. Retry to release queued messages.": "模型未能确认此聊天的上下文。请重试以发送队列中的消息。",
   "Chat context not verified": "聊天上下文未验证",
-  "Chat is ready.": "聊天已就绪。"
+  "Chat is ready.": "聊天已就绪。",
+  "Waiting for provider…": "正在等待服务提供方…",
+  "Open this chat": "打开此聊天",
+  "Open this chat in its provider": "在对应的服务提供方中打开此聊天"
 }

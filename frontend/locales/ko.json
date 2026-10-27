@@ -2169,5 +2169,8 @@
   "Your message will be queued until the model is ready.": "모델이 준비될 때까지 메시지가 대기열에 추가됩니다.",
   "The model could not confirm this chat context. Retry to release queued messages.": "모델이 채팅 컨텍스트를 확인하지 못했습니다. 다시 시도하면 대기 중인 메시지가 전송됩니다.",
   "Chat context not verified": "채팅 컨텍스트를 확인하지 못했습니다",
-  "Chat is ready.": "채팅이 준비되었습니다."
+  "Chat is ready.": "채팅이 준비되었습니다.",
+  "Waiting for provider…": "제공업체 응답 대기 중…",
+  "Open this chat": "이 채팅 열기",
+  "Open this chat in its provider": "이 채팅을 해당 제공업체에서 열기"
 }

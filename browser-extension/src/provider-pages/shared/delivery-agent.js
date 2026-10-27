@@ -53,6 +53,13 @@
       return String(value || '').replace(/\s+/g, ' ').trim();
     }
 
+    function composerText(node) {
+      if (!node) return '';
+      if (typeof node.value === 'string') return node.value;
+      if (typeof node.innerText === 'string') return node.innerText;
+      return typeof node.textContent === 'string' ? node.textContent : '';
+    }
+
     function lastAnswer() {
       return String(valueFrom(() => api.lastAnswer()) || '');
     }
@@ -161,7 +168,11 @@
       const answerIdentity = lastAnswerIdentity();
       const answer = publicAnswer(sent, before, beforeIdentity, answerIdentity);
       const think = thinkText(sent, before, beforeThink);
-      return { ...pageStatus(), text: answer || think, answer, think, answerIdentity };
+      const status = pageStatus();
+      return {
+        ...status,
+        text: answer || think, answer, think, answerIdentity
+      };
     }
 
     function sessionError(conversationId) {
@@ -224,22 +235,52 @@
 
       if (stored(keys.claim) === message.id) return { pending: true, ...snapshot(), generating: generating() };
       const composer = await until(() => api.composer(), options.composerMs);
-      if (!composer || options.verifySignIn && !signedIn()) return { error: options.signInMessage };
+      if (!composer) {
+        return { error: signedIn()
+          ? `${provider.toUpperCase()} is connected, but its chat composer could not be found. No message was sent.`
+          : options.signInMessage };
+      }
+      if (options.verifySignIn && !signedIn()) return { error: options.signInMessage };
       if (generating() && !await until(() => !generating(), options.idleMs)) {
         return { error: `${provider.toUpperCase()} is still generating. Wait for it to finish and retry.` };
       }
 
       const sent = typeof message.text === 'string' ? message.text : '';
       const previous = snapshot();
-      const before = typeof message.before === 'string' ? message.before : previous.before;
-      const beforeThink = typeof message.beforeThink === 'string' ? message.beforeThink : previous.beforeThink;
-      const beforeIdentity = typeof message.beforeIdentity === 'string' ? message.beforeIdentity : previous.beforeIdentity;
+      // A fresh request may navigate away from the page used for the original
+      // snapshot. Its reply baseline must come from the newly opened chat, or
+      // stale text from the prior conversation can mask the real answer.
+      const before = message.fresh === true
+        ? previous.before
+        : typeof message.before === 'string' ? message.before : previous.before;
+      const beforeThink = message.fresh === true
+        ? previous.beforeThink
+        : typeof message.beforeThink === 'string' ? message.beforeThink : previous.beforeThink;
+      const beforeIdentity = message.fresh === true
+        ? previous.beforeIdentity
+        : typeof message.beforeIdentity === 'string' ? message.beforeIdentity : previous.beforeIdentity;
       active = { sent, before, beforeThink, beforeIdentity };
       api.setValue(composer, sent);
+      let lastInsertionTarget = composer;
+      let lastInsertionAt = Date.now();
       const accepted = await until(() => {
         const current = api.composer();
-        const text = String(current?.value || current?.innerText || current?.textContent || '').trim();
-        return current && text === sent.trim() ? current : null;
+        const text = composerText(current);
+        // Contenteditable providers can render the same pasted message with
+        // different paragraph boundaries (for example, collapsing two blank
+        // lines into one). Compare visible text after whitespace normalization
+        // so valid multiline prompts are not rejected before Send is clicked.
+        if (current && normalized(text) === normalized(sent)) return current;
+
+        // Provider SPAs can replace a controlled textarea immediately after
+        // the input event. Keep targeting the live composer until its DOM
+        // value reflects the message instead of waiting on a detached node.
+        if (current && (current !== lastInsertionTarget || Date.now() - lastInsertionAt >= 400)) {
+          lastInsertionTarget = current;
+          lastInsertionAt = Date.now();
+          try { api.setValue(current, sent); } catch {}
+        }
+        return null;
       }, options.insertMs);
       if (!accepted) return { error: `${provider.toUpperCase()} did not accept the message in its composer.` };
       const send = await until(() => api.sendButton(), options.sendMs);
@@ -278,14 +319,41 @@
       (document.documentElement || document.body)?.appendChild(badge);
     }
 
-    function notifyWorker() {
+    let lastPresence = null;
+    let presenceTimer = null;
+
+    function notifyWorker(force = false) {
+      const present = signedIn();
+      if (!force && lastPresence === present) return;
+      lastPresence = present;
       try {
         chrome.runtime.sendMessage({
           type: `${namespace}-present`,
           ...(options.includeProvider ? { provider } : {}),
-          signedIn: signedIn()
+          signedIn: present
         }, () => void chrome.runtime.lastError);
       } catch {}
+    }
+
+    function watchPresence() {
+      const schedule = () => {
+        if (presenceTimer) clearTimeout(presenceTimer);
+        presenceTimer = setTimeout(() => {
+          presenceTimer = null;
+          notifyWorker();
+        }, 150);
+      };
+      if (typeof MutationObserver === 'function' && document.documentElement) {
+        const observer = new MutationObserver(schedule);
+        observer.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['aria-hidden', 'aria-label', 'class', 'contenteditable', 'disabled', 'hidden', 'name', 'placeholder', 'style'],
+          childList: true,
+          subtree: true
+        });
+      }
+      document.addEventListener?.('DOMContentLoaded', () => notifyWorker(true), { once: true });
+      globalThis.addEventListener?.('load', () => notifyWorker(true), { once: true });
     }
 
     function respond(sendResponse, action) {
@@ -295,6 +363,7 @@
     }
 
     showMark();
+    watchPresence();
     notifyWorker();
     if (globalThis.chrome?.runtime?.onMessage) {
       chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

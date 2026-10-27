@@ -14,6 +14,7 @@ interface Runtime {
   hideWindow(id: number): void;
   storageSession(): Session;
   selectedProvider(): WebProviderId;
+  revealStoredProviderConversation(conversationId: string): Promise<boolean>;
   notify(): void;
 }
 
@@ -61,7 +62,10 @@ export function createIntegratedBrowserProviderPages(runtime: Runtime) {
       runtime.showWindow(current.windowId, true);
       return true;
     }
-    return false;
+    // Tabs disappear when the app exits, while the extension's local provider
+    // mapping survives. Ask this browser profile's worker to restore and verify
+    // the exact saved page before reporting it as open.
+    return runtime.revealStoredProviderConversation(conversationId);
   }
 
   async function disconnectProvider(provider: WebProviderId): Promise<void> {

@@ -33,16 +33,26 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       );
       if (!summary || runtime.detailFor !== runtime.selectedId)
         return { text: '', tone: '' };
-      const active =
-        runtime.controlledSessionId === runtime.selectedId &&
-        runtime.controlledSelection === runtime.selectionGeneration
-          ? runtime.controlledTurnId
-          : null;
       const lastBoundary = [...runtime.events]
         .reverse()
         .find(
           (event) => event.kind === 'turn_start' || event.kind === 'turn_end',
         );
+      const controlledTurn =
+        runtime.controlledSessionId === runtime.selectedId &&
+        runtime.controlledSelection === runtime.selectionGeneration
+          ? runtime.controlledTurnId
+          : null;
+      // A stale active-turn control must not keep the UI spinning after the
+      // event stream has already closed that exact turn.
+      const controlledTurnEnded = !!controlledTurn && runtime.events.some(
+        (event) => event.kind === 'turn_end' && event.turnId === controlledTurn && event.outcome !== 'unknown',
+      );
+      const active = controlledTurnEnded ? null : controlledTurn;
+      if (!active && lastBoundary?.kind === 'turn_end' &&
+          lastBoundary.outcome !== 'completed' && lastBoundary.outcome !== 'unknown') {
+        return { text: '', tone: '' };
+      }
       // Use recent attributed tool activity when the provider has not reported a turn boundary.
       const reportedEnd = Math.max(
         lastBoundary?.kind === 'turn_end' ? lastBoundary.time : 0,

@@ -56,19 +56,19 @@ it('opens a provider session from its row menu', async () => {
     estimatedTokens: 0, contextTokens: 0, lastHandoffId: null, lastHandoffAt: null,
     lastTurnOutcome: null, activeTurnId: null, agents: [], origin: null
   };
-  const openWebProvider = vi.fn(async () => ({ ok: true, data: true }));
+  const openSessionChat = vi.fn(async () => ({ ok: true, data: true }));
   const mounted = await mountChat({}, [], {
     listProjects: async () => ({ ok: true, data: [] }),
     listSessions: async () => ({ ok: true, data: { sessions: [session], activeId: null, pressure: [], blocked: [], trusted: [] } }),
-    openWebProvider
+    openSessionChat
   });
   const doc = mounted.window.document;
   const row = () => doc.querySelector<HTMLElement>(`[data-id="${session.id}"]`)!;
   await vi.waitFor(() => expect(row()).not.toBeNull());
   const item = rowMenuItem(row(), 'open')!;
-  expect(item.textContent).toContain('Open provider');
+  expect(item.textContent).toContain('Open this chat');
   item.click();
-  await vi.waitFor(() => expect(openWebProvider).toHaveBeenCalledWith('deepseek'));
+  await vi.waitFor(() => expect(openSessionChat).toHaveBeenCalledWith(session.id));
 });
 
 it('keeps strict chat allowlisting separate from Block and exposes explicit Trust on session rows', async () => {
@@ -155,11 +155,11 @@ it('offers a chat\'s actions in one menu, by kind of row, and opens it with a ri
     chatIds: ['ds-00000000-0000-4000-8000-000000000002'] };
   const loose = { ...base, id: 'menu-loose-0001', title: '', conversationId: null, chatIds: [] };
   const deleteSession = vi.fn(async () => ({ ok: true, data: true }));
-  const openWebProvider = vi.fn(async () => ({ ok: true, data: true }));
+  const openSessionChat = vi.fn(async () => ({ ok: true, data: true }));
   const mounted = await mountChat({}, [], {
     listProjects: async () => ({ ok: true, data: [] }),
     listSessions: async () => ({ ok: true, data: { sessions: [chat, loose], activeId: null, pressure: [], blocked: [], trusted: [] } }),
-    deleteSession, openWebProvider
+    deleteSession, openSessionChat
   });
   const doc = mounted.window.document;
   const row = (id: string) => doc.querySelector<HTMLElement>(`[data-id="${id}"]`)!;
@@ -179,7 +179,7 @@ it('offers a chat\'s actions in one menu, by kind of row, and opens it with a ri
   // A right click opens the same menu; its items run their action.
   row(chat.id).dispatchEvent(new mounted.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }));
   doc.querySelector<HTMLButtonElement>('.row-menu [data-row-action="open"]')!.click();
-  await vi.waitFor(() => expect(openWebProvider).toHaveBeenCalledWith('deepseek'));
+  await vi.waitFor(() => expect(openSessionChat).toHaveBeenCalledWith(chat.id));
   expect(doc.querySelector('.row-menu')).toBeNull();
 });
 

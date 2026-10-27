@@ -10,11 +10,13 @@ import { getConfig, effectiveCapabilities } from '../../infrastructure/settings/
 import { apiProviderKey, configuredApiEndpoint, resolveApiBaseUrl } from './api-settings.js';
 import { completeApiChat, type ApiChatSettings, type ApiMessage, type ApiToolCall } from './api-chat-protocol.js';
 import { persistApiThread, readApiThread, trimApiThread, type ApiThread } from './api-chat-thread-store.js';
+import { summarizeProviderConversation, summarizeSessionHistory, sessionHistoryMessages } from './conversation-summary.js';
 import { createRegistrar, type ToolContext, type ToolResult } from '../../infrastructure/tool-gateway/protocol/kernel.js';
 import { registerCoreTools } from '../../infrastructure/tool-gateway/protocol/tools-core.js';
 import { withManagedSkills } from '../skills/access/managed-roots.js';
 import { observeRequestCorrelation } from '../sessions/history/correlation.js';
 import { recordChatObservations } from '../sessions/history/recorder.js';
+import { readSessionEvents } from '../sessions/history/read-model.js';
 import { acceptLocalExecutorInput, listInputs, type InputEntry } from '../sessions/input/input.js';
 import { recordDeliveredInput } from '../sessions/input/input-history.js';
 import {
@@ -180,10 +182,19 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
   if (!roots.includes('/skills')) roots.push('/skills');
   const system = guide(registrarValue.declarations(), roots, project?.virtual);
   const prior = await readApiThread(sessionId, conversationId);
-  let messages = trimApiThread(prior?.messages ?? [{ role: 'system', content: system }]);
+  const history = !prior && session?.conversationId
+    ? await readSessionEvents(sessionId, { limit: 160 })
+    : null;
+  const recoveredMessages = sessionHistoryMessages(history?.events ?? []);
+  const contextMessages = prior?.messages ?? recoveredMessages;
+  const historySummary = summarizeProviderConversation(contextMessages) || summarizeSessionHistory(history?.events ?? []);
+  let messages = trimApiThread(prior?.messages ?? [{ role: 'system', content: system }, ...recoveredMessages]);
   messages = [{ role: 'system', content: system }, ...messages.filter(row => row.role !== 'system')];
-  const opening = isOpening(messages);
-  const preparedText = await prepareLocalProviderPrompt(entry, sessionId, opening, { allowImageAttachments: true });
+  const opening = !session?.conversationId && isOpening(messages);
+  const preparedText = await prepareLocalProviderPrompt(entry, sessionId, {
+    allowImageAttachments: true,
+    historySummary: opening ? undefined : historySummary
+  });
   const images = await userImages(entry);
   const userMessageId = randomUUID();
   const turnId = randomUUID();

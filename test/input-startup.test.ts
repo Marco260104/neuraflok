@@ -5,6 +5,9 @@ const ports = vi.hoisted(() => ({
   provider: 'deepseek' as string,
   executor: 'web' as 'web' | 'api',
   backgroundChats: false,
+  integratedWake: false,
+  presenceAt: 0,
+  refreshPresence: vi.fn(),
   connect: vi.fn(),
   bridge: vi.fn(),
   openProvider: vi.fn(),
@@ -19,17 +22,19 @@ const ports = vi.hoisted(() => ({
   getSession: vi.fn(),
   session: null as { conversationId: string | null; activeTurnId?: string | null } | null,
   rows: [] as InputEntry[],
-  presence: { deepseek: true, kimi: true, qwen: true, glm: true } as Record<string, boolean>
+  presence: { deepseek: true, kimi: true, qwen: true, glm: true } as Record<string, boolean | null>
 }));
 
 vi.mock('../backend/infrastructure/connectivity/connection.js', () => ({
   connect: vi.fn(), getStatus: () => ({ state: 'disconnected', detail: '' }), onStatusChange: () => () => undefined
 }));
 vi.mock('../backend/domains/browser/bridge.js', () => ({
+  browserWakeConnected: (host?: string) => host ? host === 'integrated' && ports.integratedWake : ports.integratedWake,
   startBridge: ports.bridge,
   webProvidersStatus: () => Object.fromEntries(Object.entries(ports.presence).map(([provider, signedIn]) => [provider,
-    { open: signedIn, signedIn, tabId: signedIn ? 1 : null, lastSeenAt: signedIn ? Date.now() : null }]))
+    { open: signedIn !== false, signedIn, tabId: signedIn === false ? null : 1, lastSeenAt: ports.presenceAt }]))
 }));
+vi.mock('../backend/domains/browser/browser-wake.js', () => ({ wakeBrowserWork: ports.refreshPresence }));
 vi.mock('../backend/domains/browser/browser-startup.js', () => ({
   wakeBrowserUrl: vi.fn(),
   resetBrowserStartupForTests: vi.fn()
@@ -70,6 +75,9 @@ beforeEach(() => {
   ports.provider = 'deepseek';
   ports.executor = 'web';
   ports.backgroundChats = false;
+  ports.integratedWake = true;
+  ports.presenceAt = Date.now();
+  ports.refreshPresence.mockImplementation(() => { ports.presenceAt = Date.now() + 1; });
   ports.rows = [];
   ports.nextAfterTurn.mockResolvedValue(null);
   ports.session = null;
@@ -167,6 +175,35 @@ it('keeps an existing API session on its original endpoint after the new-chat de
   expect(ports.runApi).toHaveBeenCalledWith(row, expect.any(AbortSignal));
 });
 
+it('starts project preparation immediately when the existing local chat is idle', async () => {
+  ports.session = { conversationId: 'ds-00000000-0000-4000-8000-000000000018', activeTurnId: null };
+  const row = await sendDesktopInput({
+    ...request,
+    sessionId: 'session-existing',
+    text: 'NEURAFLOK_WARMUP',
+    warmup: true,
+    authoredSource: 'none'
+  });
+
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledOnce());
+  expect(row).toMatchObject({ state: 'queued', mode: 'auto', warmup: true });
+  expect(ports.run).toHaveBeenCalledWith(row, 'deepseek', expect.any(AbortSignal));
+});
+
+it('defers project preparation only when the backend sees a live local turn', async () => {
+  ports.session = { conversationId: 'ds-00000000-0000-4000-8000-000000000019', activeTurnId: 'live-turn' };
+  const row = await sendDesktopInput({
+    ...request,
+    sessionId: 'session-existing',
+    text: 'NEURAFLOK_WARMUP',
+    warmup: true,
+    authoredSource: 'none'
+  });
+
+  expect(row).toMatchObject({ state: 'queued', mode: 'after-turn', afterTurn: true, warmup: true });
+  expect(ports.run).not.toHaveBeenCalled();
+});
+
 it('keeps a second local-provider message queued until the active response finishes', async () => {
   ports.session = { conversationId: 'ap-00000000-0000-4000-8000-000000000001' };
   let complete!: (turnId: string | null) => void;
@@ -224,6 +261,45 @@ it('refuses a provider send until the internal browser verifies sign-in', async 
   await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
   expect(ports.enqueue).not.toHaveBeenCalled();
   expect(ports.openProvider).not.toHaveBeenCalled();
+});
+
+it('does not mistake a connected browser wake channel for a signed-in provider account', async () => {
+  ports.presence.deepseek = false;
+  ports.integratedWake = true;
+  await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
+  expect(ports.enqueue).not.toHaveBeenCalled();
+  expect(ports.run).not.toHaveBeenCalled();
+});
+
+it('does not send while provider sign-in is unknown, even when the browser extension is reachable', async () => {
+  ports.presence.deepseek = null;
+  ports.integratedWake = true;
+  await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
+  expect(ports.enqueue).not.toHaveBeenCalled();
+  expect(ports.run).not.toHaveBeenCalled();
+});
+
+it('refreshes provider sign-in before accepting a message when saved presence is stale', async () => {
+  ports.presence.deepseek = false;
+  ports.integratedWake = true;
+  ports.refreshPresence.mockImplementation(() => {
+    ports.presence.deepseek = true;
+    ports.presenceAt = Date.now() + 1;
+  });
+  const row = await sendDesktopInput(request);
+
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledOnce());
+  expect(row).toMatchObject({ state: 'queued', id: request.id });
+  expect(ports.openProvider).toHaveBeenCalledWith('deepseek', { reveal: false });
+  expect(ports.run).toHaveBeenCalledWith(row, 'deepseek', expect.any(AbortSignal));
+});
+
+it('does not enqueue when the live provider refresh confirms the account is signed out', async () => {
+  ports.presence.deepseek = false;
+  ports.integratedWake = true;
+  await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
+  expect(ports.enqueue).not.toHaveBeenCalled();
+  expect(ports.run).not.toHaveBeenCalled();
 });
 
 it('refuses live tool injection into a local provider response', async () => {

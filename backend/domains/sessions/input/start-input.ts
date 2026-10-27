@@ -1,6 +1,7 @@
 /** Local provider sends go through the durable outbox and the signed-in app browser. */
-import { startBridge, webProvidersStatus } from '../../browser/bridge.js';
+import { browserWakeConnected, startBridge, webProvidersStatus } from '../../browser/bridge.js';
 import { resetBrowserStartupForTests } from '../../browser/browser-startup.js';
+import { wakeBrowserWork } from '../../browser/browser-wake.js';
 import { getConfig } from '../../../infrastructure/settings/config.js';
 import { WEB_PROVIDERS, isWebProviderId, providerForConversationId } from '../../../../contracts/web-providers.js';
 import type { WebProviderId } from '../../../../contracts/web-providers.js';
@@ -16,6 +17,33 @@ const localRuns = new Map<string, string>();
 let providerTurnQueue = Promise.resolve();
 let stopped = false;
 const localTurnSettledListeners = new Set<(result: { entry: Readonly<InputEntry>; conversationId: string | null; turnId: string | null; aborted: boolean; error: Error | null }) => void | Promise<void>>();
+
+const PROVIDER_AUTH_REFRESH_MS = 8_000;
+const PROVIDER_AUTH_POLL_MS = 100;
+
+function waitForProviderPresence(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function assertWebProviderReady(provider: WebProviderId): Promise<void> {
+  const label = WEB_PROVIDERS[provider].label;
+  if (!browserWakeConnected()) throw new Error(`Connect the NEURAFLOK browser and sign in to ${label} before sending.`);
+
+  const before = webProvidersStatus()[provider]?.lastSeenAt ?? 0;
+  // Refresh authentication from the provider page immediately before the
+  // message is accepted. A connected browser alone is not proof of sign-in.
+  wakeBrowserWork();
+  const deadline = Date.now() + PROVIDER_AUTH_REFRESH_MS;
+  while (Date.now() < deadline) {
+    const presence = webProvidersStatus()[provider];
+    if ((presence?.lastSeenAt ?? 0) > before) {
+      if (presence?.signedIn === true) return;
+      throw new Error(`Connect ${label} in NEURAFLOK's browser before sending.`);
+    }
+    await waitForProviderPresence(PROVIDER_AUTH_POLL_MS);
+  }
+  throw new Error(`Could not verify your ${label} session. Reopen the provider in NEURAFLOK and sign in before sending.`);
+}
 
 export function onLocalExecutorTurnSettled(
   listener: (result: { entry: Readonly<InputEntry>; conversationId: string | null; turnId: string | null; aborted: boolean; error: Error | null }) => void | Promise<void>
@@ -117,9 +145,7 @@ async function dispatchLocalAfterTurn(sessionId: string, conversationId: string,
         throw new Error('The API executor accepts text, source files, and images. Add other file types through a project folder.');
     } else {
       const selected = provider!;
-      const status = webProvidersStatus()[selected];
-      const isReady = status?.signedIn === true || (status?.open === true && status?.signedIn !== false);
-      if (!isReady) throw new Error(`Connect ${WEB_PROVIDERS[selected].label} in NEURAFLOK's browser before sending.`);
+      await assertWebProviderReady(selected);
       if ((entry.images?.length ?? 0) > 0 || entry.attachments?.some(file =>
         !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
         throw new Error(`${WEB_PROVIDERS[selected].label} web sessions accept text and source files. Use the API executor for image attachments.`);
@@ -180,11 +206,7 @@ export async function sendDesktopInput(input: InputArgs): Promise<InputEntry> {
       : localExecutor && input.mode === 'after-turn' ? { afterTurn: true } : {})
   };
   if (!apiExecutor) {
-    const status = webProvidersStatus()[provider];
-    const isReady = status?.signedIn === true || (status?.open === true && status?.signedIn !== false);
-    if (!isReady) {
-      throw new Error(`Connect ${WEB_PROVIDERS[provider].label} in NEURAFLOK's browser before sending.`);
-    }
+    await assertWebProviderReady(provider);
     if ((input.images?.length ?? 0) > 0 || input.attachments?.some(file =>
       !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file))) {
       throw new Error(`${WEB_PROVIDERS[provider].label} web sessions accept text and source files. Use the API executor for image attachments.`);
@@ -246,9 +268,7 @@ export async function retryQueuedInputBrowser(id: string): Promise<InputEntry | 
       if (entry.attachments?.some(file => !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
         throw new Error('The API executor accepts text, source files, and images. Add other file types through a project folder.');
     } else {
-      const status = webProvidersStatus()[provider];
-      const isReady = status?.signedIn === true || (status?.open === true && status?.signedIn !== false);
-      if (!isReady) throw new Error(`Connect ${WEB_PROVIDERS[provider].label} in NEURAFLOK's browser before sending.`);
+      await assertWebProviderReady(provider);
       if ((entry.images?.length ?? 0) > 0 || entry.attachments?.some(file =>
         !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
         throw new Error(`${WEB_PROVIDERS[provider].label} web sessions accept text and source files. Use the API executor for image attachments.`);

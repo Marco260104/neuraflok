@@ -6,7 +6,7 @@ var NEURAFLOK_DEEPSEEK = (() => {
   const SEND_LABEL = /^(send|enviar|envoyer|senden|送信|发送|傳送|보내기)$/i;
   const STOP_LABEL = /^(stop|cancel|detener|parar|停止|중지|arrêt|остановить)$/i;
   const CONTINUE_LABEL = /^(continue(?:\s+(?:generating|response|answer))?|keep going|continuar(?:\s+(?:generando|respuesta))?|seguir(?:\s+generando)?|continuer(?:\s+la génération)?|fortsetzen|weiter(?:\s+generieren)?|weitermachen|続行|続ける|生成を続ける|계속(?:\s*생성)?|继续(?:生成|回答)?|繼續(?:生成|回答)?|продолжить(?:\s+генерацию)?|devam(?:\s+et)?|tiếp tục)$/i;
-  const NEW_CHAT_LABEL = /new chat|nuevo chat|nouvelle conversation|neuer chat|新しいチャット|新对话|新對話|새 채팅/i;
+  const NEW_CHAT_LABEL = /new[-_\s]+(?:chat|conversation|thread)|(?:start|create)\s+(?:a\s+)?new\s+(?:chat|conversation|thread)|nuevo\s+chat|nueva\s+conversación|nouvelle\s+conversation|neuer\s+chat|新しいチャット|新对话|新對話|새\s*채팅/i;
 
   const safe = (fn, fallback) => {
     try {
@@ -16,19 +16,55 @@ var NEURAFLOK_DEEPSEEK = (() => {
       return fallback;
     }
   };
+  const EDITABLE_SELECTOR = 'textarea, input, [contenteditable], [role="textbox"]';
+  const editableNodes = () => {
+    const topLevel = safe(() => [...document.querySelectorAll(EDITABLE_SELECTOR)], []);
+    const roots = [document];
+    const visited = new Set();
+    const found = [];
+    let inspected = 0;
+    while (roots.length && visited.size < 32 && inspected < 5_000) {
+      const root = roots.shift();
+      if (!root || visited.has(root)) continue;
+      visited.add(root);
+      found.push(...(root === document ? topLevel : safe(() => [...root.querySelectorAll(EDITABLE_SELECTOR)], [])));
+      const hosts = safe(() => [...root.querySelectorAll('*')], []);
+      for (const host of hosts) {
+        inspected += 1;
+        if (host?.shadowRoot && !visited.has(host.shadowRoot)) roots.push(host.shadowRoot);
+        if (inspected >= 5_000) break;
+      }
+    }
+    return [...new Set(found)];
+  };
 
   const pathOf = (button) => button?.querySelector?.('svg path')?.getAttribute?.('d') || '';
-  const visible = (node) => {
+  const visible = (node, allowBackgroundLayout = false) => {
     if (!node) return false;
     if (node.getAttribute?.('aria-disabled') === 'true' || node.disabled === true || node.hasAttribute?.('disabled')) return false;
     const classList = node.classList ? [...node.classList] : [];
     if (classList.some((c) => /disabled/i.test(c))) return false;
+    let current = node;
+    while (current) {
+      if (current.hidden === true || current.getAttribute?.('hidden') !== null && current.getAttribute?.('hidden') !== undefined ||
+          current.getAttribute?.('aria-hidden') === 'true') return false;
+      const style = safe(() => typeof getComputedStyle === 'function' ? getComputedStyle(current) : current.style, null);
+      if (style && (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' ||
+          Number.parseFloat(style.opacity) === 0)) return false;
+      current = current.parentElement || current.parent || null;
+    }
     const rects = typeof node.getClientRects === 'function' ? node.getClientRects() : [];
-    return rects.length > 0;
+    if (rects.length > 0) return true;
+    // Background WebContentsViews can have no client rects even though their
+    // page controls are mounted and can still be driven programmatically. In
+    // Electron a minimized parent window does not consistently update the
+    // child document's visibilityState, so trust the caller's background
+    // control lookup after rejecting CSS-hidden and disabled nodes above.
+    return allowBackgroundLayout;
   };
-  const labelOf = (node) => `${node?.getAttribute?.('aria-label') || ''} ${node?.textContent || ''}`.replace(/\s+/g, ' ').trim();
+  const labelOf = (node) => `${node?.getAttribute?.('aria-label') || ''} ${node?.getAttribute?.('title') || ''} ${node?.getAttribute?.('data-testid') || ''} ${node?.textContent || ''}`.replace(/\s+/g, ' ').trim();
 
-  const visibleButtons = () => [...document.querySelectorAll('button, [role="button"]')].filter(visible);
+  const visibleButtons = () => [...document.querySelectorAll('button, [role="button"]')].filter(node => visible(node, true));
 
   const circleButtons = () => visibleButtons().filter((button) => pathOf(button));
 
@@ -53,13 +89,76 @@ var NEURAFLOK_DEEPSEEK = (() => {
     return labels.some(label => CONTINUE_LABEL.test(label));
   }) || null;
 
-  const composer = () =>
-    document.querySelector('textarea#chat-input') ||
-    document.querySelector('textarea[name="search"]') ||
-    document.querySelector('.ds-input textarea') ||
-    document.querySelector('div[class*="chat-input"] textarea') ||
-    document.querySelector('textarea') ||
-    null;
+  const isComposerContainer = (node) => Boolean(node?.closest?.('.ds-input, [class*="chat-input"], [class*="composer"]'));
+  const looksLikeSearchField = (node) => {
+    const name = node?.getAttribute?.('name') || '';
+    const id = node?.getAttribute?.('id') || '';
+    const placeholder = node?.getAttribute?.('placeholder') || '';
+    const ariaLabel = node?.getAttribute?.('aria-label') || '';
+    const title = node?.getAttribute?.('title') || '';
+    const testId = node?.getAttribute?.('data-testid') || '';
+    const label = [name, id, placeholder, ariaLabel, title, testId].filter(Boolean).join(' ');
+    // Current DeepSeek builds put the chat textarea in a scroll-area and mark
+    // it `name="search"`. Its visible prompt is the reliable signal that this
+    // is the message composer, so the generic search-name heuristic must not
+    // discard it.
+    const explicitChatInput = id === 'chat-input' ||
+      /(?:message|mensaje|mensagem|メッセージ).*deepseek|deepseek.*(?:message|mensaje|mensagem|メッセージ)|ask\s+deepseek/i.test(`${placeholder} ${ariaLabel} ${title} ${testId}`);
+    return /search|find|buscar|recherche|suche|搜索|查找/i.test(label) && !explicitChatInput && !isComposerContainer(node);
+  };
+  const looksLikeSignInField = (node) => {
+    const type = String(node?.getAttribute?.('type') || '').toLowerCase();
+    const identity = [
+      node?.getAttribute?.('name'), node?.getAttribute?.('id'), node?.getAttribute?.('placeholder'),
+      node?.getAttribute?.('aria-label'), node?.getAttribute?.('title'), node?.getAttribute?.('data-testid')
+    ].filter(Boolean).join(' ');
+    return ['email', 'password', 'tel', 'number'].includes(type) ||
+      /e-?mail|password|username|phone|telephone|verification|one[- ]?time|log.?in|sign.?in/i.test(identity);
+  };
+
+  const composer = () => {
+    const candidates = editableNodes()
+      .filter(node => visible(node, true) && node.disabled !== true && node.readOnly !== true &&
+        node.getAttribute?.('contenteditable') !== 'false' && !looksLikeSearchField(node) && !looksLikeSignInField(node));
+    const bySelector = (selector) => candidates.find(node => safe(() => node.matches?.(selector), false)) || null;
+    return bySelector('textarea#chat-input, input#chat-input, [contenteditable]#chat-input, [role="textbox"]#chat-input') ||
+      bySelector('.ds-input textarea, .ds-input input, .ds-input [contenteditable], .ds-input [role="textbox"]') ||
+      bySelector('div[class*="chat-input"] textarea, div[class*="chat-input"] input, div[class*="chat-input"] [contenteditable], div[class*="chat-input"] [role="textbox"]') ||
+      candidates.find(isComposerContainer) ||
+      candidates.find(node => node.tagName !== 'TEXTAREA' && node.tagName !== 'INPUT') ||
+      candidates.find(node => node.tagName === 'TEXTAREA') ||
+      candidates.find(node => node.tagName === 'INPUT') || null;
+  };
+
+  const authenticatedWorkspace = () => {
+    // Electron can report zero-sized client rects while restoring a provider
+    // page. DeepSeek also changes the composer markup between releases, so do
+    // not require the old #chat-input id to recognize an authenticated
+    // workspace. A unique chat control is enough for presence; execution still
+    // requires a usable composer before it can send anything.
+    if (workspaceNavigationPresent()) return true;
+    const input = editableNodes()
+      .find(node => {
+        if (node.disabled === true || node.readOnly === true ||
+            node.getAttribute?.('aria-disabled') === 'true' ||
+            node.getAttribute?.('contenteditable') === 'false' ||
+            node.getAttribute?.('aria-hidden') === 'true' || node.hidden === true ||
+            looksLikeSearchField(node) || looksLikeSignInField(node)) return false;
+        const type = String(node.getAttribute?.('type') || '').toLowerCase();
+        if (type === 'email' || type === 'password') return false;
+        const identity = [
+          node.getAttribute?.('id'), node.getAttribute?.('class'), node.getAttribute?.('name'),
+          node.getAttribute?.('placeholder'), node.getAttribute?.('aria-label'),
+          node.getAttribute?.('data-testid')
+        ].filter(Boolean).join(' ');
+        if (/e-?mail|password|username|log.?in|sign.?in/i.test(identity)) return false;
+        return isComposerContainer(node) || /chat-input|composer|message|mensaje|ask deepseek/i.test(identity) ||
+          node.tagName === 'TEXTAREA' || node.getAttribute?.('contenteditable') !== null ||
+          node.getAttribute?.('role') === 'textbox';
+      });
+    if (!input) return false;
+    return !!input;
+  };
 
   const setValue = (textarea, text) => {
     try {
@@ -67,16 +166,28 @@ var NEURAFLOK_DEEPSEEK = (() => {
       textarea.select?.();
     } catch {}
     let inserted = false;
+    const isTextControl = /^(TEXTAREA|INPUT)$/.test(String(textarea?.tagName || '').toUpperCase());
     try {
+      if (!isTextControl) document.execCommand?.('selectAll', false);
       inserted = document.execCommand?.('insertText', false, text) === true;
     } catch {}
-    if (!inserted || textarea.value !== text) {
-      const tracker = textarea._valueTracker;
+    if (!isTextControl) {
+      const currentText = String(textarea.innerText || textarea.textContent || '').trim();
+      if (!inserted || currentText !== text.trim()) {
+        textarea.textContent = text;
+        try { textarea.innerText = text; } catch {}
+      }
+    } else if (!inserted || textarea.value !== text) {
       const proto = Object.getPrototypeOf(textarea);
-      const descriptor = Object.getOwnPropertyDescriptor(proto, 'value') || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+      const elementPrototype = String(textarea.tagName).toUpperCase() === 'INPUT'
+        ? window.HTMLInputElement?.prototype
+        : window.HTMLTextAreaElement?.prototype;
+      const descriptor = Object.getOwnPropertyDescriptor(proto, 'value') || Object.getOwnPropertyDescriptor(elementPrototype || {}, 'value');
       if (descriptor?.set) descriptor.set.call(textarea, text);
       else textarea.value = text;
-      if (tracker) tracker.setValue(text);
+      // Keep React's value tracker at its previous value. React compares it
+      // with the native textarea value during the input event; advancing the
+      // tracker here makes React discard the event as if nothing changed.
     }
     try {
       textarea.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
@@ -262,20 +373,25 @@ var NEURAFLOK_DEEPSEEK = (() => {
 
   const newChat = () => {
     const nodes = [...document.querySelectorAll('a[href], button, [role="button"]')];
-    return nodes.find((node) => {
-      if (!visible(node)) return false;
-      const href = node.getAttribute?.('href') || '';
-      if (href) {
-        try {
-          const url = new URL(href, (typeof location !== 'undefined' && location.href) || 'https://chat.deepseek.com/');
-          if (url.hostname === 'chat.deepseek.com' && (url.pathname === '/' || url.pathname === '')) return true;
-        } catch {}
-      }
-      return NEW_CHAT_LABEL.test(labelOf(node));
-    }) || null;
+    // The home/logo link also points at `/` on DeepSeek, but it can reopen the
+    // last conversation instead of starting a fresh one. Only trust an
+    // explicitly named new-chat control; an unknown control must fail closed.
+    return nodes.find((node) => visible(node, true) && NEW_CHAT_LABEL.test(labelOf(node))) || null;
   };
 
-  return {
+  const workspaceNavigationPresent = () => {
+    // DeepSeek renders the authenticated sidebar's "new chat" row as a group
+    // in some builds, not as a button or link. Conversation routes are a more
+    // stable signal that the account workspace is present; requiring a
+    // discoverable new-chat button incorrectly labels that signed-in page as
+    // logged out and prevents the message from ever reaching its composer.
+    return safe(() => [...document.querySelectorAll('a[href]')].some(node => {
+      const href = String(node.getAttribute?.('href') || node.href || '');
+      return /\/a\/chat\//i.test(href) && node.hidden !== true && node.getAttribute?.('aria-hidden') !== 'true';
+    }), false);
+  };
+
+  const api = {
     composer,
     sendButton,
     stopButton,
@@ -302,7 +418,17 @@ var NEURAFLOK_DEEPSEEK = (() => {
     lastThink,
     hasConversation,
     setValue,
-    signedIn: () => !!composer() || !!document.querySelector('.ds-avatar, [class*="avatar"], button[class*="user"], .user-profile'),
-    newChat
+    signedIn: () => !!composer() || authenticatedWorkspace() || workspaceNavigationPresent() || !!document.querySelector('.ds-avatar, [class*="avatar"], button[class*="user"], .user-profile'),
+    newChat,
   };
+  // Provider pages use a single-page app. Script injection can run again after
+  // the chat route changes while the delivery listener still holds this API
+  // object, so refresh its methods in place instead of stranding that listener
+  // on a stale adapter instance.
+  const current = globalThis.NEURAFLOK_DEEPSEEK;
+  if (current && typeof current === 'object') {
+    Object.assign(current, api);
+    return current;
+  }
+  return api;
 })();

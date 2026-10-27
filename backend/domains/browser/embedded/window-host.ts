@@ -177,7 +177,9 @@ export function createIntegratedBrowserWindowHost(runtime: Runtime) {
       const view = views.get(tabId);
       if (!view) continue;
       view.setBounds(page);
-      view.setVisible(true);
+      // Keep background pages at a real size so their virtualized chat DOM
+      // stays mounted, but never paint them over the selected tab.
+      view.setVisible(tabId === active);
     }
     if (activeView) frame.base.contentView.addChildView(activeView);
   }

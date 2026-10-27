@@ -674,7 +674,7 @@ it('invokes apply_patch from a DeepSeek tool banner without backticks', async ()
   expect(await fs.readFile(path.join(directory, 'from-banner.txt'), 'utf8')).toBe('banner\n');
 });
 
-it('sends only new user text on a follow-up because the DeepSeek page keeps history', async () => {
+it('sends instructions and a bounded prior-history summary on a DeepSeek follow-up', async () => {
   const pages: string[] = [];
   const fresh: boolean[] = [];
   configureDeepseekForTests({
@@ -695,6 +695,10 @@ it('sends only new user text on a follow-up because the DeepSeek page keeps hist
   expect(pages[0]).not.toContain('Available tools');
   expect(pages[0]).toContain('first job');
   expect(pages[1]).toContain('second job');
+  expect(pages[1]).toContain('RECENT CONVERSATION SUMMARY');
+  expect(pages[1]).toContain('first job');
+  expect(pages[1]).toContain('noted');
+  expect(pages[1]).toContain('Default workspace folder for ordinary chats');
   expect(pages[1]).toContain('apply_patch');
   expect(pages[1]).not.toContain('Available tools');
   expect(fresh).toEqual([false, false]);
@@ -755,7 +759,8 @@ it('rebuilds a lost DeepSeek page from the saved local transcript', async () => 
   await runDeepseekInput(followup);
 
   expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
-  expect(pages[2]!.text).not.toContain('Yesterday I was implementing the import flow.');
+  expect(pages[2]!.text).toContain('RECENT CONVERSATION SUMMARY');
+  expect(pages[2]!.text).toContain('Yesterday I was implementing the import flow.');
   expect(pages[3]!.text).toContain('Available tools');
   expect(pages[4]!.text).toContain('Yesterday I was implementing the import flow.');
   expect(pages[4]!.text).toContain('Continued with the restored context.');
@@ -791,6 +796,8 @@ it('does not reopen an existing provider chat when its local transcript is unava
   expect(pages).toHaveLength(4);
   expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('NEURAFLOK_CONTEXT_CHECK') });
   expect(pages[3]).toMatchObject({ fresh: false, text: expect.stringContaining('continue the same task') });
+  expect(pages[3]!.text).toContain('RECENT CONVERSATION SUMMARY');
+  expect(pages[3]!.text).toContain('first job');
 });
 
 it('sends setup once, waits for its acknowledgement, then sends authored messages separately', async () => {
@@ -877,6 +884,77 @@ it('warms a new web chat with setup only, then sends the first user task as a fo
   await flushRecorder();
   const events = await readEvents(warmup.id);
   expect(events.some(event => event.kind === 'user_message' && event.message.text === 'MY_ACTUAL_REQUEST')).toBe(true);
+});
+
+it('sends the first authored request after an aged warmup without repeating readiness or setup', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    return { text: 'The first request is complete.' };
+  } });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(warmup);
+
+  const originalNow = Date.now();
+  const dateNow = vi.spyOn(Date, 'now').mockReturnValue(originalNow + 3 * 60_000);
+  try {
+    const first = await enqueueInput({
+      id: randomUUID(), sessionId: warmup.id, text: 'DELAYED_FIRST_REQUEST', mode: 'auto', dueAt: 0,
+      model: null, reasoningEffort: null
+    });
+    await expect(runDeepseekInput(first)).resolves.toBeTruthy();
+
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toMatchObject({ fresh: true });
+    expect(pages[1]).toMatchObject({ fresh: false, text: expect.stringContaining('DELAYED_FIRST_REQUEST') });
+    expect(pages[1]!.text).not.toContain('NEURAFLOK_CONTEXT_CHECK');
+    expect(pages[1]!.text).not.toContain('Initialize this NEURAFLOK conversation');
+  } finally {
+    dateNow.mockRestore();
+  }
+});
+
+it('bootstraps a new project chat even when its local session already reserved a provider id', async () => {
+  const projectChat = await createSession({ conversationId: `ds-${randomUUID()}` });
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    return options?.fresh
+      ? { text: 'NEURAFLOK_READY' }
+      : { text: 'CONTEXT_MISSING' };
+  } });
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: projectChat.id, text: 'NEURAFLOK_WARMUP', warmup: true, authoredSource: 'none',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekInput(warmup)).resolves.toBeTruthy();
+
+  expect(pages).toHaveLength(1);
+  expect(pages[0]).toMatchObject({ fresh: true });
+  expect(pages[0]!.text).toContain('Initialize this NEURAFLOK conversation');
+  await flushRecorder();
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: projectChat.id, text: 'PROJECT_FIRST_REQUEST', mode: 'auto', dueAt: 0,
+    model: null, reasoningEffort: null
+  });
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    return { text: 'Project request completed.' };
+  } });
+  await expect(runDeepseekInput(first)).resolves.toBeTruthy();
+
+  expect(pages).toHaveLength(2);
+  expect(pages[1]).toMatchObject({ fresh: false, text: expect.stringContaining('PROJECT_FIRST_REQUEST') });
+  await flushRecorder();
+  const events = await readEvents(projectChat.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(true);
+  expect(events.some(event => event.kind === 'chat_error' && event.inputId === warmup.id)).toBe(false);
 });
 
 it('resumes project preparation in the same provider chat after a confirmed idle stop', async () => {
@@ -979,6 +1057,39 @@ it('confirms the previous authored request before marking an existing DeepSeek c
   expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
     event.message.text === 'NEURAFLOK_READY')).toBe(true);
   expect(events.some(event => event.kind === 'user_message' && event.inputId === warmup.id)).toBe(false);
+});
+
+it('checks an aged existing chat for prior context before sending a follow-up', async () => {
+  const pages: Array<{ text: string; fresh: boolean }> = [];
+  const previousRequest = 'We finished the invoice import flow yesterday.';
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push({ text, fresh: options?.fresh === true });
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (text.includes('NEURAFLOK_CONTEXT_CHECK')) return { text: `NEURAFLOK_READY\n${previousRequest}` };
+    return { text: 'The follow-up is complete with the earlier context.' };
+  } });
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: previousRequest, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+
+  const originalNow = Date.now();
+  const dateNow = vi.spyOn(Date, 'now').mockReturnValue(originalNow + 3 * 60_000);
+  try {
+    const followup = await enqueueInput({
+      id: randomUUID(), sessionId: first.id, text: 'Continue from the invoice import flow.', mode: 'auto', dueAt: 0,
+      model: null, reasoningEffort: null
+    });
+    await expect(runDeepseekInput(followup)).resolves.toBeTruthy();
+
+    expect(pages).toHaveLength(4);
+    expect(pages[2]).toMatchObject({ fresh: false, text: expect.stringContaining('NEURAFLOK_CONTEXT_CHECK') });
+    expect(pages[3]).toMatchObject({ fresh: false, text: expect.stringContaining('Continue from the invoice import flow.') });
+    expect(pages[3]!.text).toContain('RECENT CONVERSATION SUMMARY');
+    expect(pages[3]!.text).toContain(previousRequest);
+  } finally {
+    dateNow.mockRestore();
+  }
 });
 
 it('times out a stalled readiness check and aborts its provider request', async () => {

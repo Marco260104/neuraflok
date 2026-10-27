@@ -48,6 +48,7 @@ import {
   getSession
 } from '../sessions/history/store.js';
 import { readSessionEvents } from '../sessions/history/read-model.js';
+import { summarizeProviderConversation, summarizeSessionHistory, sessionHistoryMessages } from './conversation-summary.js';
 import {
   advertisedBrowserChatTools,
   createBrowserChatToolRegistrar,
@@ -341,7 +342,7 @@ async function acknowledgeWarmup(
   sessionId: string,
   conversationId: string,
   system: string,
-  prior: WebChatThread | null,
+  priorMessages: WebChatMessage[],
   signal: AbortSignal,
   deadline: number,
   turnId: string
@@ -357,7 +358,7 @@ async function acknowledgeWarmup(
     parseWebChatTools(reply.text).length === 0 && !incompleteWebChatTool(reply.text);
   if (!confirmed) {
     if (provider !== 'deepseek') throw new Error(`${WEB_PROVIDERS[provider].label} did not confirm this chat's previous context. No message was sent.`);
-    const replay = replayWebProviderTranscript(prior?.messages ?? [], check.prompt, 96_000);
+    const replay = replayWebProviderTranscript(priorMessages, check.prompt, 96_000);
     if (!replay) throw new Error('DeepSeek could not confirm this chat context, and no saved transcript is available to restore it. No message was sent.');
 
     const setup = await prepareWebProviderBootstrap(entry, sessionId, system);
@@ -397,12 +398,33 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   const reminder = webChatRoundReminder(guideCtx);
   const system = webToolGuide(advertisedBrowserChatTools(registrar), guideCtx);
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
-  let messages = withWebProviderSystem(prior?.messages ?? [], system);
+  const history = !prior && session?.conversationId
+    ? await readSessionEvents(sessionId, { limit: 160 })
+    : null;
+  const priorMessages = prior?.messages ?? sessionHistoryMessages(history?.events ?? []);
+  let messages = withWebProviderSystem(priorMessages, system);
+  const historySummary = summarizeProviderConversation(priorMessages) || summarizeSessionHistory(history?.events ?? []);
+  const priorAuthoredRequest = await latestAuthoredRequest(sessionId, entry.warmup ? undefined : entry.id);
+  // An automatic opening warmup can leave a setup message and its ACK in the
+  // provider transcript before the user sends anything. That is not prior chat
+  // history: the first authored request should carry the current instructions
+  // and project context directly, without a model-level readiness round trip.
+  const hasPriorAuthoredContext = Boolean(priorAuthoredRequest || historySummary);
+  // A project chat can reserve its local provider conversation id before the
+  // provider has seen any setup. Its automatic warmup is still the opening
+  // exchange when there is no earlier authored request in the session.
+  const openingWarmup = entry.warmup === true && !priorAuthoredRequest;
   // A worker session reserves its local provider id before its first delivery, so
   // the first worker turn still needs a fresh provider bootstrap. A bound user
   // chat with a missing local mirror must remain a context check and replay.
-  const opening = isOpening(messages) && ((!session?.conversationId && !entry.conversationId) || session?.origin?.kind === 'worker');
-  const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, opening);
+  // Bootstrap only when the provider transcript is actually empty. A completed
+  // automatic warmup already loaded setup into this provider chat, even when
+  // the first authored request arrives after the context-verification TTL.
+  const opening = isOpening(messages) && (!hasPriorAuthoredContext ||
+    (!session?.conversationId && !entry.conversationId) || session?.origin?.kind === 'worker' || openingWarmup);
+  const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, {
+    historySummary: opening || !hasPriorAuthoredContext ? undefined : historySummary
+  });
   const bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
   const userMessageId = randomUUID();
   const turnId = randomUUID();
@@ -467,13 +489,13 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       }
     }
     if (entry.warmup) {
-      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
+      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, priorMessages, abort.signal,
         warmupDeadline ?? Date.now() + webChatReadinessMaxDurationMs, turnId);
       await observe(ownedConversation, [{ kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }]);
       return turnId;
     }
-    if (provider === 'deepseek' && !hasRecentDeepseekContext(sessionId, ownedConversation)) {
-      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, prior, abort.signal,
+    if (provider === 'deepseek' && hasPriorAuthoredContext && !hasRecentDeepseekContext(sessionId, ownedConversation)) {
+      await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, priorMessages, abort.signal,
         Date.now() + webChatReadinessMaxDurationMs, turnId);
     }
     thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: entry.text }]);
@@ -530,7 +552,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
               continue;
             }
             if (provider !== 'deepseek' || contextRecoveryAttempted || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
-            const replay = replayWebProviderTranscript(prior?.messages ?? [], requestText, 96_000, entry.text);
+            const replay = replayWebProviderTranscript(priorMessages, requestText, 96_000, entry.text);
             if (!replay) {
               throw new Error('DeepSeek perdió el historial remoto y NeuraFlok no tiene suficiente transcripción local para reconstruir el contexto. No se envió el mensaje.');
             }

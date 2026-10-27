@@ -2169,5 +2169,8 @@
   "Your message will be queued until the model is ready.": "Model hazır olana kadar mesajınız sıraya alınacak.",
   "The model could not confirm this chat context. Retry to release queued messages.": "Model sohbet bağlamını doğrulayamadı. Kuyruktaki mesajları göndermek için yeniden deneyin.",
   "Chat context not verified": "Sohbet bağlamı doğrulanmadı",
-  "Chat is ready.": "Sohbet hazır."
+  "Chat is ready.": "Sohbet hazır.",
+  "Waiting for provider…": "Sağlayıcı bekleniyor…",
+  "Open this chat": "Bu sohbeti aç",
+  "Open this chat in its provider": "Bu sohbeti bağlı olduğu sağlayıcıda aç"
 }

@@ -16,6 +16,7 @@ import { configureIntegratedBrowserSession } from './session-setup.js';
 import type { ModelEvent } from './tabs/model-contracts.js';
 import { createIntegratedBrowserProviderPages } from './provider-pages.js';
 import { createIntegratedBrowserWindowHost, integratedBrowserPageBackground } from './window-host.js';
+import { integratedBrowserRendererUrl } from './renderer-url.js';
 
 const PARTITION = 'persist:neural-jam-browser';
 
@@ -93,6 +94,7 @@ export class IntegratedBrowser {
       hideWindow: id => this.windowHost.hideWindow(id),
       storageSession: () => this.configured ?? session.fromPartition(PARTITION),
       selectedProvider: () => getConfig().ui.webProvider ?? 'deepseek',
+      revealStoredProviderConversation: conversationId => this.extensionBridge.revealProviderConversation(conversationId),
       notify: () => this.notify()
     });
   }
@@ -257,7 +259,7 @@ export class IntegratedBrowser {
   private loadPage(contents: WebContents, file: string): void {
     const rendererUrl = this.assets.rendererUrl();
     void (rendererUrl
-      ? contents.loadURL(new URL(file, rendererUrl.endsWith('/') ? rendererUrl : `${rendererUrl}/`).toString())
+      ? contents.loadURL(integratedBrowserRendererUrl(rendererUrl, file))
       : contents.loadFile(path.join(this.assets.rendererDir, file))).catch(() => undefined);
   }
 

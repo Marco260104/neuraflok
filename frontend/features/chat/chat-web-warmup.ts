@@ -160,7 +160,10 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const deadline = Date.now() + WEB_CHAT_PREPARATION_TIMEOUT_MS;
     const id = crypto.randomUUID();
     const dueAt = Date.now();
-    const mode = composerWarmupState(key)?.priorTurnWorking ? 'after-turn' as const : 'auto' as const;
+    // Let the backend bind after-turn delivery to the turn that is actually
+    // active now. The renderer's remembered priorTurnWorking bit can outlive a
+    // completed turn and strand this preparation request forever.
+    const mode = 'auto' as const;
     const seed: InputEntry = {
       id, sessionId, projectId, text: WEB_CHAT_WARMUP_TEXT, warmup: true, authoredSource: 'none',
       mode, dueAt, model: null, reasoningEffort: null, state: 'queued', owner: null, createdAt: dueAt,

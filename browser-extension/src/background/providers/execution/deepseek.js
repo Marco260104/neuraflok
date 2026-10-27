@@ -6,6 +6,8 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
   let deepseekPageFlight = null;
   const DEEPSEEK_SEND_MS = 100_000;
   const DEEPSEEK_READ_MS = 8_000;
+  const DEEPSEEK_READY_MS = 20_000;
+  const DEEPSEEK_READY_POLL_MS = 250;
   const sessionPages = createDeepseekSessionResolver({
     chrome, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab,
     waitForTabReady, isDeepseekUrl, usableProviderTab, state
@@ -99,12 +101,34 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           await fail('Sign in to DeepSeek at chat.deepseek.com in the same browser as this app, then send again.');
           return;
         }
+        if (offer.fresh !== true && await restoreDeepseekTab(tab.id) === false) {
+          throw new Error('Could not refresh the DeepSeek chat controls. Reload the provider page and retry.');
+        }
         await activeTabs?.set(`provider:${offer.id}`, [tab], candidate =>
           candidate.id === tab.id && isDeepseekUrl(candidate.url));
         const status = await tabReply(tab.id, { type: 'neuraflok-deepseek-status' });
         if (!status || typeof status.signedIn !== 'boolean') await restoreDeepseekTab(tab.id);
-        const snapshot = await tabReply(tab.id, { type: 'neuraflok-deepseek-snapshot' }, undefined, DEEPSEEK_READ_MS);
-        if (!snapshot || snapshot.signedIn !== true) throw new Error('Sign in to DeepSeek in this browser, then try again.');
+        let snapshot = await tabReply(tab.id, { type: 'neuraflok-deepseek-snapshot' }, undefined, DEEPSEEK_READ_MS);
+        // `tabs.onUpdated(status: complete)` can fire before DeepSeek finishes
+        // restoring its signed-in workspace. Do not turn that short hydration
+        // window into a false sign-in error; wait for the page adapter to see
+        // the chat controls before deciding that this browser is disconnected.
+        if (!snapshot || snapshot.signedIn !== true) {
+          const readyUntil = Date.now() + DEEPSEEK_READY_MS;
+          while (Date.now() < readyUntil) {
+            await new Promise(resolve => setTimeout(resolve, DEEPSEEK_READY_POLL_MS));
+            snapshot = await tabReply(tab.id, { type: 'neuraflok-deepseek-snapshot' }, undefined,
+              Math.min(DEEPSEEK_READ_MS, 2_000)).catch(() => null);
+            if (snapshot?.signedIn === true) break;
+          }
+        }
+        if (!snapshot || snapshot.signedIn !== true) {
+          const diagnostics = snapshot?.diagnostics;
+          const safeSummary = diagnostics && typeof diagnostics === 'object'
+            ? JSON.stringify(diagnostics).slice(0, 350)
+            : `status=${String(status?.signedIn ?? 'missing')}; snapshot=${String(snapshot?.signedIn ?? 'missing')}`;
+          throw new Error(`Sign in to DeepSeek in this browser, then try again. [diagnostic ${safeSummary}]`);
+        }
         if (offer.fresh !== true && snapshot.conversationId && snapshot.conversationId !== offer.conversationId) {
           const savedPageMatches = savedUrl && conversationPageUrl(tab.url || tab.pendingUrl) === savedUrl && snapshot.hasConversation === true;
           if (!savedPageMatches) throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: The page no longer belongs to this DeepSeek session. No message was sent.');

@@ -2,6 +2,7 @@ import type { BrowserControl } from './chrome-api/index.js';
 import { callChromeApi } from './chrome-api/index.js';
 import { ExtensionWorkerLink, type WorkerRegistry, type WorkerStatus } from './extension-worker.js';
 import { logInfo, logWarn } from '../../../infrastructure/settings/logger.js';
+import { randomUUID } from 'node:crypto';
 
 const TRACE = process.env.IETEGRATED_BROWSER_TRACE === '1';
 
@@ -14,6 +15,7 @@ function traceIds(args: unknown[]): string {
 
 export class IntegratedBrowserExtensionBridge {
   private link: ExtensionWorkerLink | null = null;
+  private readonly pendingReveals = new Map<string, { resolve(shown: boolean): void; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(private readonly control: BrowserControl) {
   }
@@ -39,12 +41,31 @@ export class IntegratedBrowserExtensionBridge {
     this.link?.send(name, args);
   }
 
+  /** Ask the extension running in this browser profile to reveal its exact saved conversation. */
+  revealProviderConversation(conversationId: string): Promise<boolean> {
+    if (!this.link) return Promise.resolve(false);
+    const requestId = randomUUID();
+    return new Promise(resolve => {
+      const timer = setTimeout(() => this.settleReveal(requestId, false), 15_000);
+      timer.unref?.();
+      this.pendingReveals.set(requestId, { resolve, timer });
+      this.send('neuraflok.reveal-provider-conversation', [requestId, conversationId]);
+    });
+  }
+
   close(): void {
     this.link?.close();
     this.link = null;
+    for (const requestId of this.pendingReveals.keys()) this.settleReveal(requestId, false);
   }
 
   private async answer(name: string, args: unknown): Promise<unknown> {
+    if (name === 'neuraflok.reveal-result') {
+      if (Array.isArray(args) && typeof args[0] === 'string' && typeof args[1] === 'boolean') {
+        this.settleReveal(args[0], args[1]);
+      }
+      return { ok: true, value: undefined };
+    }
     const label = TRACE ? `${name}(${Array.isArray(args) ? traceIds(args) : ''})` : '';
     const late = TRACE ? setTimeout(() => logWarn(`integrated browser trace: ${label} still pending after 10 s`), 10_000) : null;
     try {
@@ -54,5 +75,13 @@ export class IntegratedBrowserExtensionBridge {
     } finally {
       if (late) clearTimeout(late);
     }
+  }
+
+  private settleReveal(requestId: string, shown: boolean): void {
+    const pending = this.pendingReveals.get(requestId);
+    if (!pending) return;
+    this.pendingReveals.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(shown);
   }
 }

@@ -47,9 +47,11 @@ export async function openSessionChat(id: string): Promise<void> {
     if (isApiConversationId(conversationId)) throw new Error('API conversations are available in the NEURAFLOK workspace, not in a provider browser.');
     throw new Error('This session is not linked to a supported browser provider.');
   }
-  const opened = getConfig().ui.chatBrowser === 'integrated'
-    ? await (await loadIntegratedBrowser()).revealProviderConversation(provider, conversationId)
-    : await revealChatInBrowser(conversationId);
+  const integrated = getConfig().ui.chatBrowser === 'integrated';
+  const integratedBrowser = integrated ? await loadIntegratedBrowser() : null;
+  const opened = integratedBrowser
+    ? await integratedBrowser.revealProviderConversation(provider, conversationId)
+    : !integrated && await revealChatInBrowser(conversationId);
   if (!opened) throw new Error(`The exact ${provider} conversation page is not open in the selected browser.`);
 }
 

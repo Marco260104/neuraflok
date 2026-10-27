@@ -69,7 +69,7 @@ it('maps exactly the glyphs the renderer draws, at the codepoints the bundled Ph
 it('uses the icon font except for explicitly authored interface drawings', () => {
   // Allowed SVG is limited to the product mark, flags, context ring, and authored disclosure chevron.
   for (const [, tag, rest] of html.matchAll(/(<svg\b[^>]*>)([\s\S]{0,80})/g)) {
-    const allowed = /class="(sprite|language-flag|setup-folder-icon|setup-connect-icon|disclosure-chevron\b[^"]*)"/.test(tag!) || /^<use href="#i-mark"/.test(rest!) ||
+    const allowed = /class="(sprite|language-flag|setup-folder-icon|setup-connect-icon|nf-loader-svg|disclosure-chevron\b[^"]*)"/.test(tag!) || /^<use href="#i-mark"/.test(rest!) ||
       /^<circle class="context-track"/.test(rest!.trim());
     expect(allowed, tag).toBe(true);
   }
