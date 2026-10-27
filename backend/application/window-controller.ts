@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { app, BrowserWindow, Menu, screen } from 'electron';
 import { getConfig, logError, logInfo } from '../infrastructure/settings/index.js';
+import { loadFreshDevelopmentRenderer } from './window-load.js';
 import {
   UI_BASE_ZOOM, windowLayoutForDisplays, windowPlacementWasMaximized, titleBarOverlayForTheme, windowBackgroundForTheme,
   trackNormalWindowBounds, browserWindowIconPath, unpackagedIconRoot, unpackagedWindowsIcoPath,
@@ -127,8 +128,13 @@ export function createMainWindowController(options: {
       window = null;
     });
 
-    if (process.env.ELECTRON_RENDERER_URL) {
-      void window.loadURL(process.env.ELECTRON_RENDERER_URL);
+    const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+    if (rendererUrl) {
+      const developmentWindow = window;
+      void loadFreshDevelopmentRenderer(
+        () => developmentWindow.webContents.session.clearCache(),
+        () => developmentWindow.loadURL(rendererUrl)
+      );
     } else {
       void window.loadFile(path.join(__dirname, '../renderer/index.html'));
     }
