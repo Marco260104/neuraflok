@@ -133,6 +133,7 @@ export function createMainWindowController(options: {
       const developmentWindow = window;
       const freshRendererUrl = freshDevelopmentRendererUrl(rendererUrl);
       void loadFreshDevelopmentRenderer(
+        () => developmentWindow.webContents.session.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] }),
         () => developmentWindow.webContents.session.clearCache(),
         () => developmentWindow.loadURL(freshRendererUrl)
       );

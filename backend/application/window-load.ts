@@ -6,13 +6,16 @@ export function freshDevelopmentRendererUrl(rendererUrl: string, cacheKey = Date
 }
 
 export async function loadFreshDevelopmentRenderer<T>(
+  clearStaleWorkers: () => Promise<unknown>,
   clearCache: () => Promise<unknown>,
   loadRenderer: () => Promise<T>
 ): Promise<T> {
-  try {
-    await clearCache();
-  } catch {
-    // A cache that cannot be cleared must not prevent the app from opening.
+  for (const clear of [clearStaleWorkers, clearCache]) {
+    try {
+      await clear();
+    } catch {
+      // A stale renderer cache must not prevent the app from opening.
+    }
   }
   return loadRenderer();
 }
