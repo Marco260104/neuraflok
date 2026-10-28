@@ -417,6 +417,36 @@ it('hides a stale Stop action while an old ordinary chat opens its history hands
   expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
 });
 
+it('does not turn a restored pending message into Stop when opening an old chat', async () => {
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'restored-question', message: text('Earlier question') },
+    { seq: 2, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'restored-answer', message: text('Earlier answer.'), state: 'final', final: true }
+  ];
+  const ordinary = { ...summary(history), id: 'old-chat-with-pending-receipt', title: 'Earlier chat',
+    conversationId: 'ds-old-chat-with-pending-receipt', chatIds: ['ds-old-chat-with-pending-receipt'] };
+  const { w, live } = await boot(history, false, [], [], { sessions: [ordinary] });
+  const restored: InputEntry = { id: 'restored-pending-input', sessionId: ordinary.id, deliveredSessionId: ordinary.id,
+    text: 'Previously queued synthetic message', mode: 'auto', dueAt: T0, model: null, reasoningEffort: null,
+    state: 'browser', owner: 'browser', createdAt: T0, conversationId: ordinary.conversationId } as InputEntry;
+  live.inputs.push(restored);
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  chatRuntimeBindings.pendingComposerInputs = [restored];
+  const api = (w as any).api;
+  let resolveHistory!: (value: unknown) => void;
+  api.getSession = () => new Promise(resolve => { resolveHistory = resolve; });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${ordinary.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(send.getAttribute('aria-label')).not.toBe('Cancel delivery');
+
+  resolveHistory({ ok: true, data: { summary: ordinary, events: history, total: history.length, nextFrom: history.length + 1 } });
+  await settle();
+});
+
 it('keeps stale Stop hidden until an old chat history is loaded and confirms live turns only', async () => {
   const turnId = 'old-chat-turn';
   const history: SessionEvent[] = [

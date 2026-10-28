@@ -80,7 +80,10 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     if ($<HTMLSelectElement>('sendMode').value === 'tool' && !explicitInjection) $<HTMLSelectElement>('sendMode').value = 'auto';
     if (canInject && explicitInjection && $<HTMLSelectElement>('sendMode').value === 'auto') $<HTMLSelectElement>('sendMode').value = 'tool';
     if (!canInject && !canSendDirectly && !queueAtFinish) $<HTMLSelectElement>('sendMode').value = 'auto';
-    const stop = (working || (!!pending && !internalProjectDelivery)) && !runtime.currentPreparedPlan() && !runtime.authoredComposerText().trim() &&
+    const deliveryContextReady = runtime.selectedId === null || historyReady;
+    const cancellablePending = deliveryContextReady && !!pending && !internalProjectDelivery &&
+      !runtime.preparingChatInternally();
+    const stop = (working || cancellablePending) && !runtime.currentPreparedPlan() && !runtime.authoredComposerText().trim() &&
       !(runtime.imageDrafts.get(runtime.draftKey())?.length);
     $('sendOptions').hidden = !canInject && !canSendDirectly && !queueAtFinish;
     const send = $<HTMLButtonElement>('chatSend');

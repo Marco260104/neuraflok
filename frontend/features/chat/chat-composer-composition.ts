@@ -204,10 +204,9 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get events() { return bindings.events; },
     preparingChatInternally: () => {
       const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
-      // The provider can briefly report the prior response as active while the
-      // selected chat's history handshake is running. Keep Stop hidden until
-      // that handshake is ready, unless an authored message is already queued.
-      return warmup?.phase === 'opening' && !chatInputQueue.pendingComposerInput();
+      // A restored queue row is not evidence of a turn started by this view.
+      // Keep a stale provider Stop hidden throughout the history handshake.
+      return warmup?.phase === 'opening';
     },
     projectScopedSelection: () => {
       const session = bindings.sessions.find(row => row.id === bindings.selectedId);
