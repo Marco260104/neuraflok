@@ -41,7 +41,7 @@ it('waits for the matching DeepSeek acknowledgement while existing messages stay
       listInputs: async () => ({ ok: true, data: entry ? [entry] : [] }),
       getSession: async () => ({ ok: true, data: {
         summary: { id: sessionId, conversationId },
-        events: entry ? [{ kind: 'assistant_message', inputId: entry.id, message: { text: 'NEURAFLOK_READY' } }] : []
+        events: entry ? [{ kind: 'assistant_message', inputId: entry.id, state: 'final', final: true, message: { text: 'NEURAFLOK_READY' } }] : []
       } })
     },
     state: () => ({ config: { ui: { chatExecutor: 'web', webProvider: 'deepseek' } },
@@ -61,6 +61,7 @@ it('waits for the matching DeepSeek acknowledgement while existing messages stay
     selectSession: vi.fn(),
     paintDeliveryControls: vi.fn(),
     paintPreparationStatus: vi.fn(),
+    refreshSessionControls: vi.fn(async () => undefined),
     refreshInputQueue: vi.fn(async () => undefined),
     setPendingNewInput: vi.fn()
   };
@@ -75,6 +76,7 @@ it('waits for the matching DeepSeek acknowledgement while existing messages stay
   expect(sendInput.mock.calls[0]![0]).toMatchObject({ sessionId, warmup: true, authoredSource: 'none', mode: 'auto' });
   expect(runtime.pendingComposerInputs[0]).toMatchObject({ id: 'early-message', state: 'queued' });
   expect(runtime.paintDeliveryControls).toHaveBeenCalled();
+  expect(runtime.refreshSessionControls).toHaveBeenCalled();
   expect(runtime.paintPreparationStatus).toHaveBeenCalled();
 
   warmup.ensure();
@@ -83,6 +85,115 @@ it('waits for the matching DeepSeek acknowledgement while existing messages stay
   warmup.ensure();
   await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2));
   await vi.waitFor(() => expect(composerWarmupState(sessionId)).toBeNull());
+  resetComposerWarmupForTests();
+});
+
+it('waits for a final readiness acknowledgement before releasing the internal preparation gate', async () => {
+  const sessionId = 'old-chat-streaming-readiness';
+  const conversationId = 'ds-00000000-0000-4000-8000-000000000042';
+  let entry: any;
+  let final = false;
+  const getSession = vi.fn(async () => ({ ok: true, data: {
+    summary: { id: sessionId, conversationId },
+    events: entry ? [{ kind: 'assistant_message', inputId: entry.id, state: final ? 'final' : 'streaming', final,
+      message: { text: 'NEURAFLOK_READY' } }] : []
+  } }));
+  const runtime: any = {
+    api: {
+      sendInput: vi.fn(async (request: any) => {
+        entry = { ...request, sessionId, deliveredSessionId: sessionId, state: 'sent', createdAt: Date.now(), conversationId };
+        return { ok: true, data: entry };
+      }),
+      listInputs: async () => ({ ok: true, data: entry ? [entry] : [] }),
+      getSession,
+      cancelInput: vi.fn()
+    },
+    state: () => ({ config: { ui: { chatExecutor: 'web', webProvider: 'deepseek' } },
+      bridge: { webProviders: { deepseek: { signedIn: true } } } }),
+    newChatSelected: false,
+    selectedId: sessionId,
+    selectedProjectId: null,
+    selectionGeneration: 10,
+    sessions: [{ id: sessionId, conversationId, projectId: null }],
+    turnWorking: () => false,
+    pendingNewInput: null,
+    startingInputs: new Map(),
+    pendingComposerInputs: [],
+    adoptAcceptedOpening: async () => false,
+    selectSession: vi.fn(),
+    paintDeliveryControls: vi.fn(),
+    paintPreparationStatus: vi.fn(),
+    refreshSessionControls: vi.fn(async () => undefined),
+    refreshInputQueue: vi.fn(async () => undefined),
+    setPendingNewInput: vi.fn()
+  };
+  resetComposerWarmupForTests();
+  createWebChatWarmup(runtime).ensure();
+  await vi.waitFor(() => expect(getSession).toHaveBeenCalled());
+  await new Promise(resolve => setTimeout(resolve, 25));
+
+  expect(composerWarmupState(sessionId)?.phase).toBe('opening');
+  expect(runtime.refreshSessionControls).not.toHaveBeenCalled();
+  final = true;
+  await vi.waitFor(() => expect(composerWarmupState(sessionId)).toBeNull(), { timeout: 2_000 });
+  expect(runtime.refreshSessionControls).toHaveBeenCalledTimes(1);
+  resetComposerWarmupForTests();
+});
+
+it('keeps stale Stop hidden until old-chat controls refresh after the warmup acknowledgement', async () => {
+  const sessionId = 'old-chat-with-stale-stop';
+  const conversationId = 'ds-00000000-0000-4000-8000-000000000041';
+  let entry: any;
+  let activeTurnId: string | null = 'stale-turn-from-before-opening';
+  let releaseControls!: () => void;
+  const visibleStopStates: boolean[] = [];
+  const runtime: any = {
+    api: {
+      sendInput: vi.fn(async (request: any) => {
+        entry = { ...request, sessionId, deliveredSessionId: sessionId, state: 'sent', createdAt: Date.now(), conversationId };
+        return { ok: true, data: entry };
+      }),
+      listInputs: async () => ({ ok: true, data: entry ? [entry] : [] }),
+      getSession: async () => ({ ok: true, data: {
+        summary: { id: sessionId, conversationId },
+        events: entry ? [{ kind: 'assistant_message', inputId: entry.id, state: 'final', final: true, message: { text: 'NEURAFLOK_READY' } }] : []
+      } }),
+      cancelInput: vi.fn()
+    },
+    state: () => ({ config: { ui: { chatExecutor: 'web', webProvider: 'deepseek' } },
+      bridge: { webProviders: { deepseek: { signedIn: true } } } }),
+    newChatSelected: false,
+    selectedId: sessionId,
+    selectedProjectId: 'synthetic-project',
+    selectionGeneration: 9,
+    sessions: [{ id: sessionId, conversationId, projectId: 'synthetic-project' }],
+    turnWorking: () => false,
+    pendingNewInput: null,
+    startingInputs: new Map(),
+    pendingComposerInputs: [],
+    adoptAcceptedOpening: async () => false,
+    selectSession: vi.fn(),
+    paintDeliveryControls: vi.fn(() => {
+      visibleStopStates.push(composerWarmupState(sessionId)?.phase !== 'opening' && activeTurnId !== null);
+    }),
+    paintPreparationStatus: vi.fn(),
+    refreshSessionControls: vi.fn(() => new Promise<void>(resolve => {
+      releaseControls = () => { activeTurnId = null; resolve(); };
+    })),
+    refreshInputQueue: vi.fn(async () => undefined),
+    setPendingNewInput: vi.fn()
+  };
+  resetComposerWarmupForTests();
+  const warmup = createWebChatWarmup(runtime);
+
+  warmup.ensure();
+  await vi.waitFor(() => expect(runtime.refreshSessionControls).toHaveBeenCalledTimes(1));
+
+  expect(composerWarmupState(sessionId)?.phase).toBe('opening');
+  expect(visibleStopStates).not.toContain(true);
+  releaseControls();
+  await vi.waitFor(() => expect(composerWarmupState(sessionId)).toBeNull());
+  expect(visibleStopStates).not.toContain(true);
   resetComposerWarmupForTests();
 });
 
@@ -112,6 +223,7 @@ it('releases the preparing gate when a readiness IPC call never returns', async 
       selectSession: vi.fn(),
       paintDeliveryControls: vi.fn(),
       paintPreparationStatus: vi.fn(),
+      refreshSessionControls: vi.fn(async () => undefined),
       refreshInputQueue: vi.fn(async () => undefined),
       setPendingNewInput: vi.fn()
     };
@@ -139,7 +251,8 @@ it('retries chat preparation even when a user message is waiting in the queue', 
       listInputs: async () => ({ ok: true, data: [queuedMessage, ...(warmupEntry ? [warmupEntry] : [])] }),
       getSession: async () => ({ ok: true, data: {
         summary: { id: sessionId, conversationId },
-        events: warmupEntry ? [{ kind: 'assistant_message', inputId: warmupEntry.id, message: { text: 'NEURAFLOK_READY' } }] : []
+        events: warmupEntry ? [{ kind: 'assistant_message', inputId: warmupEntry.id, state: 'final', final: true,
+          message: { text: 'NEURAFLOK_READY' } }] : []
       } }),
       cancelInput: vi.fn()
     },
@@ -158,6 +271,7 @@ it('retries chat preparation even when a user message is waiting in the queue', 
     selectSession: vi.fn(),
     paintDeliveryControls: vi.fn(),
     paintPreparationStatus: vi.fn(),
+    refreshSessionControls: vi.fn(async () => undefined),
     refreshInputQueue: vi.fn(async () => undefined),
     setPendingNewInput: vi.fn()
   };
@@ -187,7 +301,7 @@ it('does not show a second project as preparing while another chat owns the warm
       listInputs: async () => ({ ok: true, data: [] }),
       getSession: async (sessionId: string) => ({ ok: true, data: {
         summary: { id: sessionId, conversationId },
-        events: [{ kind: 'assistant_message', inputId: firstRequest?.id, message: { text: 'NEURAFLOK_READY' } }]
+        events: [{ kind: 'assistant_message', inputId: firstRequest?.id, state: 'final', final: true, message: { text: 'NEURAFLOK_READY' } }]
       } }),
       cancelInput: vi.fn()
     },
@@ -207,6 +321,7 @@ it('does not show a second project as preparing while another chat owns the warm
     selectSession: vi.fn(),
     paintDeliveryControls: vi.fn(),
     paintPreparationStatus: vi.fn(),
+    refreshSessionControls: vi.fn(async () => undefined),
     refreshInputQueue: vi.fn(async () => undefined),
     setPendingNewInput(value: any) { this.pendingNewInput = value; }
   };

@@ -10,6 +10,7 @@ import {
   clearComposerWarmup,
   composerWarmupKey,
   composerWarmupState,
+  isHandshakeAck,
   markComposerWarmupFailed,
   markComposerWarmupOpening,
   setComposerWarmupHandlers
@@ -41,6 +42,11 @@ export function isWarmupInput(entry: { warmup?: boolean }): boolean {
   return entry.warmup === true;
 }
 
+function confirmedWarmupAcknowledgement(event: SessionEvent, inputId: string): boolean {
+  return event.kind === 'assistant_message' && event.inputId === inputId &&
+    (event.final === true || event.state === 'final') && isHandshakeAck(event.message.text);
+}
+
 export function webChatWarmupNeeded(input: {
   apiExecutor: boolean;
   signedIn: boolean;
@@ -69,6 +75,7 @@ export interface WebChatWarmupRuntime {
   adoptAcceptedOpening: (entry: InputEntry) => Promise<boolean>;
   selectSession: (id: string) => void;
   paintDeliveryControls: () => void;
+  refreshSessionControls: () => Promise<void>;
   refreshInputQueue: () => Promise<void>;
   setPendingNewInput: (value: { id: string; generation: number } | null) => void;
   paintPreparationStatus: () => void;
@@ -140,9 +147,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     if (!accepted || Date.now() - accepted.createdAt > WEB_CHAT_PREPARATION_TIMEOUT_MS) return undefined;
     const detail = await beforeDeadline(deadline, 'The model took too long to prepare this chat. Retry to try again.',
       () => run(runtime.api.getSession(sessionId, { limit: 160 })));
-    const acknowledged = detail?.events.some(event =>
-      event.kind === 'assistant_message' && event.inputId === accepted.id &&
-      (event.message.text.trim() === 'NEURAFLOK_READY' || event.message.text.trim() === 'NEURAL_JAM_READY'));
+    const acknowledged = detail?.events.some(event => confirmedWarmupAcknowledgement(event, accepted.id));
     const failed = detail?.events.some(event => event.kind === 'chat_error' && event.inputId === accepted.id);
     if (failed) return undefined;
     return acknowledged ? undefined : accepted;
@@ -157,9 +162,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
           run(runtime.api.getSession(sessionId, { limit: 160 }))
         ]));
       if (!rows) throw new Error('Could not check whether the model finished preparing this chat.');
-      const acknowledged = detail?.events.some(event =>
-        event.kind === 'assistant_message' && event.inputId === entry.id &&
-        (event.message.text.trim() === 'NEURAFLOK_READY' || event.message.text.trim() === 'NEURAL_JAM_READY'));
+      const acknowledged = detail?.events.some(event => confirmedWarmupAcknowledgement(event, entry.id));
       if (acknowledged && detail?.summary?.conversationId) return { conversationId: detail.summary.conversationId };
       const current = rows.find(row => row.id === entry.id);
       if (!current) throw new Error('The preparation request disappeared before the model confirmed the chat.');
@@ -246,6 +249,11 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
         conversationId: ready.conversationId,
         generation: runtime.selectedId === boundId ? runtime.selectionGeneration : generation
       });
+      // Keep the internal-preparation gate in place until Stop is reconciled
+      // with the turn that exists after the acknowledgement. The controls
+      // fetched when the old chat opened can still describe its previous
+      // turn, which briefly exposed Stop as soon as this gate was cleared.
+      if (runtime.selectedId === boundId) await runtime.refreshSessionControls();
       clearComposerWarmup(key);
       clearComposerWarmup(boundId);
       runtime.paintPreparationStatus();

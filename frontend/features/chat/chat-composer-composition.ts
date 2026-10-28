@@ -91,6 +91,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     adoptAcceptedOpening: entry => chatInputQueue.adoptAcceptedOpening(entry),
     selectSession: bindings.selectSession,
     paintDeliveryControls: bindings.paintDeliveryControls,
+    refreshSessionControls: () => bindings.refreshSessionControls(),
     refreshInputQueue: () => bindings.refreshInputQueue(),
     setPendingNewInput: value => { bindings.pendingNewInput = value; },
     paintPreparationStatus: () => dependencies.parkTurnStatus(dependencies.turnWorking())
