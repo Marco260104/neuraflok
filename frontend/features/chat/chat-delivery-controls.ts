@@ -18,6 +18,7 @@ export interface ChatDeliveryControlsRuntime {
   controlledFinishWaiting: boolean;
   controlledStopPending: boolean;
   preparingProjectInternally: () => boolean;
+  projectScopedSelection: () => boolean;
   finishGoalDraftView: GoalDraftPresentation | null;
   startingInputs: Map<string, InputEntry>;
   pendingComposerInputs: InputEntry[];
@@ -33,7 +34,9 @@ export interface ChatDeliveryControlsRuntime {
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
   function paintDeliveryControls(): void {
     runtime.paintGoalProgress();
-    const working = !runtime.preparingProjectInternally() && runtime.selectedId !== null &&
+    const pending = runtime.pendingComposerInput();
+    const internalProjectDelivery = runtime.projectScopedSelection() && !!pending?.warmupDeferred;
+    const working = !runtime.preparingProjectInternally() && !internalProjectDelivery && runtime.selectedId !== null &&
       runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration &&
       runtime.controlledTurnId !== null;
@@ -71,8 +74,7 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     if ($<HTMLSelectElement>('sendMode').value === 'tool' && !explicitInjection) $<HTMLSelectElement>('sendMode').value = 'auto';
     if (canInject && explicitInjection && $<HTMLSelectElement>('sendMode').value === 'auto') $<HTMLSelectElement>('sendMode').value = 'tool';
     if (!canInject && !canSendDirectly && !queueAtFinish) $<HTMLSelectElement>('sendMode').value = 'auto';
-    const pending = runtime.pendingComposerInput();
-    const stop = (working || !!pending) && !runtime.currentPreparedPlan() && !runtime.authoredComposerText().trim() &&
+    const stop = (working || (!!pending && !internalProjectDelivery)) && !runtime.currentPreparedPlan() && !runtime.authoredComposerText().trim() &&
       !(runtime.imageDrafts.get(runtime.draftKey())?.length);
     $('sendOptions').hidden = !canInject && !canSendDirectly && !queueAtFinish;
     const send = $<HTMLButtonElement>('chatSend');
@@ -82,12 +84,12 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     send.disabled = planDisabled;
     send.dataset.action = stop ? 'stop' : 'send';
     ui(send, 'aria-label', () => stop ? (runtime.controlledStopPending ? t("Stop requested") : t("Stop turn")) : t("Send message"));
-    if (stop && !working && pending) ui(send, 'aria-label', () => t("Cancel delivery"));
+    if (stop && !working && pending && !internalProjectDelivery) ui(send, 'aria-label', () => t("Cancel delivery"));
     const planAction = runtime.selectedId ? t("Queue plan at Session finish") : t("Start full plan");
     if (preparedPlan && !stop) send.setAttribute('aria-label', planAction);
     else if (planMode && !stop) ui(send, 'aria-label', () => t("Generate plan"));
     send.classList.toggle('is-plan-ready', !!preparedPlan && !stop);
-    ui(send, 'title', () => stop && !working && pending ? t("Cancel delivery") : preparedPlan && !stop ? planAction : planMode && !stop ? t("Click to generate plan") : '');
+    ui(send, 'title', () => stop && !working && pending && !internalProjectDelivery ? t("Cancel delivery") : preparedPlan && !stop ? planAction : planMode && !stop ? t("Click to generate plan") : '');
     send.classList.toggle('is-stop', stop);
     for (const button of $('sendOptions').querySelectorAll<HTMLElement>('[data-delivery]')) {
       button.setAttribute('aria-checked', String(button.dataset.delivery ===

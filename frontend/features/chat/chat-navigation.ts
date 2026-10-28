@@ -95,6 +95,9 @@ export function createChatNavigation(runtime: Runtime) {
       $('timeline').setAttribute('inert', '');
       $('timeline').setAttribute('aria-busy', 'true');
     }
+    // Mark project preparation before repainting the sidebar so stale provider
+    // activity cannot flash as a live response while the old chat opens.
+    ensureSelectedChatWarmup();
     runtime.paintSessions();
     if (ownerChanged) {
       runtime.paintDetail(false);
@@ -102,7 +105,6 @@ export function createChatNavigation(runtime: Runtime) {
     }
     runtime.loadDetail();
     runtime.refreshInputQueue();
-    ensureSelectedChatWarmup();
   }
 
   function selectNewChat(projectId: string | null = null): void {

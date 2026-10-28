@@ -365,7 +365,8 @@ it.each(['failed', 'empty', 'new-chat'] as const)('retires retained rows after a
 it('keeps project preparation invisible on an empty chat until the user sends a message', async () => {
   const project: LocalProject = { id: '55555555-5555-4555-8555-555555555555', name: 'Workspace', path: '/workspace', createdAt: T0 };
   const blank = { ...summary([]), id: 'warmup-session', title: 'New chat', projectId: project.id,
-    conversationId: 'ds-warmup-chat', chatIds: [], events: 0, userMessages: 0, toolCalls: 0 };
+    conversationId: 'ds-warmup-chat', chatIds: [], events: 0, userMessages: 0, toolCalls: 0,
+    activityExpiresAt: Date.now() + 60_000 };
   const { w, live, append } = await boot([], true, [], [project], { sessions: [blank] });
   const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
   const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
@@ -384,6 +385,9 @@ it('keeps project preparation invisible on an empty chat until the user sends a 
   expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
   expect(w.document.getElementById('chatState')!.textContent).toBe('');
   expect(w.document.getElementById('chatState')!.classList.contains('is-working')).toBe(false);
+  expect(w.document.querySelector(`#sessionList [data-id="${blank.id}"] .session-status.is-active`)).toBeNull();
+  expect((w.document.getElementById('chatSend') as HTMLButtonElement).dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
   expect(w.document.querySelector('#timeline .turn-now-text')).toBeNull();
   expect(w.document.body.textContent).not.toMatch(/Reading project|Leyendo proyecto/i);
 });
@@ -403,6 +407,7 @@ it('shows an early composer send as a chat message while project preparation sta
   expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain('Continue the task from yesterday.');
   expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
   expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).not.toBe('Cancel delivery');
   await settle();
   const entry = live.inputs.find(row => row.text === input.value || row.text === 'Continue the task from yesterday.') as InputEntry;
   expect(live.sent[0]).toMatchObject({ sessionId, warmupDeferred: { selectionGeneration: generation }, mode: 'after-turn' });
@@ -416,10 +421,31 @@ it('shows an early composer send as a chat message while project preparation sta
     entry.state = state;
     await chatRuntimeBindings.refreshInputQueue();
     expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+    expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).not.toBe('Cancel delivery');
   }
 
-  entry.state = 'sent';
+  const stopTurn = vi.fn(async () => ({ ok: true, data: {} }));
+  const cancelInput = vi.fn(async () => ({ ok: true, data: true }));
+  (w as any).api.stopSessionTurn = stopTurn;
+  (w as any).api.cancelInput = cancelInput;
+  chatRuntimeBindings.controlledSessionId = sessionId;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = 'stale-project-turn';
+  entry.state = 'browser';
+  await chatRuntimeBindings.refreshInputQueue();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  w.document.getElementById('chatSend')!.dataset.action = 'stop';
+  w.document.getElementById('chatSend')!.click();
+  await settle();
+  expect(stopTurn).not.toHaveBeenCalled();
+  expect(cancelInput).not.toHaveBeenCalled();
+
   clearComposerWarmup(composerWarmupKey(sessionId, generation));
+  await chatRuntimeBindings.refreshInputQueue();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+
+  entry.state = 'sent';
   chatRuntimeBindings.pendingComposerInputs = [entry];
   chatRuntimeBindings.paintDetail(true);
   expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');

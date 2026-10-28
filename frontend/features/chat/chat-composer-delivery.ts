@@ -13,6 +13,7 @@ export interface ChatComposerDeliveryRuntime {
   selectedId: string | null;
   sessions: SessionSummary[];
   selectedProjectId: string | null;
+  projectScopedSelection: () => boolean;
   projectPlanMode: () => boolean;
   clearProjectPlanMode: (key?: string) => void;
   imageDrafts: Map<string, ComposerAttachment[]>;
@@ -105,6 +106,13 @@ export function createChatComposerDelivery(runtime: Runtime) {
       const sameSelection = () => runtime.selectedId === target && runtime.selectionGeneration === selection;
       await runtime.refreshSessionControls();
       if (!sameSelection()) return;
+      const internalProjectPreparation = runtime.projectScopedSelection() &&
+        composerWarmupState(composerWarmupKey(target, selection))?.phase === 'opening';
+      const pendingProjectDelivery = runtime.projectScopedSelection() && !!runtime.pendingComposerInput()?.warmupDeferred;
+      if (internalProjectPreparation || pendingProjectDelivery) {
+        runtime.paintDeliveryControls();
+        return;
+      }
       if (target && runtime.controlledSessionId === target && runtime.controlledSelection === selection && runtime.controlledTurnId) {
         await runtime.stopCurrentTurn(); return;
       }

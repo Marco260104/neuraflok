@@ -53,6 +53,7 @@ export function createChatProgress(runtime: ChatProgressRuntime) {
   }
 
   return {
+    suppressProjectPreparationWithoutMessage: turn.suppressProjectPreparationWithoutMessage,
     get turnNow() {
       return turn.turnNow;
     },

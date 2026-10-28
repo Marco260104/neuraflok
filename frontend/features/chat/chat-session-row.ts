@@ -22,6 +22,7 @@ export interface ChatSessionRowRuntime {
   renaming: { id: string; original: string; value: string; start: number; end: number } | null;
   state: () => AppState | null;
   sessionWorking: (summary: SessionSummary) => boolean;
+  suppressProjectPreparationActivity: (summary: SessionSummary) => boolean;
   isUnseen: (summary: SessionSummary) => boolean;
   pinnable: (summary: SessionSummary) => boolean;
   pinnedChat: (summary: SessionSummary) => boolean;
@@ -124,10 +125,10 @@ export function createChatSessionRow(runtime: Runtime) {
     // The swarm no longer shows this worker — its run parked when it and its siblings stopped — but its own session records that its last call was the finish report. That is a worker between jobs, and "sleeping" is the word that says its chat can be woken.
     else if (!agent && workerReportedFinish(summary))
       badges.push(AGENT_BADGE.sleeping);
-    else if (runtime.sessionWorking(summary)) badges.push(AGENT_BADGE.active);
+    else if (!runtime.suppressProjectPreparationActivity(summary) && runtime.sessionWorking(summary)) badges.push(AGENT_BADGE.active);
     else if (agent && agent.role !== 'prime')
       badges.push(AGENT_BADGE[agent.state]);
-    if (!runtime.sessionWorking(summary) && runtime.isUnseen(summary))
+    if (!runtime.suppressProjectPreparationActivity(summary) && !runtime.sessionWorking(summary) && runtime.isUnseen(summary))
       badges.push({ text: 'New response', tone: 'is-unseen' });
     return badges;
   }

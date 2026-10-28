@@ -102,7 +102,10 @@ export function createChatFeatureComposition(bindings: typeof import('./chat-orc
     turnWorking: () => chatProgress.turnWorking
   });
 
-  const sessionNavigation = createChatSessionNavigationComposition(bindings);
+  const sessionNavigation = createChatSessionNavigationComposition(
+    bindings,
+    chatProgress.suppressProjectPreparationWithoutMessage,
+  );
   const {
     chatSessionRowRuntime,
     chatSessionRows,

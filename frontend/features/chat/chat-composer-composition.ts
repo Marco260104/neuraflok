@@ -9,7 +9,6 @@ import { createChatDraftState } from './chat-draft-state.js';
 import { createChatDeliveryControls } from './chat-delivery-controls.js';
 import { createWebChatWarmup } from './chat-web-warmup.js';
 import { composerWarmupKey, composerWarmupState } from './chat-composer-ready.js';
-import { warmupDeferredProgress } from './chat-warmup-inputs.js';
 import { localizedGoalError, type GoalDraftPresentation, type GoalProgressView } from './chat-goal-progress.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
 import type { RecoveryCountdown } from '../../../contracts/recovery.js';
@@ -103,6 +102,10 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get selectedId() { return bindings.selectedId; },
     get sessions() { return bindings.sessions; },
     get selectedProjectId() { return bindings.selectedProjectId; },
+    projectScopedSelection: () => {
+      const session = bindings.sessions.find(row => row.id === bindings.selectedId);
+      return !!(session?.projectId ?? bindings.selectedProjectId);
+    },
     projectPlanMode: () => bindings.chatTaskControls?.projectPlanMode() ?? false,
     clearProjectPlanMode: (key?: string) => bindings.chatTaskControls?.clearProjectPlanMode(key),
     get imageDrafts() { return imageDrafts; },
@@ -201,9 +204,14 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
       const session = bindings.sessions.find(row => row.id === bindings.selectedId);
       if (!(session?.projectId ?? bindings.selectedProjectId)) return false;
       const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
-      if (warmup?.phase !== 'opening' || warmup.priorTurnWorking === true) return false;
-      return warmupDeferredProgress([...bindings.startingInputs.values(), ...bindings.pendingComposerInputs],
-        bindings.selectedId, bindings.selectionGeneration, bindings.events) === null;
+      // The provider's active-turn snapshot can belong to the old chat state
+      // observed before project preparation. Keep its Stop action hidden until
+      // the handshake confirms that the project context is ready.
+      return warmup?.phase === 'opening';
+    },
+    projectScopedSelection: () => {
+      const session = bindings.sessions.find(row => row.id === bindings.selectedId);
+      return !!(session?.projectId ?? bindings.selectedProjectId);
     },
     get controlledSessionId() { return bindings.controlledSessionId; },
     get controlledSelection() { return bindings.controlledSelection; },
