@@ -299,11 +299,11 @@
       const ackRepeat = (text) => isAck(text) && isAck(before);
       const staleAck = (text) => isAck(text) && Boolean(normalized(before));
       const continueAvailable = () => typeof api.continueButton === 'function' && Boolean(valueFrom(() => api.continueButton(), null));
-      await until(() => generating() || publicNow() || thinkText(sent, before, beforeThink), options.startMs);
+      await until(() => generating() || publicNow() || thinkText(sent, before, beforeThink) || continueAvailable(), options.startMs);
       const finished = await until(() => {
         if (generating()) return null;
         const text = publicNow();
-        if (continueAvailable() && (text || thinkText(sent, before, beforeThink))) return 'continue';
+        if (continueAvailable()) return 'continue';
         if (text && !ackRepeat(text) && !staleAck(text)) return 'finished';
         return null;
       }, options.finishMs);

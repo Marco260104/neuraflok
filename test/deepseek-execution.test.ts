@@ -240,6 +240,32 @@ it('suppresses DeepSeek temporary server errors when the page exposes Continue a
   expect(settle).not.toHaveBeenCalledWith(offer, { text: 'Servidor no disponible temporalmente.' }, 7);
 });
 
+it('clicks a stable Continue control when an older project chat shows no error or readable answer', async () => {
+  const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Continue the existing project task', stop: false, fresh: false };
+  let snapshot = { answer: '', text: '', think: '', generating: false, continueAvailable: true };
+  let continueCount = 0;
+  const settle = vi.fn(async () => true);
+  const watch = createDeepseekReplyWatcher({
+    stoppedProviderOffers: new Set<string>(),
+    call: async () => ({ ok: true, data: { ok: true } }),
+    tabReply: async (_tabId: number, message: { type: string }) => {
+      if (message.type === 'neuraflok-deepseek-continue') {
+        continueCount++;
+        snapshot = { answer: 'The project task is complete.', text: 'The project task is complete.', think: '', generating: false, continueAvailable: false };
+        return { continued: true };
+      }
+      return message.type === 'neuraflok-deepseek-read' ? snapshot : null;
+    },
+    postDeepseekPage: settle,
+    timings: { readMs: 50, watchMs: 2_000, pollMs: 1, emptyIdleMs: 5_000 }
+  });
+
+  await watch(7, offer, '', '', '');
+
+  expect(continueCount).toBe(1);
+  expect(settle).toHaveBeenCalledWith(offer, { text: 'The project task is complete.' }, 7);
+});
+
 it('reuses an inactive DeepSeek tab only when its prior conversation has a verified saved URL', async () => {
   const priorConversation = 'ds-00000000-0000-4000-8000-000000000099';
   const priorUrl = 'https://chat.deepseek.com/a/chat/s/saved-project';

@@ -425,6 +425,13 @@ it('detects the provider Continue control used after a response reaches its outp
   expect(api.continueButton()).toBe(continueButton);
 });
 
+it('detects DeepSeek Continue rendered as ds-button__content inside a clickable wrapper', () => {
+  const content = node('span', { class: 'ds-button__content', text: 'Continue' });
+  const control = node('div', { class: 'ds-button' }, [content]);
+  const { api } = load([control]);
+  expect(api.continueButton()).toBe(control);
+});
+
 it('returns a temporary server failure with a Continue control as pending work', async () => {
   const { listeners, sessionStorage, send, document } = load([]);
   const error = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Servidor no disponible temporalmente.' });
@@ -447,6 +454,38 @@ it('returns a temporary server failure with a Continue control as pending work',
   }), { timeout: 2_000 });
   expect(reply).not.toHaveProperty('error');
   expect(continueButton.events).not.toContain('click');
+});
+
+it('returns a Continue-only DeepSeek response promptly without waiting for answer text', async () => {
+  vi.useFakeTimers();
+  try {
+    const { listeners, sessionStorage, send, document } = load([]);
+    const content = node('span', { class: 'ds-button__content', text: 'Continue' });
+    const control = node('div', { class: 'ds-button' }, [content]);
+    send.click = () => {
+      send.events.push('click');
+      document.body.appendChild(control);
+    };
+    sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete',
+      id: '00000000-0000-4000-8000-000000000014',
+      conversationId: SESSION_ID,
+      text: 'Continue the existing project task',
+      fresh: false,
+      before: '',
+      beforeThink: '',
+      beforeIdentity: ''
+    }, {}, value => { reply = value; });
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(reply).toMatchObject({ pending: true, generating: false, continueAvailable: true });
+    expect(reply).not.toHaveProperty('error');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('rebinds a tab only when the background worker proves the old project chat is saved', async () => {
@@ -478,7 +517,8 @@ it('rebinds a tab only when the background worker proves the old project chat is
 });
 
 it('only clicks Continue for the currently bound session and send claim', () => {
-  const continueButton = node('button', { text: 'Continue' });
+  const content = node('span', { class: 'ds-button__content', text: 'Continue' });
+  const continueButton = node('div', { class: 'ds-button' }, [content]);
   const { listeners, sessionStorage } = load([continueButton]);
   const requestId = '00000000-0000-4000-8000-000000000009';
   sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);

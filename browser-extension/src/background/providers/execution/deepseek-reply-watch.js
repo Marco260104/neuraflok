@@ -85,7 +85,6 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
     let continuationText = '';
     let continuationIdle = 0;
     let continuationAttempts = 0;
-    let turnActivitySeen = false;
     let lastObservableActivity = '';
     let lastObservableProgressAt = Date.now();
     let completeText = isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '';
@@ -154,9 +153,6 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
       if (looksLikeDeepseekThink(publicAnswer) && !hasDeepseekToolCall(publicAnswer)) publicAnswer = '';
       if (think && publicAnswer && normalizedAnswer(publicAnswer) === normalizedAnswer(think)) publicAnswer = '';
       if (think && publicAnswer && publicAnswer.includes(think.trim()) && publicAnswer.length <= think.trim().length + 40) publicAnswer = '';
-      const answerChanged = Boolean(publicAnswer.trim());
-      const reasoningChanged = hasReasoningActivity && normalizedAnswer(think) !== normalizedAnswer(beforeThink);
-      if (snap?.generating === true || answerChanged || reasoningChanged || transientFailureWithContinue) turnActivitySeen = true;
       if (publicAnswer) lastText = publicAnswer;
       completeText = publicAnswer || (isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '');
 
@@ -206,8 +202,11 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         return;
       }
 
+      // A visible Continue control is itself evidence that the current request
+      // is waiting on DeepSeek. Some older project chats expose the control
+      // without a server-error bubble, public answer, or readable reasoning.
       const continueIsStable = snap && snap.generating !== true && snap.continueAvailable === true &&
-        turnActivitySeen && continuationAttempts < DEEPSEEK_MAX_AUTOMATIC_CONTINUES;
+        continuationAttempts < DEEPSEEK_MAX_AUTOMATIC_CONTINUES;
       if (continueIsStable) {
         const activity = `${publicAnswer}\n${think}`;
         if (activity === continuationText) continuationIdle++;
@@ -215,9 +214,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           continuationText = activity;
           continuationIdle = 1;
         }
-        const stableContinuationReads = transientFailureWithContinue ? 2
-          : /```/.test(String(publicAnswer || think)) ? 3
-            : quietNeed(publicAnswer || think);
+        const stableContinuationReads = transientFailureWithContinue ? 2 : 3;
         if (continuationIdle >= stableContinuationReads) {
           continuationAttempts++;
           const continued = await tabReply(tabId, {

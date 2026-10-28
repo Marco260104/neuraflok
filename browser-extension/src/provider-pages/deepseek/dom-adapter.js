@@ -83,11 +83,25 @@ var NEURAFLOK_DEEPSEEK = (() => {
 
   const labeledButton = (pattern) => visibleButtons().find((button) => pattern.test(labelOf(button))) || null;
 
-  const continueButton = () => visibleButtons().find((button) => {
-    const labels = [button.getAttribute?.('aria-label'), button.textContent]
-      .filter(Boolean).map(value => String(value).replace(/\s+/g, ' ').trim());
-    return labels.some(label => CONTINUE_LABEL.test(label));
-  }) || null;
+  const continueButton = () => {
+    const accessible = visibleButtons().find((button) => {
+      const labels = [button.getAttribute?.('aria-label'), button.textContent]
+        .filter(Boolean).map(value => String(value).replace(/\s+/g, ' ').trim());
+      return labels.some(label => CONTINUE_LABEL.test(label));
+    });
+    if (accessible) return accessible;
+
+    // DeepSeek also renders Continue as a ds-button container whose visible
+    // label lives in a nested `.ds-button__content` span. These controls do not
+    // always expose a native button or role=button, so resolve the clickable
+    // wrapper directly and fall back to the content node for event bubbling.
+    const content = [...document.querySelectorAll('.ds-button__content')].find((node) =>
+      visible(node, true) && CONTINUE_LABEL.test(String(node.textContent || '').replace(/\s+/g, ' ').trim())
+    );
+    if (!content) return null;
+    const control = content.closest?.('button, [role="button"], .ds-button');
+    return control && visible(control, true) ? control : content;
+  };
 
   const isComposerContainer = (node) => Boolean(node?.closest?.('.ds-input, [class*="chat-input"], [class*="composer"]'));
   const looksLikeSearchField = (node) => {
