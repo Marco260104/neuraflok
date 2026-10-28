@@ -370,7 +370,10 @@ it('keeps project preparation invisible on an empty chat until the user sends a 
   const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
   const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
   const generation = chatRuntimeBindings.selectionGeneration;
-  markComposerWarmupOpening(composerWarmupKey(blank.id, generation), generation);
+  markComposerWarmupOpening(composerWarmupKey(blank.id, generation), generation, true);
+  chatRuntimeBindings.controlledSessionId = blank.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = 'stale-provider-turn';
   live.inputs.push({ id: 'internal-warmup', sessionId: blank.id, deliveredSessionId: blank.id, conversationId: blank.conversationId,
     text: 'NEURAFLOK_WARMUP', warmup: true, projectId: project.id, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null,
     state: 'browser', owner: 'browser', createdAt: Date.now() });
@@ -379,6 +382,8 @@ it('keeps project preparation invisible on an empty chat until the user sends a 
 
   expect(w.document.getElementById('timelineEmpty')!.hidden).toBe(false);
   expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.getElementById('chatState')!.classList.contains('is-working')).toBe(false);
   expect(w.document.querySelector('#timeline .turn-now-text')).toBeNull();
   expect(w.document.body.textContent).not.toMatch(/Reading project|Leyendo proyecto/i);
 });
@@ -395,6 +400,9 @@ it('shows an early composer send as a chat message while project preparation sta
   input.value = 'Continue the task from yesterday.';
   input.dispatchEvent(new w.Event('input', { bubbles: true }));
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain('Continue the task from yesterday.');
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
   await settle();
   const entry = live.inputs.find(row => row.text === input.value || row.text === 'Continue the task from yesterday.') as InputEntry;
   expect(live.sent[0]).toMatchObject({ sessionId, warmupDeferred: { selectionGeneration: generation }, mode: 'after-turn' });
@@ -403,6 +411,12 @@ it('shows an early composer send as a chat message while project preparation sta
   expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
   expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
   expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+
+  for (const state of ['browser', 'tool'] as const) {
+    entry.state = state;
+    await chatRuntimeBindings.refreshInputQueue();
+    expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  }
 
   entry.state = 'sent';
   clearComposerWarmup(composerWarmupKey(sessionId, generation));

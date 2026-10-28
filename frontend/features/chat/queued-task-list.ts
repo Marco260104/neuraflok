@@ -34,7 +34,7 @@ export function createQueuedTaskList(runtime: Runtime) {
   ): void {
     const selectedProjectId = runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? runtime.selectedProjectId;
     const hiddenDeferredProjectInput = (entry: InputEntry): boolean =>
-      !!selectedProjectId && !!entry.warmupDeferred && ['queued', 'browser'].includes(entry.state);
+      !!selectedProjectId && !!entry.warmupDeferred && ['queued', 'browser', 'tool'].includes(entry.state);
     const belongsToSelection = (entry: {
       id: string;
       sessionId: string | null;

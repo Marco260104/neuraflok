@@ -87,6 +87,10 @@ export function createChatTurnProgress(
       preparation()?.phase === 'failed' && deferred.length > 0;
   }
 
+  function suppressProjectPreparationWithoutMessage(): boolean {
+    return projectScopedSelection() && preparation()?.phase === 'opening' && !hasPendingAuthoredMessage();
+  }
+
   // Prefer the current turn note, then active local tools, then a neutral thinking state.
   function liveActivity(): {
     text: string;
@@ -154,7 +158,8 @@ export function createChatTurnProgress(
     const isWorking = turnStatusLine.classList.contains('is-working');
     const hasPending = !!$('inputQueue').querySelector('.pending-message, .queued-input') || deferredProgress() !== null;
     const warmup = preparation();
-    const suppressWarmupActivity = shouldSuppressWarmupActivity(warmup, hasPendingAuthoredMessage());
+    const suppressWarmupActivity = suppressProjectPreparationWithoutMessage() ||
+      shouldSuppressWarmupActivity(warmup, hasPendingAuthoredMessage());
     const now = suppressWarmupActivity ? null : isWorking || hasPending ? liveActivity() : null;
     const text = now?.text ?? '';
     const cue = now?.icon ?? '';
@@ -284,7 +289,8 @@ export function createChatTurnProgress(
       : getStateLine();
     const working = status?.working === true;
     turnWorking = working;
-    const suppressWarmup = shouldSuppressWarmupActivity(preparation(), hasPendingAuthoredMessage());
+    const suppressWarmup = suppressProjectPreparationWithoutMessage() ||
+      shouldSuppressWarmupActivity(preparation(), hasPendingAuthoredMessage());
     const deferred = deferredProgress();
     const asks = rows
       .map((row, index) => ({ row, index, asked: Number(row.dataset.askedAt) }))
@@ -332,6 +338,12 @@ export function createChatTurnProgress(
     const pending = !!$('inputQueue').querySelector(
       '.pending-message, .queued-input',
     );
+    if (suppressProjectPreparationWithoutMessage()) {
+      turnStatusLine.remove();
+      turnNow.remove();
+      paintTurnNow();
+      return;
+    }
     if (deferred) {
       turnStatusLine.remove();
       const latestMessage = runtime.detailFor === runtime.selectedId && runtime.selectedId !== null
@@ -384,6 +396,7 @@ export function createChatTurnProgress(
   }
   return {
     hasStatusInTimeline: () => turnStatusLine.closest('#timeline') !== null,
+    suppressProjectPreparationWithoutMessage,
     get turnNow() {
       return turnNow;
     },

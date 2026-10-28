@@ -28,8 +28,11 @@ export function createChatProgress(runtime: ChatProgressRuntime) {
     window.clearTimeout(runtime.durationTimer);
     runtime.durationTimer = undefined;
     const note = $('chatState');
-    const current = status.stateLine();
-    ui(note, 'textContent', () => status.stateLine().text);
+    const visibleStateLine = () => turn.suppressProjectPreparationWithoutMessage()
+      ? { text: '', tone: '' as const }
+      : status.stateLine();
+    const current = visibleStateLine();
+    ui(note, 'textContent', () => visibleStateLine().text);
     note.className = `subhead-note${current.tone ? ` ${current.tone}` : ''}`;
     note.classList.toggle('is-working', current.working === true);
     const developer = runtime.state()?.config.ui.developerMode;
