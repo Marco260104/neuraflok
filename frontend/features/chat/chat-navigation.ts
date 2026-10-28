@@ -95,8 +95,8 @@ export function createChatNavigation(runtime: Runtime) {
       $('timeline').setAttribute('inert', '');
       $('timeline').setAttribute('aria-busy', 'true');
     }
-    // Mark project preparation before repainting the sidebar so stale provider
-    // activity cannot flash as a live response while the old chat opens.
+    // Mark the history handshake before repainting the sidebar so stale
+    // provider activity cannot flash as a live response while the chat opens.
     ensureSelectedChatWarmup();
     runtime.paintSessions();
     if (ownerChanged) {

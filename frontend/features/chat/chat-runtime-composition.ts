@@ -104,7 +104,7 @@ export function createChatFeatureComposition(bindings: typeof import('./chat-orc
 
   const sessionNavigation = createChatSessionNavigationComposition(
     bindings,
-    chatProgress.suppressProjectPreparationWithoutMessage,
+    chatProgress.suppressWarmupWithoutPendingMessage,
   );
   const {
     chatSessionRowRuntime,

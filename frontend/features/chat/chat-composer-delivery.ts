@@ -106,10 +106,10 @@ export function createChatComposerDelivery(runtime: Runtime) {
       const sameSelection = () => runtime.selectedId === target && runtime.selectionGeneration === selection;
       await runtime.refreshSessionControls();
       if (!sameSelection()) return;
-      const internalProjectPreparation = runtime.projectScopedSelection() &&
-        composerWarmupState(composerWarmupKey(target, selection))?.phase === 'opening';
+      const internalChatPreparation = composerWarmupState(composerWarmupKey(target, selection))?.phase === 'opening' &&
+        !runtime.pendingComposerInput();
       const pendingProjectDelivery = runtime.projectScopedSelection() && !!runtime.pendingComposerInput()?.warmupDeferred;
-      if (internalProjectPreparation || pendingProjectDelivery) {
+      if (internalChatPreparation || pendingProjectDelivery) {
         runtime.paintDeliveryControls();
         return;
       }

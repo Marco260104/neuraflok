@@ -200,14 +200,12 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
   bindings.chatDeliveryControls = createChatDeliveryControls({
     get selectedId() { return bindings.selectedId; },
     get selectionGeneration() { return bindings.selectionGeneration; },
-    preparingProjectInternally: () => {
-      const session = bindings.sessions.find(row => row.id === bindings.selectedId);
-      if (!(session?.projectId ?? bindings.selectedProjectId)) return false;
+    preparingChatInternally: () => {
       const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
-      // The provider's active-turn snapshot can belong to the old chat state
-      // observed before project preparation. Keep its Stop action hidden until
-      // the handshake confirms that the project context is ready.
-      return warmup?.phase === 'opening';
+      // The provider can briefly report the prior response as active while the
+      // selected chat's history handshake is running. Keep Stop hidden until
+      // that handshake is ready, unless an authored message is already queued.
+      return warmup?.phase === 'opening' && !chatInputQueue.pendingComposerInput();
     },
     projectScopedSelection: () => {
       const session = bindings.sessions.find(row => row.id === bindings.selectedId);

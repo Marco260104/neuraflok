@@ -392,6 +392,31 @@ it('keeps project preparation invisible on an empty chat until the user sends a 
   expect(w.document.body.textContent).not.toMatch(/Reading project|Leyendo proyecto/i);
 });
 
+it('hides a stale Stop action while an old ordinary chat opens its history handshake', async () => {
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'old-answer', message: text('Earlier answer.'), state: 'final', final: true }
+  ];
+  const ordinary = { ...summary(history), id: 'old-ordinary-chat', title: 'Earlier chat',
+    conversationId: 'ds-old-ordinary-chat', chatIds: ['ds-old-ordinary-chat'], activityExpiresAt: Date.now() + 60_000 };
+  const { w, append } = await boot(history, true, [], [], { sessions: [ordinary] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const sessionId = chatRuntimeBindings.selectedId!;
+  const generation = chatRuntimeBindings.selectionGeneration;
+  markComposerWarmupOpening(composerWarmupKey(sessionId, generation), generation, true);
+  chatRuntimeBindings.controlledSessionId = sessionId;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = 'stale-provider-turn';
+
+  await append([]);
+
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.querySelector(`#sessionList [data-id="${sessionId}"] .session-status.is-active`)).toBeNull();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+});
+
 it('shows an early composer send as a chat message while project preparation stays internal', async () => {
   const project: LocalProject = { id: '66666666-6666-4666-8666-666666666666', name: 'Workspace', path: '/workspace', createdAt: T0 };
   const { w, live } = await boot([], true, [], [project]);

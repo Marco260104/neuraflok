@@ -28,7 +28,7 @@ export function createChatProgress(runtime: ChatProgressRuntime) {
     window.clearTimeout(runtime.durationTimer);
     runtime.durationTimer = undefined;
     const note = $('chatState');
-    const visibleStateLine = () => turn.suppressProjectPreparationWithoutMessage()
+    const visibleStateLine = () => turn.suppressWarmupWithoutPendingMessage()
       ? { text: '', tone: '' as const }
       : status.stateLine();
     const current = visibleStateLine();
@@ -53,7 +53,7 @@ export function createChatProgress(runtime: ChatProgressRuntime) {
   }
 
   return {
-    suppressProjectPreparationWithoutMessage: turn.suppressProjectPreparationWithoutMessage,
+    suppressWarmupWithoutPendingMessage: turn.suppressWarmupWithoutPendingMessage,
     get turnNow() {
       return turn.turnNow;
     },

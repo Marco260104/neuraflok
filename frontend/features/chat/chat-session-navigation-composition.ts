@@ -9,7 +9,7 @@ import { pinnedSortScope } from './sidebar/pins.js';
 
 export function createChatSessionNavigationComposition(
   bindings: typeof import('./chat-orchestrator.js').chatRuntimeBindings,
-  suppressProjectPreparationWithoutMessage: () => boolean = () => false,
+  suppressWarmupWithoutPendingMessage: () => boolean = () => false,
 ) {
   let chatSessionList: ReturnType<typeof createChatSessionList>;
   const chatSessionRowRuntime = {
@@ -22,8 +22,8 @@ export function createChatSessionNavigationComposition(
     set renaming(value: typeof bindings.renaming) { bindings.renaming = value; },
     state: () => bindings.deps.state(),
     sessionWorking: bindings.sessionWorking,
-    suppressProjectPreparationActivity: (summary: SessionSummary) =>
-      summary.id === bindings.selectedId && suppressProjectPreparationWithoutMessage(),
+    suppressWarmupActivity: (summary: SessionSummary) =>
+      summary.id === bindings.selectedId && suppressWarmupWithoutPendingMessage(),
     isUnseen: (summary: SessionSummary) => bindings.sidebarCompletion?.isUnseen(summary) ?? false,
     pinnable: bindings.pinnable,
     pinnedChat: bindings.pinnedChat,
