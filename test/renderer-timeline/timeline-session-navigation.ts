@@ -481,10 +481,11 @@ it('keeps stale Stop hidden until an old chat history is loaded and confirms liv
   expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
 
   const liveTurn = 'currently-running-chat-turn';
+  const currentQuestionAt = Date.now();
   chatRuntimeBindings.events = [
     ...history,
-    { seq: 5, time: T0 + 1200, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
-    { seq: 6, time: T0 + 1300, source: 'extension', kind: 'turn_start', turnId: liveTurn }
+    { seq: 5, time: currentQuestionAt, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
+    { seq: 6, time: currentQuestionAt + 100, source: 'extension', kind: 'turn_start', turnId: liveTurn }
   ];
   chatRuntimeBindings.controlledTurnId = liveTurn;
   chatRuntimeBindings.paintDeliveryControls();
@@ -531,6 +532,47 @@ it('does not show Stop after opening a completed old project chat while provider
   expect(send.dataset.action).toBe('send');
   expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
   expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
+});
+
+it('keeps a stale Stop hidden when old project controls clear during their confirmation window', async () => {
+  const turnId = 'stale-project-turn-cleared-during-reopen';
+  const askedAt = Date.now() - 20_000;
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'stale-project-question', message: text('Earlier project question') },
+    { seq: 2, time: askedAt + 100, source: 'extension', kind: 'turn_start', turnId }
+  ];
+  const project: LocalProject = { id: '42424242-4242-4242-8242-424242424242', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat-stale-control', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-chat-stale-control', chatIds: ['ds-old-project-chat-stale-control'], activeTurnId: turnId,
+    lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null, lastToolCallAt: null,
+    activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  await settle(250);
+  chatRuntimeBindings.controlledTurnId = null;
+  chatRuntimeBindings.paintDeliveryControls();
+  await settle(1_050);
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
 });
 
 it('does not flash Stop when an old project reply is final by message state only', async () => {

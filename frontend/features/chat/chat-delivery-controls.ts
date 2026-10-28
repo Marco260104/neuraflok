@@ -8,6 +8,12 @@ import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 import { transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
 
+// Session controls can briefly restore an old activeTurnId while a chat's
+// history and provider activity are being reconciled. Require that snapshot
+// to remain stable before presenting a destructive Stop action.
+const STALE_STOP_CONFIRMATION_MS = 1_200;
+const RECENT_TURN_ACTIVITY_MS = 10_000;
+
 export interface ChatDeliveryControlsRuntime {
   selectedId: string | null;
   selectionGeneration: number;
@@ -37,6 +43,54 @@ export interface ChatDeliveryControlsRuntime {
 }
 
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
+  let stopCandidateKey: string | null = null;
+  let stopCandidateSince = 0;
+  let stopCandidateTimer: number | undefined;
+
+  function clearStopCandidate(): void {
+    stopCandidateKey = null;
+    stopCandidateSince = 0;
+    if (stopCandidateTimer !== undefined) {
+      window.clearTimeout(stopCandidateTimer);
+      stopCandidateTimer = undefined;
+    }
+  }
+
+  function confirmedWorkingTurn(): boolean {
+    const turnId = runtime.controlledTurnId;
+    if (!turnId) {
+      clearStopCandidate();
+      return false;
+    }
+
+    const recentActivity = runtime.events.length === 0 || runtime.events.some(event =>
+      (event.kind === 'user_message' || event.turnId === turnId) &&
+      (event.kind === 'user_message' ||
+        ['turn_start', 'assistant_message', 'tool_call', 'page_tool', 'progress'].includes(event.kind)) &&
+      Date.now() - event.time < RECENT_TURN_ACTIVITY_MS);
+    if (recentActivity) {
+      clearStopCandidate();
+      return true;
+    }
+
+    const key = `${runtime.selectedId ?? ''}:${runtime.selectionGeneration}:${turnId}`;
+    if (stopCandidateKey !== key) {
+      clearStopCandidate();
+      stopCandidateKey = key;
+      stopCandidateSince = Date.now();
+    }
+
+    const remaining = STALE_STOP_CONFIRMATION_MS - (Date.now() - stopCandidateSince);
+    if (remaining <= 0) return true;
+    if (stopCandidateTimer === undefined) {
+      stopCandidateTimer = window.setTimeout(() => {
+        stopCandidateTimer = undefined;
+        paintDeliveryControls();
+      }, remaining);
+    }
+    return false;
+  }
+
   function paintDeliveryControls(): void {
     runtime.paintGoalProgress();
     const pending = runtime.pendingComposerInput();
@@ -49,6 +103,8 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
       runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration &&
       runtime.controlledTurnId !== null;
+    const stopWorking = working && confirmedWorkingTurn();
+    if (!working) clearStopCandidate();
     const queueAtFinish = runtime.selectedId !== null &&
       runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration &&
@@ -86,7 +142,7 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     const deliveryContextReady = runtime.selectedId === null || historyReady;
     const cancellablePending = deliveryContextReady && !!pending && !internalProjectDelivery &&
       !hiddenProjectComposerDelivery && !runtime.preparingChatInternally();
-    const stop = (working || cancellablePending) && !runtime.currentPreparedPlan() && !runtime.authoredComposerText().trim() &&
+    const stop = (stopWorking || cancellablePending) && !runtime.currentPreparedPlan() && !runtime.authoredComposerText().trim() &&
       !(runtime.imageDrafts.get(runtime.draftKey())?.length);
     $('sendOptions').hidden = !canInject && !canSendDirectly && !queueAtFinish;
     const send = $<HTMLButtonElement>('chatSend');
