@@ -279,6 +279,28 @@ it('keeps the provider capsule tied to the signed-in page', async () => {
   expect(doc.getElementById('sidebarConnection')!.classList.contains('is-connected')).toBe(true);
 });
 
+it('refreshes the visible connection capsule when provider presence changes between app snapshots', async () => {
+  const mounted = await mountChat();
+  const doc = mounted.window.document;
+  const next = structuredClone(mounted.state);
+  next.config.ui = { ...next.config.ui, chatExecutor: 'web', webProvider: 'deepseek' };
+  next.bridge = {
+    ...next.bridge,
+    present: true,
+    paired: true,
+    webProviders: { ...emptyWebProviderPresence(), deepseek: { open: true, signedIn: false, tabId: 21, lastSeenAt: Date.now() } }
+  };
+  mounted.push(next);
+  const capsule = doc.getElementById('sidebarConnection')!;
+  const label = doc.getElementById('sidebarConnectionLabel')!;
+  expect(label.textContent).toBe('DeepSeek · Sign in');
+
+  next.bridge.webProviders.deepseek = { open: true, signedIn: true, tabId: 21, lastSeenAt: Date.now() };
+  await vi.waitFor(() => expect(capsule.getAttribute('aria-label')).toBe('System active · DeepSeek'));
+  expect(capsule.classList.contains('is-connected')).toBe(true);
+  expect(label.textContent).toBe('');
+});
+
 it('keeps the Settings footer action visible while settings are open', async () => {
   const mounted = await mountChat({ hasApiKey: true });
   const doc = mounted.window.document;

@@ -60,7 +60,7 @@ export function createConnectionCapsule(paintClock: () => void): { paint: (state
 
     if (shouldMorph || !labelled) endMorph();
     trigger.className = `sidebar-connection${state.tone ? ` ${state.tone}` : ''}${labelled ? ' has-label' : ''}${morph.length ? ' is-morphing' : ''}`;
-    if (labelled) ui(label, 'textContent', () => state.label);
+    ui(label, 'textContent', () => labelled ? state.label : '');
 
     if (shouldMorph) {
       trigger.classList.add('is-morphing');

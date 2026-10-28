@@ -191,7 +191,25 @@ const providerStatusView = createProviderStatusView({
   apiProviderWorkspaceLabel,
   toolsOn
 });
-const connectionCapsule = createConnectionCapsule(() => providerStatusView.paintClock());
+
+function paintConnectionCapsule(next: AppState): void {
+  const apiExecutor = usesApiProvider(next.config.ui.chatExecutor);
+  const apiConfigured = apiProviderConfigured(next);
+  const selectedProvider = isWebProviderId(next.config.ui.webProvider) ? next.config.ui.webProvider : 'deepseek';
+  const selectedSession = providerStatusView.providerPresence(next.bridge, selectedProvider);
+  const workspaceConnected = apiExecutor ? apiConfigured : next.bridge.present && selectedSession?.signedIn === true;
+  const workspaceLabel = apiExecutor ? apiProviderWorkspaceLabel(next) : providerStatusView.webProviderWorkspaceLabel(next);
+  const connectionTone = apiExecutor ? apiConfigured ? 'is-configured' : '' : workspaceConnected ? 'is-connected' : next.bridge.present ? '' : 'is-error';
+  connectionCapsule.paint({ connected: workspaceConnected, tone: connectionTone, label: workspaceLabel });
+}
+
+function refreshConnectionStatus(): void {
+  if (!state) return;
+  paintConnectionCapsule(state);
+  providerStatusView.paintClock();
+}
+
+const connectionCapsule = createConnectionCapsule(refreshConnectionStatus);
 
 function apply(next: AppState): void {
   const previousState = state;
@@ -199,7 +217,6 @@ function apply(next: AppState): void {
   applying = true;
   const { config } = next;
   const apiExecutor = usesApiProvider(config.ui.chatExecutor);
-  const apiConfigured = apiProviderConfigured(next);
   const missing = missingStep(next);
 
   // Theme section.
@@ -208,11 +225,7 @@ function apply(next: AppState): void {
 
   // Provider status capsule section.
   const selectedProvider = isWebProviderId(config.ui.webProvider) ? config.ui.webProvider : 'deepseek';
-  const selectedSession = providerStatusView.providerPresence(next.bridge, selectedProvider);
-  const workspaceConnected = apiExecutor ? apiConfigured : next.bridge.present && selectedSession?.signedIn === true;
-  const workspaceLabel = apiExecutor ? apiProviderWorkspaceLabel(next) : providerStatusView.webProviderWorkspaceLabel(next);
-  const connectionTone = apiExecutor ? apiConfigured ? 'is-configured' : '' : workspaceConnected ? 'is-connected' : next.bridge.present ? '' : 'is-error';
-  connectionCapsule.paint({ connected: workspaceConnected, tone: connectionTone, label: workspaceLabel });
+  paintConnectionCapsule(next);
   webModelLoading.paint(next);
   ui($('headerSub'), 'textContent', () => apiExecutor
       ? `${config.providers.api.kind === 'custom' ? 'Custom endpoint' : config.providers.api.kind === 'openai' ? 'OpenAI' : 'OpenRouter'} · ${config.goal.model}`
@@ -284,7 +297,7 @@ function apply(next: AppState): void {
   applying = false;
 }
 
-window.setInterval(providerStatusView.paintClock, 1000);
+window.setInterval(refreshConnectionStatus, 1000);
 
 permissionSettings.bindAccessChoiceControls();
 
