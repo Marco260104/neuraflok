@@ -417,6 +417,31 @@ it('hides a stale Stop action while an old ordinary chat opens its history hands
   expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
 });
 
+it('does not revive Stop from a recent message when reopening an old chat without matching turn activity', async () => {
+  const askedAt = Date.now();
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'recent-old-question', message: text('Earlier question') }
+  ];
+  const ordinary: SessionSummary = { ...summary(history), id: 'old-chat-with-stale-turn-control', title: 'Earlier chat',
+    conversationId: 'ds-old-chat-with-stale-turn-control', chatIds: ['ds-old-chat-with-stale-turn-control'],
+    updatedAt: askedAt, activeTurnId: null, lastAssistantFinalAt: null, lastTurnEndAt: null };
+  const { w } = await boot(history, false, [], [], { sessions: [ordinary] });
+  const api = (w as any).api;
+  api.getSession = async () => ({ ok: true, data: { summary: ordinary, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: ordinary.id, conversationId: ordinary.conversationId,
+    automation: 'off', activeTurnId: 'stale-provider-turn', finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${ordinary.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  await settle(1_300);
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
 it('does not turn a restored pending message into Stop when opening an old chat', async () => {
   const history: SessionEvent[] = [
     { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'restored-question', message: text('Earlier question') },
@@ -534,7 +559,7 @@ it('does not show Stop after opening a completed old project chat while provider
   expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
 });
 
-it('keeps a stale Stop hidden when old project controls clear during their confirmation window', async () => {
+it('keeps stale Stop hidden when an old project has no recent activity for that turn', async () => {
   const turnId = 'stale-project-turn-cleared-during-reopen';
   const askedAt = Date.now() - 20_000;
   const history: SessionEvent[] = [

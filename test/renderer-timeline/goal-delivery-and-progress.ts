@@ -356,7 +356,7 @@ it('does not turn an empty or repeated form submission into a Stop request', asy
 });
 
 it('keeps actual-turn Stop through two authored sends and stops only the captured active turn', async () => {
-  const { w, live } = await boot([]);
+  const { w, live } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
   const api = (w as any).api;
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   api.stopSessionTurn = stop;
@@ -385,7 +385,7 @@ it('keeps actual-turn Stop through two authored sends and stops only the capture
 });
 
 it('does not retarget an awaiting Stop after leaving and reselecting the same chat', async () => {
-  const { w } = await boot([]);
+  const { w } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
   const api = (w as any).api;
   const baseControls = api.getSessionControls;
   const original = async (id: string) => ({ ok: true, data: { ...(await baseControls(id)).data,

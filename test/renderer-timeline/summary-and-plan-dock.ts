@@ -482,7 +482,7 @@ it('says a chat worked as soon as its page reports the end after its last tool c
 });
 
 it('stops directly from the empty composer without a second Stop menu action', async () => {
-  const { w } = await boot([]);
+  const { w } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   (w as any).api.stopSessionTurn = stop;
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;

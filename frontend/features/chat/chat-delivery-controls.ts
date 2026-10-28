@@ -8,10 +8,10 @@ import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 import { transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
 
-// Session controls can briefly restore an old activeTurnId while a chat's
-// history and provider activity are being reconciled. Require that snapshot
-// to remain stable before presenting a destructive Stop action.
-const STALE_STOP_CONFIRMATION_MS = 1_200;
+// A restored activeTurnId is not by itself proof of current work. Only recent
+// activity attributed to that exact turn can make Stop visible after history
+// restoration; waiting for a stale controls snapshot to persist does not
+// confirm that the provider is still working.
 const RECENT_TURN_ACTIVITY_MS = 10_000;
 
 export interface ChatDeliveryControlsRuntime {
@@ -43,52 +43,13 @@ export interface ChatDeliveryControlsRuntime {
 }
 
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
-  let stopCandidateKey: string | null = null;
-  let stopCandidateSince = 0;
-  let stopCandidateTimer: number | undefined;
-
-  function clearStopCandidate(): void {
-    stopCandidateKey = null;
-    stopCandidateSince = 0;
-    if (stopCandidateTimer !== undefined) {
-      window.clearTimeout(stopCandidateTimer);
-      stopCandidateTimer = undefined;
-    }
-  }
-
   function confirmedWorkingTurn(): boolean {
     const turnId = runtime.controlledTurnId;
-    if (!turnId) {
-      clearStopCandidate();
-      return false;
-    }
+    if (!turnId) return false;
 
-    const recentActivity = runtime.events.length === 0 || runtime.events.some(event =>
-      (event.kind === 'user_message' || event.turnId === turnId) &&
-      (event.kind === 'user_message' ||
-        ['turn_start', 'assistant_message', 'tool_call', 'page_tool', 'progress'].includes(event.kind)) &&
+    return runtime.events.some(event => event.turnId === turnId &&
+      ['turn_start', 'assistant_message', 'tool_call', 'page_tool', 'progress'].includes(event.kind) &&
       Date.now() - event.time < RECENT_TURN_ACTIVITY_MS);
-    if (recentActivity) {
-      clearStopCandidate();
-      return true;
-    }
-
-    const key = `${runtime.selectedId ?? ''}:${runtime.selectionGeneration}:${turnId}`;
-    if (stopCandidateKey !== key) {
-      clearStopCandidate();
-      stopCandidateKey = key;
-      stopCandidateSince = Date.now();
-    }
-
-    const remaining = STALE_STOP_CONFIRMATION_MS - (Date.now() - stopCandidateSince);
-    if (remaining <= 0) return true;
-    if (stopCandidateTimer === undefined) {
-      stopCandidateTimer = window.setTimeout(() => {
-        stopCandidateTimer = undefined;
-        paintDeliveryControls();
-      }, remaining);
-    }
-    return false;
   }
 
   function paintDeliveryControls(): void {
@@ -104,7 +65,6 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
       runtime.controlledSelection === runtime.selectionGeneration &&
       runtime.controlledTurnId !== null;
     const stopWorking = working && confirmedWorkingTurn();
-    if (!working) clearStopCandidate();
     const queueAtFinish = runtime.selectedId !== null &&
       runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration &&
