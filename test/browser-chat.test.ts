@@ -29,6 +29,7 @@ import {
   configureBrowserChatForTests as configurePageForTests,
   resetBrowserChatForTests,
   runWebProviderInput,
+  webProviderAuthoredFlightTurnId,
   webProviderFlightTurnId
 } from '../backend/domains/providers/browser-chat.js';
 import { replayWebProviderTranscript } from '../backend/domains/providers/browser-chat-thread.js';
@@ -52,6 +53,7 @@ import {
   type WebChatToolCall
 } from '../contracts/chat-protocol.js';
 import { createBrowserChatToolRegistrar, invokeBrowserChatTool } from '../backend/domains/providers/browser-chat-tools.js';
+import { sessionActivityExpiresAt } from '../backend/domains/browser/session-activity.js';
 import { isWebProviderConversationId } from '../contracts/web-providers.js';
 import { confirmsWebProviderContext, prepareWebProviderContextCheck } from '../backend/domains/sessions/input/provider-context.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
@@ -534,6 +536,39 @@ it('stops only the exact active web-provider turn and marks its page offer', asy
   expect(pendingProviderPage()).toMatchObject({ stop: true, conversationId });
   await flushRecorder();
   expect((await readEvents(first.id)).some(event => event.kind === 'turn_end' && event.outcome === 'stopped')).toBe(true);
+});
+
+it('does not expose an old project chat preparation flight as a stoppable user turn', async () => {
+  let releaseReadiness!: (reply: { text: string }) => void;
+  let markReadinessStarted!: () => void;
+  const readinessStarted = new Promise<void>(resolve => { markReadinessStarted = resolve; });
+  configurePageForTests({ complete: async (_text, _signal, options) => {
+    if (!options?.fresh) return { text: 'NEURAFLOK_READY' };
+    markReadinessStarted();
+    return await new Promise<{ text: string }>(resolve => { releaseReadiness = resolve; });
+  } });
+  const session = await createSession({ conversationId: `ds-${randomUUID()}` });
+  await assignSessionProject(session.id, projectId);
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: session.id, projectId, text: 'NEURAFLOK_WARMUP', warmup: true,
+    authoredSource: 'none', mode: 'auto', dueAt: Date.now(), model: null, reasoningEffort: null
+  });
+
+  const preparing = runDeepseekInput(warmup);
+  await readinessStarted;
+  await flushRecorder();
+
+  expect(webProviderFlightTurnId(session.id)).toBeTruthy();
+  expect(webProviderAuthoredFlightTurnId(session.id)).toBeUndefined();
+  const activeSession = await getSession(session.id);
+  expect(activeSession?.activeTurnId).toBeTruthy();
+  expect(sessionActivityExpiresAt(activeSession!)).toBeNull();
+
+  releaseReadiness({ text: 'NEURAFLOK_READY' });
+  await expect(preparing).resolves.toBeTruthy();
+  await flushRecorder();
+  expect((await getSession(session.id))?.activeTurnId).toBeNull();
+  expect(webProviderAuthoredFlightTurnId(session.id)).toBeUndefined();
 });
 
 it('invokes real Core apply_patch from a mocked DeepSeek web turn and records the turn', async () => {

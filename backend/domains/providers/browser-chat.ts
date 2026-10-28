@@ -101,11 +101,18 @@ function emptyAssistantReply(language: UiLanguage | undefined): string {
 interface Flight {
   turnId: string;
   abort: AbortController;
+  warmup: boolean;
 }
 const flights = new Map<string, Flight>();
 
 export function webProviderFlightTurnId(sessionId: string): string | undefined {
   return flights.get(sessionId)?.turnId;
+}
+
+/** A provider-side chat preparation is real work for delivery ordering, but it is not a user turn to expose as Stop/Thinking. */
+export function webProviderAuthoredFlightTurnId(sessionId: string): string | undefined {
+  const flight = flights.get(sessionId);
+  return flight && !flight.warmup ? flight.turnId : undefined;
 }
 
 export function configureBrowserChatForTests(options: {
@@ -505,7 +512,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   if (!bound?.conversationId) throw new Error('The provider session is missing its conversation binding.');
   const ownedConversation = bound.conversationId;
   const abort = linkAbort(signal);
-  flights.set(sessionId, { turnId, abort });
+  flights.set(sessionId, { turnId, abort, warmup: entry.warmup === true });
   const now = () => Date.now();
   try {
     const accepted = (await listInputs()).find(row => row.id === entry.id && row.state === 'sent');

@@ -74,7 +74,7 @@ export function createBridgeSessionControls(runtime: Runtime) {
     setGoalReplyActiveNow,
     setGoalSwitchNow,
     supportsFinishAutomation,
-    webProviderFlightTurnId,
+    webProviderAuthoredFlightTurnId,
     changed
   } = runtime;
   const conversationWasSuperseded = (conversationId: string): Promise<boolean> => runtime.conversationWasSuperseded(conversationId);
@@ -110,7 +110,7 @@ export function createBridgeSessionControls(runtime: Runtime) {
     // A persisted start is history, not proof that the provider is still generating. Reuse the recorder's process-local observation (or an exact attributed running tool) so opening old recordings after restart cannot resurrect Stop/Working.
     const live = liveConversations().find(entry => entry.conversationId === id && entry.sessionId === sessionId);
     const activityExpiry = sessionActivityExpiresAt(session);
-    const flightTurn = webProviderFlightTurnId(sessionId) ?? apiChatFlightTurnId(sessionId);
+    const flightTurn = webProviderAuthoredFlightTurnId(sessionId) ?? apiChatFlightTurnId(sessionId);
     const stopping = getCommands().some(c => c.spec.type === 'stop' && c.spec.sessionId === sessionId && c.spec.turnId === (session.activeTurnId ?? flightTurn));
     const activeTurnId = session.browserRecoveryDismissedAt === undefined && (session.activeTurnId || flightTurn) &&
       (stopping || runningToolCalls(id) > 0 || Boolean(flightTurn) ||
