@@ -206,15 +206,46 @@ var NEURAFLOK_DEEPSEEK = (() => {
   const classNames = (el) => String(el?.className || '').split(/\s+/);
   const nodeText = (el) => (el?.innerText || el?.textContent || '').replace(/\u00a0/g, ' ');
 
-  const wrapCodeBlock = (block) => {
+  const codeBlockParts = (block) => {
     const banner = block.querySelector?.('.md-code-block-banner');
     const bannerText = nodeText(banner);
     const lang = bannerText.split('\n').map((line) => line.trim()).find((line) => /^[A-Za-z0-9_+-]+$/.test(line)) || '';
     const codeNode = block.querySelector?.('pre') || block.querySelector?.('code') || block;
     let code = nodeText(codeNode).replace(/\s+$/, '');
     if (bannerText && code.startsWith(bannerText.trim())) code = code.slice(bannerText.trim().length).replace(/^\s+/, '');
-    if (!code) return '';
-    return '```' + lang + '\n' + code + '\n```';
+    const controls = [bannerText, ...[...(block.querySelectorAll?.('button') || [])].flatMap(button => [
+      nodeText(button), button.getAttribute?.('aria-label') || '', button.getAttribute?.('title') || ''
+    ])].flatMap(value => String(value).split('\n')).map(value => value.trim()).filter(Boolean);
+    return {
+      code,
+      raw: nodeText(block).trim(),
+      controls: new Set(controls),
+      wrapped: code ? '```' + lang + '\n' + code + '\n```' : ''
+    };
+  };
+
+  const trimAdjacentCodeChrome = (value, controls, fromEnd) => {
+    const lines = value.split('\n');
+    const chrome = (line) => controls.has(line.trim()) || /^(?:svg){1,4}$/i.test(line.trim());
+    let removed = false;
+    if (fromEnd) {
+      let index = lines.length - 1;
+      while (index >= 0 && !lines[index].trim()) index--;
+      while (index >= 0 && chrome(lines[index])) {
+        removed = true;
+        index--;
+        while (index >= 0 && !lines[index].trim()) index--;
+      }
+      return removed ? lines.slice(0, index + 1).join('\n') : value;
+    }
+    let index = 0;
+    while (index < lines.length && !lines[index].trim()) index++;
+    while (index < lines.length && chrome(lines[index])) {
+      removed = true;
+      index++;
+      while (index < lines.length && !lines[index].trim()) index++;
+    }
+    return removed ? lines.slice(index).join('\n') : value;
   };
 
   const serializeAnswer = (node) => {
@@ -222,11 +253,30 @@ var NEURAFLOK_DEEPSEEK = (() => {
     const plain = nodeText(node).trim();
     if (!blocks.length) return plain;
     let text = plain;
+    let searchFrom = 0;
     for (const block of blocks) {
-      const wrapped = wrapCodeBlock(block);
-      const raw = nodeText(block).trim();
-      if (wrapped && raw && text.includes(raw)) text = text.replace(raw, wrapped);
-      else if (wrapped && !text.includes(wrapped)) text += '\n' + wrapped;
+      const parts = codeBlockParts(block);
+      if (!parts.wrapped) continue;
+      const rawAt = parts.raw ? text.indexOf(parts.raw, searchFrom) : -1;
+      if (rawAt >= 0) {
+        text = text.slice(0, rawAt) + parts.wrapped + text.slice(rawAt + parts.raw.length);
+        searchFrom = rawAt + parts.wrapped.length;
+        continue;
+      }
+      // innerText on an assistant container can normalize code-block spacing
+      // differently from the block itself, or omit its Copy/SVG toolbar. Use
+      // the actual <pre> text as the anchor and discard adjacent toolbar rows
+      // instead of duplicating the unformatted code at the end of the answer.
+      const codeAt = text.indexOf(parts.code, searchFrom);
+      if (codeAt < 0) {
+        if (!text.includes(parts.wrapped)) text += '\n' + parts.wrapped;
+        searchFrom = text.length;
+        continue;
+      }
+      const before = trimAdjacentCodeChrome(text.slice(0, codeAt), parts.controls, true).trimEnd();
+      const after = trimAdjacentCodeChrome(text.slice(codeAt + parts.code.length), parts.controls, false).trimStart();
+      text = `${before}${before ? '\n\n' : ''}${parts.wrapped}${after ? '\n\n' + after : ''}`;
+      searchFrom = before.length + (before ? 2 : 0) + parts.wrapped.length;
     }
     return text.trim();
   };

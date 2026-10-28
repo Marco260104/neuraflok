@@ -8,6 +8,8 @@ import { createChatSessionControls } from './chat-session-controls.js';
 import { createChatDraftState } from './chat-draft-state.js';
 import { createChatDeliveryControls } from './chat-delivery-controls.js';
 import { createWebChatWarmup } from './chat-web-warmup.js';
+import { composerWarmupKey, composerWarmupState } from './chat-composer-ready.js';
+import { warmupDeferredProgress } from './chat-warmup-inputs.js';
 import { localizedGoalError, type GoalDraftPresentation, type GoalProgressView } from './chat-goal-progress.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
 import type { RecoveryCountdown } from '../../../contracts/recovery.js';
@@ -81,6 +83,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get selectedProjectId() { return bindings.selectedProjectId; },
     get selectionGeneration() { return bindings.selectionGeneration; },
     get sessions() { return bindings.sessions; },
+    get events() { return bindings.events; },
     turnWorking: dependencies.turnWorking,
     get pendingNewInput() { return bindings.pendingNewInput; },
     get startingInputs() { return bindings.startingInputs; },
@@ -194,6 +197,14 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
   bindings.chatDeliveryControls = createChatDeliveryControls({
     get selectedId() { return bindings.selectedId; },
     get selectionGeneration() { return bindings.selectionGeneration; },
+    preparingProjectInternally: () => {
+      const session = bindings.sessions.find(row => row.id === bindings.selectedId);
+      if (!(session?.projectId ?? bindings.selectedProjectId)) return false;
+      const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
+      if (warmup?.phase !== 'opening' || warmup.priorTurnWorking === true) return false;
+      return warmupDeferredProgress([...bindings.startingInputs.values(), ...bindings.pendingComposerInputs],
+        bindings.selectedId, bindings.selectionGeneration, bindings.events) === null;
+    },
     get controlledSessionId() { return bindings.controlledSessionId; },
     get controlledSelection() { return bindings.controlledSelection; },
     get controlledTurnId() { return bindings.controlledTurnId; },

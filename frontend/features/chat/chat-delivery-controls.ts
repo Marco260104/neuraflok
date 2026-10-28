@@ -17,6 +17,7 @@ export interface ChatDeliveryControlsRuntime {
   controlledCanSendDirectly: boolean;
   controlledFinishWaiting: boolean;
   controlledStopPending: boolean;
+  preparingProjectInternally: () => boolean;
   finishGoalDraftView: GoalDraftPresentation | null;
   startingInputs: Map<string, InputEntry>;
   pendingComposerInputs: InputEntry[];
@@ -32,7 +33,7 @@ export interface ChatDeliveryControlsRuntime {
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
   function paintDeliveryControls(): void {
     runtime.paintGoalProgress();
-    const working = runtime.selectedId !== null &&
+    const working = !runtime.preparingProjectInternally() && runtime.selectedId !== null &&
       runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration &&
       runtime.controlledTurnId !== null;

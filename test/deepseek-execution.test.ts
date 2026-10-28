@@ -162,6 +162,49 @@ it('continues a DeepSeek reply at its explicit Continue control before finishing
   }
 }, 15_000);
 
+it('waits for a late Continue control before finalizing a code-heavy answer', async () => {
+  vi.useFakeTimers();
+  try {
+    const partial = 'Here are the examples.\n\n```cpp\n#include <iostream>\n#include <vector>\nint main() {\n  std::vector<int> values{1, 2};\n  std::cout << values.size();';
+    const final = partial + '\n  return 0;\n}\n```\n\nThis completes the example.';
+    let reads = 0;
+    let continues = 0;
+    let posted: Record<string, unknown> | undefined;
+    const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Show complete C++ examples', stop: false, fresh: false };
+    const watch = createDeepseekReplyWatcher({
+      stoppedProviderOffers: new Set<string>(),
+      call: async () => ({ ok: true, data: { ok: true } }),
+      tabReply: async (_tabId: number, message: { type: string }) => {
+        if (message.type === 'neuraflok-deepseek-continue') {
+          continues++;
+          return { continued: true };
+        }
+        if (message.type !== 'neuraflok-deepseek-read') return null;
+        reads++;
+        const answer = continues ? final : partial;
+        return {
+          answer,
+          text: answer,
+          think: '',
+          generating: false,
+          continueAvailable: continues === 0 && reads >= 10
+        };
+      },
+      postDeepseekPage: async (_offer: unknown, result: unknown) => { posted = result as Record<string, unknown>; return true; },
+      timings: { readMs: 50, watchMs: 90_000, pollMs: 2 }
+    });
+
+    const watching = watch(7, offer, '', '', '');
+    for (let tick = 0; tick < 40 && !posted; tick++) await vi.advanceTimersByTimeAsync(2_000);
+    await watching;
+
+    expect(continues).toBe(1);
+    expect(posted).toEqual({ text: final });
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
 it('suppresses DeepSeek temporary server errors when the page exposes Continue and resumes the same request', async () => {
   const offer = { id: requestId, provider: 'deepseek', conversationId, text: 'Complete the project task', stop: false, fresh: false };
   let snapshot = {

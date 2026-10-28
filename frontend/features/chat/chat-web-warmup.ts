@@ -1,6 +1,7 @@
 import { usesApiProvider } from '../../../contracts/chat-protocol.js';
 import { isWebProviderId, providerForConversationId, type WebProviderId } from '../../../contracts/web-providers.js';
 import type { AppState } from '../../../contracts/types.js';
+import type { SessionEvent } from '../../../contracts/session.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { SessionSummary } from '../../../contracts/session.js';
 import { run } from '../../shared/dom.js';
@@ -60,6 +61,7 @@ export interface WebChatWarmupRuntime {
   selectedProjectId: string | null;
   selectionGeneration: number;
   sessions: SessionSummary[];
+  events: SessionEvent[];
   turnWorking: () => boolean;
   pendingNewInput: { id: string; generation: number } | null;
   startingInputs: Map<string, InputEntry>;
@@ -75,6 +77,35 @@ export interface WebChatWarmupRuntime {
 export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: () => void; retry: () => void } {
   let inflightKey: string | null = null;
   const verifiedSessions = new Map<string, { provider: WebProviderId; conversationId: string; generation: number }>();
+
+  function selectedProjectId(): string | null {
+    return runtime.selectedId
+      ? runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? runtime.selectedProjectId
+      : runtime.selectedProjectId;
+  }
+
+  function authoredProjectInputWaiting(): boolean {
+    if (!selectedProjectId()) return false;
+    const pendingNewInput = runtime.pendingNewInput;
+    const candidates = [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs];
+    return candidates.some(entry => {
+      if (entry.warmup || entry.purpose === 'decision' || ['failed', 'cancelled'].includes(entry.state)) return false;
+      if (runtime.selectedId) {
+        if ((entry.sessionId ?? entry.deliveredSessionId) !== runtime.selectedId) return false;
+      } else if (!pendingNewInput || pendingNewInput.generation !== runtime.selectionGeneration || pendingNewInput.id !== entry.id) {
+        return false;
+      }
+      if (entry.state === 'queued' || entry.state === 'browser') return true;
+      if (entry.state !== 'sent') return false;
+      const user = runtime.events.find(event => event.kind === 'user_message' && event.inputId === entry.id);
+      const terminal = user && runtime.events.some(event => event.seq > user.seq &&
+        ((event.kind === 'turn_end' && event.outcome !== 'unknown') ||
+          (event.kind === 'assistant_message' && event.final) || event.kind === 'chat_error'));
+      // A sent outbox row may still be waiting for its first provider event.
+      // Do not start a second hidden bootstrap while its authored turn is live.
+      return runtime.turnWorking() || Date.now() - entry.createdAt < WEB_CHAT_PREPARATION_TIMEOUT_MS && !terminal;
+    });
+  }
 
   function currentSelectionKey(): string {
     return composerWarmupKey(runtime.selectedId, runtime.selectionGeneration);
@@ -170,7 +201,8 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       conversationId: null
     };
     runtime.startingInputs.set(id, seed);
-    if (sessionId === null) runtime.setPendingNewInput({ id, generation });
+    if (sessionId === null && runtime.selectionGeneration === generation && runtime.newChatSelected && runtime.selectedId === null)
+      runtime.setPendingNewInput({ id, generation });
     runtime.paintDeliveryControls();
     runtime.paintPreparationStatus();
 
@@ -199,7 +231,8 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
         ...runtime.pendingComposerInputs.filter(row => row.id !== accepted!.id),
         accepted
       ];
-      if (sessionId === null) runtime.setPendingNewInput({ id: accepted.id, generation });
+      if (sessionId === null && runtime.selectionGeneration === generation && runtime.newChatSelected && runtime.selectedId === null)
+        runtime.setPendingNewInput({ id: accepted.id, generation });
       boundId = await bindWarmupSession(accepted, generation, key);
       if (boundId !== key) markComposerWarmupOpening(boundId, generation);
       runtime.paintDeliveryControls();
@@ -246,9 +279,9 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const key = currentSelectionKey();
     const status = composerWarmupState(key);
     const conversationId = session?.conversationId ?? null;
+    const projectScoped = Boolean(session?.projectId ?? runtime.selectedProjectId);
     if (status?.phase === 'failed' && status.generation === runtime.selectionGeneration) return;
     if (status?.phase === 'failed') clearComposerWarmup(key);
-    if (status?.phase === 'opening' && inflightKey !== null) return;
     if (inflightKey === key) return;
     if (runtime.selectedId && conversationId && cachedReady(runtime.selectedId, provider, conversationId, runtime.selectionGeneration)) {
       clearComposerWarmup(key);
@@ -266,6 +299,17 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       hasConversation: !!conversationId
     });
     if (!needed) return;
+
+    // A rapid project switch can leave another chat's bootstrap in the shared
+    // provider queue. Do not mark this chat as preparing until its own request
+    // can actually start; otherwise a message in a second new project chat is
+    // queued after a warmup that belongs to the first chat and can never drain.
+    if (projectScoped && inflightKey !== null) return;
+    // If the user already started the first project request while another
+    // chat's bootstrap was in flight, that authored request performs its own
+    // project setup. Starting a separate warmup afterwards would create an
+    // orphan provider chat or queue unnecessary work behind the answer.
+    if (projectScoped && authoredProjectInputWaiting()) return;
 
     if (status?.phase !== 'opening') {
       markComposerWarmupOpening(key, runtime.selectionGeneration, runtime.turnWorking());

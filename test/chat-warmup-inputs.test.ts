@@ -25,13 +25,14 @@ it('projects a warmup-delayed composer input into the transcript without a queue
   expect(optimisticWarmupEvents([], [{ ...queued, sessionId: null } as InputEntry], null, 5)).toEqual([]);
 });
 
-it('keeps project warmup internal and shows thinking while an authored message waits for it', () => {
-  expect(warmupDeferredProgress([queued], 'chat-1', 4, 'opening', [])).toBe('thinking');
-  expect(warmupDeferredProgress([queued], 'chat-1', 4, null, [])).toBeNull();
+it('keeps project preparation invisible until the authored message is sent to the provider', () => {
+  const [pendingMessage] = optimisticWarmupEvents([], [queued], 'chat-1', 4);
+  expect(pendingMessage?.kind).toBe('user_message');
+  expect(warmupDeferredProgress([queued], 'chat-1', 4, [])).toBeNull();
 
   const sent = { ...queued, state: 'sent' } as InputEntry;
   const [user] = optimisticWarmupEvents([], [sent], 'chat-1', 4);
-  expect(warmupDeferredProgress([sent], 'chat-1', 4, null, [])).toBe('thinking');
+  expect(warmupDeferredProgress([sent], 'chat-1', 4, [])).toBe('thinking');
 
   const answer = {
     seq: (user as Extract<SessionEvent, { kind: 'user_message' }>).seq + 1,
@@ -41,9 +42,9 @@ it('keeps project warmup internal and shows thinking while an authored message w
     message: { text: 'I am continuing the task.', chars: 27, truncated: false },
     final: false,
   } satisfies SessionEvent;
-  expect(warmupDeferredProgress([sent], 'chat-1', 4, null, [user!, answer])).toBeNull();
+  expect(warmupDeferredProgress([sent], 'chat-1', 4, [user!, answer])).toBeNull();
   expect(warmupDeferredProgress([sent, { ...queued, id: 'input-2', createdAt: 150 } as InputEntry],
-    'chat-1', 4, null, [user!, answer])).toBeNull();
+    'chat-1', 4, [user!, answer])).toBeNull();
 });
 
 it('reuses the optimistic timeline identity when the delivered history event arrives', () => {

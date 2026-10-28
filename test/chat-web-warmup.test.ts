@@ -172,3 +172,66 @@ it('retries chat preparation even when a user message is waiting in the queue', 
   expect(runtime.api.sendInput.mock.calls[0]![0]).toMatchObject({ sessionId, warmup: true });
   resetComposerWarmupForTests();
 });
+
+it('does not show a second project as preparing while another chat owns the warmup slot', async () => {
+  let releaseFirst!: (value: any) => void;
+  let firstRequest: any;
+  const sendInput = vi.fn((request: any) => {
+    firstRequest = request;
+    return new Promise(resolve => { releaseFirst = resolve; });
+  });
+  const conversationId = 'ds-00000000-0000-4000-8000-000000000031';
+  const runtime: any = {
+    api: {
+      sendInput,
+      listInputs: async () => ({ ok: true, data: [] }),
+      getSession: async (sessionId: string) => ({ ok: true, data: {
+        summary: { id: sessionId, conversationId },
+        events: [{ kind: 'assistant_message', inputId: firstRequest?.id, message: { text: 'NEURAFLOK_READY' } }]
+      } }),
+      cancelInput: vi.fn()
+    },
+    state: () => ({ config: { ui: { chatExecutor: 'web', webProvider: 'deepseek' } },
+      bridge: { webProviders: { deepseek: { signedIn: true } } } }),
+    newChatSelected: true,
+    selectedId: null,
+    selectedProjectId: 'project-a',
+    selectionGeneration: 4,
+    sessions: [],
+    events: [],
+    turnWorking: () => false,
+    pendingNewInput: null,
+    startingInputs: new Map(),
+    pendingComposerInputs: [],
+    adoptAcceptedOpening: async () => false,
+    selectSession: vi.fn(),
+    paintDeliveryControls: vi.fn(),
+    paintPreparationStatus: vi.fn(),
+    refreshInputQueue: vi.fn(async () => undefined),
+    setPendingNewInput(value: any) { this.pendingNewInput = value; }
+  };
+  resetComposerWarmupForTests();
+  const warmup = createWebChatWarmup(runtime);
+  warmup.ensure();
+  await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+
+  runtime.selectionGeneration = 5;
+  runtime.selectedProjectId = 'project-b';
+  runtime.pendingNewInput = null;
+  warmup.ensure();
+  expect(composerWarmupState(composerWarmupKey(null, 5))).toBeNull();
+
+  const authored = { id: 'project-b-message', projectId: 'project-b', text: 'Question in project B', state: 'queued', createdAt: Date.now() };
+  runtime.startingInputs.set(authored.id, authored);
+  runtime.pendingNewInput = { id: authored.id, generation: 5 };
+  const accepted = { ...firstRequest, id: firstRequest.id, sessionId: firstRequest.id, deliveredSessionId: firstRequest.id,
+    opening: true, state: 'sent', createdAt: Date.now(), conversationId };
+  runtime.api.listInputs = async () => ({ ok: true, data: [accepted] });
+  releaseFirst({ ok: true, data: accepted });
+
+  await vi.waitFor(() => expect(runtime.startingInputs.has(firstRequest.id)).toBe(false));
+  expect(runtime.api.sendInput).toHaveBeenCalledTimes(1);
+  expect(runtime.pendingNewInput).toEqual({ id: authored.id, generation: 5 });
+  expect(composerWarmupState(composerWarmupKey(null, 5))).toBeNull();
+  resetComposerWarmupForTests();
+});

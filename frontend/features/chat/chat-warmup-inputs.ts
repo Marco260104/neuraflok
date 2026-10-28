@@ -50,7 +50,6 @@ export function warmupDeferredProgress(
   entries: Iterable<InputEntry>,
   selectedId: string | null,
   selectionGeneration: number,
-  warmupPhase: 'opening' | 'failed' | null,
   events: readonly SessionEvent[],
 ): DeferredInputProgress | null {
   const pending = warmupDeferredEntries(entries, selectedId, selectionGeneration);
@@ -67,13 +66,11 @@ export function warmupDeferredProgress(
       ['assistant_message', 'tool_call', 'page_tool', 'progress', 'turn_start', 'turn_end', 'chat_error'].includes(event.kind));
     if (!laterActivity) return 'thinking';
   }
-  // Project preparation is an internal handshake. If the user already sent a
-  // message, present the familiar turn state while delivery waits for that
-  // handshake instead of exposing an implementation phase in the transcript.
-  if (warmupPhase === 'opening') return 'thinking';
   if (dispatchedInput) return null;
-  // A queued after-turn message has not been handed to the provider yet. Keep
-  // it in the queue without painting a permanent thinking indicator after the
-  // chat preparation failed or the app restarted.
+  // Project preparation is an internal handshake. An authored message can be
+  // visible in the transcript while it waits, but it is not thinking until
+  // the outbox confirms the provider has received it.
+  // Keep a queued after-turn message quiet after a failed preparation or app
+  // restart; the retry/error controls carry the actionable state.
   return null;
 }

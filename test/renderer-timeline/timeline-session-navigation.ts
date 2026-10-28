@@ -392,7 +392,7 @@ it('shows an early composer send as a chat message while project preparation sta
 
   expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(entry.text);
   expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
-  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')).toBeNull();
 
   entry.state = 'sent';
   clearComposerWarmup(composerWarmupKey(sessionId, generation));

@@ -870,6 +870,54 @@ it('rebuilds a DeepSeek code-block banner as a neuraflok-tool fence', () => {
   expect(api.lastAnswer()).toContain('"name":"read"');
 });
 
+it('serializes code blocks from their pre text when assistant and block text differ', () => {
+  const codeText = '#include <iostream>\nint main() {\n  return 0;\n}';
+  const banner = node('div', { class: 'md-code-block-banner', text: 'cpp' });
+  const copy = node('button', { text: 'Copy' });
+  const code = node('pre', { text: codeText });
+  const block = node('div', { class: 'md-code-block' }, [banner, copy, code]);
+  block.innerText = `cpp\nCopy\n${codeText}\nsvgsvg`;
+  block.textContent = block.innerText;
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown' }, [block]);
+  answer.innerText = `An example.\n\ncpp\n${codeText}\nsvgsvg\n\nThat is the complete program.`;
+  answer.textContent = answer.innerText;
+  const { api } = load([answer]);
+
+  const serialized = api.lastAnswer();
+  expect(serialized).toContain('An example.');
+  expect(serialized).toContain(`\`\`\`cpp\n${codeText}\n\`\`\``);
+  expect(serialized).toContain('That is the complete program.');
+  expect(serialized).not.toContain('Copy');
+  expect(serialized).not.toContain('svgsvg');
+  expect(serialized.match(/#include <iostream>/g)).toHaveLength(1);
+});
+
+it('keeps repeated code blocks in order and strips each DeepSeek toolbar', () => {
+  const codeText = '#include <iostream>\nint main() {\n  std::cout << "same";\n}';
+  const makeBlock = () => {
+    const banner = node('div', { class: 'md-code-block-banner', text: 'cpp' });
+    const copy = node('button', { text: 'Copy' });
+    const code = node('pre', { text: codeText });
+    const block = node('div', { class: 'md-code-block' }, [banner, copy, code]);
+    block.innerText = `cpp\nCopy\n${codeText}\nsvgsvg`;
+    block.textContent = block.innerText;
+    return block;
+  };
+  const first = makeBlock();
+  const second = makeBlock();
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown' }, [first, second]);
+  answer.innerText = `First version.\n\ncpp\nCopy\n${codeText}\nsvgsvg\n\nSecond version.\n\ncpp\nCopy\n${codeText}\nsvgsvg`;
+  answer.textContent = answer.innerText;
+  const { api } = load([answer]);
+
+  const serialized = api.lastAnswer();
+  expect(serialized.indexOf('First version.')).toBeLessThan(serialized.indexOf('Second version.'));
+  expect(serialized.match(/```cpp/g)).toHaveLength(2);
+  expect(serialized.match(/#include <iostream>/g)).toHaveLength(2);
+  expect(serialized).not.toContain('Copy');
+  expect(serialized).not.toContain('svgsvg');
+});
+
 it('returns a pending grown lastAnswer when Stop stays up past the fast finish wait', async () => {
   vi.useFakeTimers();
   try {

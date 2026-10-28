@@ -12,7 +12,15 @@ export function looksLikeDeepseekThink(text) {
 
 function quietNeed(text) {
   if (isDeepseekAck(text)) return 1;
-  if (String(text || '').trim().length < 80) return 6;
+  // Code answers can pause between blocks while DeepSeek mounts its Continue
+  // control. Give that UI transition time to settle before recording a partial
+  // code sample as the final answer.
+  const value = String(text || '');
+  if (/```/.test(value)) {
+    const fences = value.match(/^[ \t]{0,3}(?:`{3,}|~{3,})[^\n]*$/gm) || [];
+    return fences.length % 2 === 1 ? 12 : 7;
+  }
+  if (value.trim().length < 80) return 6;
   return 3;
 }
 
@@ -207,7 +215,9 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           continuationText = activity;
           continuationIdle = 1;
         }
-        const stableContinuationReads = transientFailureWithContinue ? 2 : quietNeed(publicAnswer || think);
+        const stableContinuationReads = transientFailureWithContinue ? 2
+          : /```/.test(String(publicAnswer || think)) ? 3
+            : quietNeed(publicAnswer || think);
         if (continuationIdle >= stableContinuationReads) {
           continuationAttempts++;
           const continued = await tabReply(tabId, {

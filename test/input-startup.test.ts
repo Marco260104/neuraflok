@@ -95,7 +95,7 @@ beforeEach(() => {
       state: 'queued' as const,
       owner: null,
       createdAt: 1,
-      conversationId: null
+      conversationId: input.sessionId ? ports.session?.conversationId ?? null : null
     } as InputEntry;
     ports.rows.push(row);
     return row;
@@ -238,6 +238,54 @@ it('dispatches the next local follow-up only after the provider reports a comple
   await vi.waitFor(() => expect(ports.runApi).toHaveBeenCalledTimes(2));
   expect(ports.nextAfterTurn).toHaveBeenCalledWith('session-existing', 'ap-00000000-0000-4000-8000-000000000001', 'completed-local-turn');
   expect(ports.runApi.mock.calls[1]?.[0]).toMatchObject({ id: followup.id, mode: 'after-turn' });
+});
+
+it('delivers a project message exactly once after its active preparation turn completes', async () => {
+  const sessionId = 'project-session';
+  const conversationId = 'ds-00000000-0000-4000-8000-000000000071';
+  ports.session = { conversationId, activeTurnId: null };
+  let releasePreparation!: () => void;
+  ports.run.mockImplementation(async entry => {
+    if (entry.warmup) {
+      ports.session = { conversationId, activeTurnId: 'project-preparation-turn' };
+      await new Promise<void>(resolve => { releasePreparation = resolve; });
+      ports.session = { conversationId, activeTurnId: null };
+      return 'project-preparation-turn';
+    }
+    return 'authored-project-turn';
+  });
+
+  const preparation = await sendDesktopInput({
+    ...request,
+    id: '40000000-0000-4000-8000-000000000004',
+    sessionId,
+    projectId: 'project-1',
+    text: 'NEURAFLOK_WARMUP',
+    warmup: true,
+    authoredSource: 'none'
+  });
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledOnce());
+
+  const authored = await sendDesktopInput({
+    ...request,
+    id: '50000000-0000-4000-8000-000000000005',
+    sessionId,
+    projectId: 'project-1',
+    text: 'Explain this project',
+    mode: 'auto'
+  });
+  expect(authored).toMatchObject({ state: 'queued', mode: 'after-turn', afterTurn: true });
+  expect(ports.run).toHaveBeenCalledOnce();
+  const queued = ports.rows.find(row => row.id === authored.id)!;
+  ports.nextAfterTurn.mockResolvedValueOnce(queued);
+
+  releasePreparation();
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledTimes(2));
+  expect(ports.run.mock.calls[0]?.[0]).toMatchObject({ id: preparation.id, warmup: true });
+  expect(ports.run.mock.calls[1]?.[0]).toMatchObject({ id: authored.id, text: 'Explain this project', mode: 'after-turn' });
+  expect(ports.nextAfterTurn).toHaveBeenCalledWith(sessionId, conversationId, 'project-preparation-turn');
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledTimes(2));
+  expect(ports.rows.filter(row => row.id === authored.id)).toHaveLength(1);
 });
 
 it('fails closed for a saved session with an unknown provider identity', async () => {

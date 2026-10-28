@@ -85,6 +85,24 @@ describe('provider Markdown rendering', () => {
     expect(rendered.querySelector('script')).toBeNull();
   });
 
+  it('keeps every example in a long code answer and decodes Markdown entities', () => {
+    const snippets = [
+      '#include <vector>\nint main() { std::vector<int> values{3, 1}; }',
+      '#include <map>\nint main() { std::map<int, int> values; }',
+      '#include <set>\nint main() { std::set<int> values; }',
+      '#include <algorithm>\nint main() { std::sort(values.begin(), values.end()); }',
+      '#include <numeric>\nint main() { std::accumulate(values.begin(), values.end(), 0); }',
+      '#include <numeric>\nint main() {\n  std::cout << "complete";\n  return 0;\n}'
+    ];
+    const answer = '**1.&#x20;** `std::vector` examples\n\n' + snippets.map(code => `\`\`\`cpp\n${code}\n\`\`\``).join('\n\n');
+    const rendered = renderedMarkdown(answer);
+
+    expect(rendered.querySelectorAll('.markdown-code')).toHaveLength(6);
+    expect(rendered.querySelector('strong')?.textContent).toBe('1. ');
+    expect(rendered.textContent).not.toContain('&#x20;');
+    expect(rendered.querySelectorAll('.markdown-code pre code').item(5)?.textContent?.trimEnd()).toBe(snippets.at(-1));
+  });
+
   it('keeps semantic formatting while removing executable attributes and unsafe links', () => {
     const rendered = renderedMessage(
       '<h2 onclick="alert(1)">Heading</h2><p><strong>bold</strong> and <em>italic</em></p>' +
