@@ -1,7 +1,6 @@
 import type { AgentState } from '../../../contracts/session.js';
 import { t } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
-import { transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
 
 export interface ProgressStatus {
   text: string;
@@ -39,19 +38,43 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
         .find(
           (event) => event.kind === 'turn_start' || event.kind === 'turn_end',
         );
-      const completedLatestTurn = transcriptOrSummaryShowsCompletedLatestTurn(runtime.events, summary);
+      let latestRequestAt = Number.NEGATIVE_INFINITY;
+      for (const event of runtime.events)
+        if (event.kind === 'user_message' || event.kind === 'turn_start')
+          latestRequestAt = Math.max(latestRequestAt, event.time);
+      const latestExplicitCompletion = Math.max(
+        ...runtime.events.flatMap(event =>
+          (event.kind === 'turn_end' && event.outcome !== 'unknown') || event.kind === 'chat_error'
+            ? [event.time]
+            : []),
+        summary.lastTurnEndAt ?? Number.NEGATIVE_INFINITY,
+      );
+      const completedLatestTurn = latestExplicitCompletion > latestRequestAt;
       const controlledTurn =
         runtime.controlledSessionId === runtime.selectedId &&
         runtime.controlledSelection === runtime.selectionGeneration
           ? runtime.controlledTurnId
           : null;
-      // A stale active-turn control must not keep the UI spinning after the
-      // event stream has already closed that exact turn.
-      const controlledTurnEnded = !!controlledTurn && runtime.events.some(
-        (event) => (event.kind === 'turn_end' && event.turnId === controlledTurn && event.outcome !== 'unknown') ||
-          (event.kind === 'assistant_message' && event.turnId === controlledTurn &&
-            (event.final === true || event.state === 'final')),
-      );
+      const turnHasEnded = (turnId: string | null | undefined): boolean => {
+        if (!turnId) return false;
+        if (runtime.events.some(event => (event.kind === 'turn_end' && event.turnId === turnId && event.outcome !== 'unknown') ||
+          (event.kind === 'chat_error' && event.turnId === turnId))) return true;
+        const latestFinalMessageAt = Math.max(...runtime.events.flatMap(event =>
+          event.kind === 'assistant_message' && event.turnId === turnId && (event.final === true || event.state === 'final')
+            ? [event.time]
+            : []), Number.NEGATIVE_INFINITY);
+        if (!Number.isFinite(latestFinalMessageAt) || Date.now() - latestFinalMessageAt < PROVIDER_SILENCE_MS) return false;
+        const laterActivity = runtime.events.some(event => event.turnId === turnId && event.time > latestFinalMessageAt &&
+          (event.kind === 'assistant_message' || event.kind === 'tool_call' || event.kind === 'page_tool' || event.kind === 'progress'));
+        return !laterActivity && !(summary.lastToolCallAt !== null && summary.lastToolCallAt > latestFinalMessageAt);
+      };
+      // A stale active-turn control must not keep the UI spinning after that
+      // turn has an explicit end, error, or an old final message with no later work.
+      const controlledTurnEnded = turnHasEnded(controlledTurn);
+      const summaryTurnEnded = turnHasEnded(summary.activeTurnId);
+      // Assistant messages can be finalized between steps of one provider turn.
+      // An explicit turn end or error closes the active control; a final message
+      // alone does not when the selected session still reports that same turn.
       const active = controlledTurnEnded || completedLatestTurn ? null : controlledTurn;
       if (!active && lastBoundary?.kind === 'turn_end' &&
           lastBoundary.outcome !== 'completed' && lastBoundary.outcome !== 'unknown') {
@@ -65,7 +88,7 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       );
       const blind =
         !active &&
-        !completedLatestTurn &&
+        !summaryTurnEnded &&
         summary.lastToolCallAt !== null &&
         Date.now() - summary.lastToolCallAt < BLIND_CAPTION_MS &&
         summary.lastToolCallAt > reportedEnd

@@ -390,13 +390,18 @@ it('keeps actual-turn Stop through two authored sends and stops only the capture
 });
 
 it('keeps a reselected chat on Send when a stale controls read resolves', async () => {
-  const { w } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
+  const { w, append } = await boot([]);
   const api = (w as any).api;
   const baseControls = api.getSessionControls;
   const original = async (id: string) => ({ ok: true, data: { ...(await baseControls(id)).data,
     plan: { updatedAt: 2, plan: [{ step: 'Current plan', status: 'in_progress', details: 'Current selection' }] } } });
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   api.stopSessionTurn = stop;
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'app', kind: 'user_message', messageId: 'current-question', turnId: 'held-turn', message: text('Current question') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   let resolve!: (value: any) => void;
   api.getSessionControls = () => new Promise(done => { resolve = done; });
   w.document.getElementById('chatSend')!.click();
