@@ -15,6 +15,7 @@ function progressRuntime(now: number, activityAt?: number): ChatProgressRuntime 
   return {
     api: {} as ChatProgressRuntime['api'],
     selectedId: 'session-1',
+    selectedProjectId: null,
     selectionGeneration: 3,
     controlledSessionId: 'session-1',
     controlledSelection: 3,

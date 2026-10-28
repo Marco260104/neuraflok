@@ -7,6 +7,7 @@ import type { InputEntry } from '../../../backend/domains/sessions/input/input.j
 export interface ChatProgressRuntime {
   api: Pick<typeof window.api, 'runningProcesses' | 'runningTools' | 'stopProcess'>;
   selectedId: string | null;
+  selectedProjectId: string | null;
   selectionGeneration: number;
   controlledSessionId: string | null;
   controlledSelection: number;

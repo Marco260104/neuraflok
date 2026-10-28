@@ -362,21 +362,30 @@ it.each(['failed', 'empty', 'new-chat'] as const)('retires retained rows after a
   expect(welcome.hidden).toBe(outcome === 'failed');
 });
 
-it('keeps the welcome screen visible while an empty chat has only internal warmup pending', async () => {
-  const blank = { ...summary([]), id: 'warmup-session', title: 'New chat', conversationId: 'ds-warmup-chat', chatIds: [], events: 0, userMessages: 0, toolCalls: 0 };
-  const { w, live, append } = await boot([], true, [], [], { sessions: [blank] });
+it('keeps project preparation invisible on an empty chat until the user sends a message', async () => {
+  const project: LocalProject = { id: '55555555-5555-4555-8555-555555555555', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const blank = { ...summary([]), id: 'warmup-session', title: 'New chat', projectId: project.id,
+    conversationId: 'ds-warmup-chat', chatIds: [], events: 0, userMessages: 0, toolCalls: 0 };
+  const { w, live, append } = await boot([], true, [], [project], { sessions: [blank] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  markComposerWarmupOpening(composerWarmupKey(blank.id, generation), generation);
   live.inputs.push({ id: 'internal-warmup', sessionId: blank.id, deliveredSessionId: blank.id, conversationId: blank.conversationId,
-    text: 'NEURAFLOK_WARMUP', warmup: true, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null,
+    text: 'NEURAFLOK_WARMUP', warmup: true, projectId: project.id, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null,
     state: 'browser', owner: 'browser', createdAt: Date.now() });
 
   await append([]);
 
   expect(w.document.getElementById('timelineEmpty')!.hidden).toBe(false);
   expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
+  expect(w.document.querySelector('#timeline .turn-now-text')).toBeNull();
+  expect(w.document.body.textContent).not.toMatch(/Reading project|Leyendo proyecto/i);
 });
 
 it('shows an early composer send as a chat message while project preparation stays internal', async () => {
-  const { w, live } = await boot([]);
+  const project: LocalProject = { id: '66666666-6666-4666-8666-666666666666', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const { w, live } = await boot([], true, [], [project]);
   const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
   const { clearComposerWarmup, composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
   const sessionId = chatRuntimeBindings.selectedId!;
@@ -392,13 +401,33 @@ it('shows an early composer send as a chat message while project preparation sta
 
   expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(entry.text);
   expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
-  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')).toBeNull();
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
 
   entry.state = 'sent';
   clearComposerWarmup(composerWarmupKey(sessionId, generation));
   chatRuntimeBindings.pendingComposerInputs = [entry];
   chatRuntimeBindings.paintDetail(true);
   expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+});
+
+it('keeps ordinary chat warmup queue presentation unchanged', async () => {
+  const { w, live } = await boot([]);
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const sessionId = chatRuntimeBindings.selectedId!;
+  const generation = chatRuntimeBindings.selectionGeneration;
+  markComposerWarmupOpening(composerWarmupKey(sessionId, generation), generation);
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  input.value = 'Continue this ordinary conversation.';
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  await settle();
+
+  expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(input.value || 'Continue this ordinary conversation.');
+  expect(w.document.querySelector('#finishQueue .queued-input')?.textContent).toContain('Continue this ordinary conversation.');
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')).toBeNull();
+  expect(live.sent[0]).toMatchObject({ sessionId, mode: 'after-turn' });
 });
 
 it('shows a new-chat send immediately while its opening session is still being adopted', async () => {

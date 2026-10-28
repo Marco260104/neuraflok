@@ -51,6 +51,7 @@ export function warmupDeferredProgress(
   selectedId: string | null,
   selectionGeneration: number,
   events: readonly SessionEvent[],
+  options: { showQueued?: boolean } = {},
 ): DeferredInputProgress | null {
   const pending = warmupDeferredEntries(entries, selectedId, selectionGeneration);
   if (!pending.length) return null;
@@ -66,11 +67,11 @@ export function warmupDeferredProgress(
       ['assistant_message', 'tool_call', 'page_tool', 'progress', 'turn_start', 'turn_end', 'chat_error'].includes(event.kind));
     if (!laterActivity) return 'thinking';
   }
+  if (options.showQueued && pending.some(entry => entry.state === 'queued' ||
+    (entry.state === 'browser' && entry.offeredAt === undefined))) return 'thinking';
   if (dispatchedInput) return null;
-  // Project preparation is an internal handshake. An authored message can be
-  // visible in the transcript while it waits, but it is not thinking until
-  // the outbox confirms the provider has received it.
-  // Keep a queued after-turn message quiet after a failed preparation or app
-  // restart; the retry/error controls carry the actionable state.
-  return null;
+  // Project preparation stays internal. Project chat UI can show generic
+  // activity while the extension holds an authored message; other callers keep
+  // null as the signal that send controls remain paused during preparation.
+  return options.showQueued ? 'thinking' : null;
 }

@@ -1048,6 +1048,61 @@ it('releases a message queued during project preparation after the model confirm
   expect(next).toMatchObject({ id: queued.id, text: 'MY_QUEUED_REQUEST' });
 });
 
+it('continues an older project chat after context preparation and answers its hidden queued message', async () => {
+  const pages: string[] = [];
+  let releaseReadiness!: (reply: { text: string }) => void;
+  let noteStarted!: () => void;
+  const readinessStarted = new Promise<void>(resolve => { noteStarted = resolve; });
+  const previousRequest = 'Yesterday I finished the catalog import flow.';
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    pages.push(text);
+    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (text.includes('NEURAFLOK_CONTEXT_CHECK')) {
+      noteStarted();
+      return await new Promise<{ text: string }>(resolve => { releaseReadiness = resolve; });
+    }
+    return { text: 'I continued the catalog import flow.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, projectId, text: previousRequest,
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekInput(first);
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, projectId, text: 'NEURAFLOK_WARMUP', warmup: true,
+    authoredSource: 'none', mode: 'auto', dueAt: Date.now(), model: null, reasoningEffort: null
+  });
+  const preparing = runDeepseekInput(warmup);
+  await readinessStarted;
+  await vi.waitFor(async () => {
+    await flushRecorder();
+    expect((await getSession(first.id))?.activeTurnId).toBeTruthy();
+  });
+  const queued = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, projectId, text: 'Continue the catalog import flow.',
+    mode: 'after-turn', dueAt: Date.now(), model: null, reasoningEffort: null,
+    warmupDeferred: { selectionGeneration: 11 }
+  });
+
+  releaseReadiness({ text: `NEURAFLOK_READY\n${previousRequest}` });
+  const completedTurn = await preparing;
+  expect(completedTurn).toBeTruthy();
+  const { nextAfterTurnLocalInput } = await import('../backend/domains/sessions/input/input.js');
+  const conversationId = (await getSession(first.id))?.conversationId;
+  expect(conversationId).toBeTruthy();
+  const released = await nextAfterTurnLocalInput(first.id, conversationId!, completedTurn!);
+  expect(released).toMatchObject({ id: queued.id, text: queued.text, projectId, mode: 'after-turn' });
+
+  await runDeepseekProjectInput(released!);
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  expect(pages.some(page => page.includes('NEURAFLOK_CONTEXT_CHECK'))).toBe(true);
+  expect(events.filter(event => event.kind === 'user_message' && event.inputId === queued.id)).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('continued the catalog import flow'))).toBe(true);
+  expect(pages.at(-1)).toContain('Continue the catalog import flow.');
+});
+
 it('confirms the previous authored request before marking an existing DeepSeek chat ready', async () => {
   const pages: Array<{ text: string; fresh: boolean }> = [];
   const previousRequest = 'Yesterday I was implementing the import flow.';

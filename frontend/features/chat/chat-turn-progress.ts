@@ -63,22 +63,28 @@ export function createChatTurnProgress(
     return composerWarmupState(composerWarmupKey(runtime.selectedId, runtime.selectionGeneration));
   }
 
+  function projectScopedSelection(): boolean {
+    const session = runtime.sessions.find(entry => entry.id === runtime.selectedId);
+    return !!(session?.projectId ?? runtime.selectedProjectId);
+  }
+
   function composerInputs() {
     return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs];
   }
 
   function deferredProgress() {
-    return warmupDeferredProgress(composerInputs(), runtime.selectedId, runtime.selectionGeneration, runtime.events);
+    return warmupDeferredProgress(composerInputs(), runtime.selectedId, runtime.selectionGeneration, runtime.events,
+      { showQueued: projectScopedSelection() });
   }
 
   function hasPendingAuthoredMessage(): boolean {
     if ($('inputQueue').querySelector('.pending-message')) return true;
     const deferred = warmupDeferredEntries(composerInputs(), runtime.selectedId, runtime.selectionGeneration);
-    // A queued authored message is visible in the timeline, but provider work
-    // has not begun yet. Treat it as active only after its durable receipt is
-    // sent, or while a failed preparation needs its retry affordance.
+    // Keep a deferred project send visible as active while the extension
+    // releases it after preparation; other chats keep their existing queue flow.
     return deferred.some(entry => entry.state === 'sent' || entry.state === 'tool' ||
-      (entry.state === 'browser' && entry.offeredAt !== undefined)) || preparation()?.phase === 'failed' && deferred.length > 0;
+      (entry.state === 'browser' && entry.offeredAt !== undefined)) || deferredProgress() !== null ||
+      preparation()?.phase === 'failed' && deferred.length > 0;
   }
 
   // Prefer the current turn note, then active local tools, then a neutral thinking state.

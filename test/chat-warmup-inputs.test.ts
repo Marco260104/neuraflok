@@ -29,6 +29,7 @@ it('keeps project preparation invisible until the authored message is sent to th
   const [pendingMessage] = optimisticWarmupEvents([], [queued], 'chat-1', 4);
   expect(pendingMessage?.kind).toBe('user_message');
   expect(warmupDeferredProgress([queued], 'chat-1', 4, [])).toBeNull();
+  expect(warmupDeferredProgress([queued], 'chat-1', 4, [], { showQueued: true })).toBe('thinking');
 
   const sent = { ...queued, state: 'sent' } as InputEntry;
   const [user] = optimisticWarmupEvents([], [sent], 'chat-1', 4);

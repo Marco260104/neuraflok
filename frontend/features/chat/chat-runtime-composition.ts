@@ -17,6 +17,7 @@ export function createChatFeatureComposition(bindings: typeof import('./chat-orc
   const chatProgressRuntime = {
     api: bindings.api,
     get selectedId() { return bindings.selectedId; },
+    get selectedProjectId() { return bindings.selectedProjectId; },
     get selectionGeneration() { return bindings.selectionGeneration; },
     get controlledSessionId() { return bindings.controlledSessionId; },
     get controlledSelection() { return bindings.controlledSelection; },

@@ -19,6 +19,7 @@ export interface QueuedTaskListRuntime {
   inputQueueGeneration: number;
   pendingComposerInputs: InputEntry[];
   sessions: SessionSummary[];
+  selectedProjectId: string | null;
   paintDetail: (followBottom?: boolean) => void;
 }
 
@@ -31,6 +32,9 @@ export function createQueuedTaskList(runtime: Runtime) {
     pausedHelpers: PausedHelper[] | null,
     selection: number,
   ): void {
+    const selectedProjectId = runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? runtime.selectedProjectId;
+    const hiddenDeferredProjectInput = (entry: InputEntry): boolean =>
+      !!selectedProjectId && !!entry.warmupDeferred && ['queued', 'browser'].includes(entry.state);
     const belongsToSelection = (entry: {
       id: string;
       sessionId: string | null;
@@ -43,6 +47,7 @@ export function createQueuedTaskList(runtime: Runtime) {
     const queuedTasks = all.filter(
       (entry) =>
         belongsToSelection(entry) &&
+        !hiddenDeferredProjectInput(entry) &&
         queuedFollowup(entry) &&
         ['queued', 'tool', 'browser'].includes(entry.state),
     );
@@ -55,6 +60,7 @@ export function createQueuedTaskList(runtime: Runtime) {
     ].filter(
       (entry) =>
         belongsToSelection(entry) &&
+        !hiddenDeferredProjectInput(entry) &&
         !entry.stagesApplied &&
         ['queued', 'browser', 'tool'].includes(entry.state),
     );
