@@ -36,6 +36,7 @@ interface Runtime {
   restoreDraft(): void;
   paintJumpLatest(): void;
   paintSessions(): void;
+  paintAutomationSwitch(): void;
   paintDetail(scrolling?: boolean): void;
   paintHandoff(): void;
   loadDetail(): void;
@@ -88,6 +89,7 @@ export function createChatNavigation(runtime: Runtime) {
       ? runtime.sessions.find(row => row.id === parent)?.projectId
       : selected?.projectId);
     if (runtime.selectedProjectId) runtime.expandedProjects.add(runtime.selectedProjectId);
+    runtime.paintAutomationSwitch();
     ui($<HTMLTextAreaElement>('chatInput'), 'placeholder', () => t('Ask anything…'));
     runtime.restoreDraft();
     if (ownerChanged) {
@@ -117,6 +119,7 @@ export function createChatNavigation(runtime: Runtime) {
     runtime.newChatSelected = true;
     runtime.selectedId = null;
     runtime.selectedProjectId = projectId;
+    runtime.paintAutomationSwitch();
     runtime.resetNewChatTimeline();
     runtime.refreshBackgroundProcesses();
     if (projectId) runtime.expandedProjects.add(projectId);

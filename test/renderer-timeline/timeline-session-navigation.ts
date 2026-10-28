@@ -35,6 +35,36 @@ it('makes parent and worker session selectors keyboard-focusable and activates t
   expect(w.document.querySelector(`.sess.is-sel[data-id="${worker.id}"]`)).not.toBeNull();
 });
 
+it('hides project-only composer controls synchronously when switching to a normal chat', async () => {
+  const project: LocalProject = { id: '11111111-2222-4333-8444-555555555555', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const projectChat: SessionSummary = { ...summary([]), id: 'project-chat-controls', title: 'Project chat', projectId: project.id,
+    conversationId: 'ds-project-chat-controls', chatIds: ['ds-project-chat-controls'] };
+  const normalChat: SessionSummary = { ...summary([]), id: 'normal-chat-controls', title: 'Normal chat',
+    conversationId: 'ds-normal-chat-controls', chatIds: ['ds-normal-chat-controls'] };
+  const { w } = await boot([], false, [], [project], { sessions: [projectChat, normalChat] });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${projectChat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const access = w.document.getElementById('composerAccess') as HTMLDetailsElement;
+  const plan = w.document.getElementById('composerPlanBtn') as HTMLButtonElement;
+  const projectPill = w.document.getElementById('composerProjectPill') as HTMLButtonElement;
+  expect(access.hidden).toBe(false);
+  expect(plan.hidden).toBe(false);
+  expect(projectPill.hidden).toBe(false);
+
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const loadDetail = chatRuntimeBindings.loadDetail;
+  chatRuntimeBindings.loadDetail = async () => false;
+  try {
+    w.document.querySelector<HTMLElement>(`.sess[data-id="${normalChat.id}"] [data-session-select]`)!.click();
+    expect(access.hidden).toBe(true);
+    expect(plan.hidden).toBe(true);
+    expect(projectPill.hidden).toBe(true);
+  } finally {
+    chatRuntimeBindings.loadDetail = loadDetail;
+  }
+});
+
 it('shows elapsed runtime and stops the owned background process from the dock', async () => {
   const { w, publishBackgroundProcesses } = await boot([]);
   await publishBackgroundProcesses([{

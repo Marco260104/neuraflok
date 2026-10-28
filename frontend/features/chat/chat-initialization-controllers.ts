@@ -250,6 +250,7 @@ export function initializeChatControllers(bindings: ChatInitializationBindings):
     timelineShown: bindings.timelineShown,
     paintJumpLatest: bindings.paintJumpLatest,
     paintSessions: () => bindings.chatSessionList.paintSessions(),
+    paintAutomationSwitch: bindings.paintAutomationSwitch,
     paintDetail: bindings.paintDetail,
     paintHandoff: bindings.paintHandoff,
     loadDetail: () => {
