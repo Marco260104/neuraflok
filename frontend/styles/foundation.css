@@ -1,4 +1,4 @@
-/* NEURAFLOK workspace: cool graphite, one cyan signal, Better UI radii and motion. */
+/* NEURAFLOK workspace: graphite surfaces, neutral silver signal, Better UI radii and motion. */
 
 .settings-search { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; height: 44px; margin: 0; padding: 0 15px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); color: var(--soft); }
 .settings-search:focus-within { border-color: var(--soft); box-shadow: 0 0 0 3px var(--ring); }
@@ -11,24 +11,24 @@
   --activity-size: calc(13px * var(--text-scale, 1));
   --activity-meta: calc(11.5px * var(--text-scale, 1));
   --activity-row: calc(26px * var(--text-scale, 1));
-  --page: #eef2f5;
-  --card: #f7f9fb;
-  --ink: #12181e;
-  --soft: #5a6570;
-  --faint: #6e7a86;
-  --line: #d5dde3;
-  --hover: #e4eaef;
-  --sunk: #e8eef2;
-  --track: #c9d3db;
-  --edge: #c9d3db;
-  --raise: #fbfcfd;
+  --page: #f4f4f5;
+  --card: #fafafa;
+  --ink: #18181b;
+  --soft: #52525b;
+  --faint: #71717a;
+  --line: #e4e4e7;
+  --hover: #ededee;
+  --sunk: #e9e9eb;
+  --track: #d4d4d8;
+  --edge: #d4d4d8;
+  --raise: #ffffff;
 
-  --blue: #12181e;
-  --wash: #e4eaef;
-  --blue-line: #c9d3db;
-  --accent: #0d7480;
-  --accent-wash: #dceff1;
-  --accent-edge: #9ed0d6;
+  --blue: #18181b;
+  --wash: #e9e9eb;
+  --blue-line: #d4d4d8;
+  --accent: #52525b;
+  --accent-wash: #f0f0f1;
+  --accent-edge: #b7b7bd;
 
   --green: #2a7a52;
   --green-wash: #e8f4ec;
@@ -48,8 +48,8 @@
     0 2px 4px 0 oklch(0 0 0 / 0.06);
   --lift: var(--shadow-border);
   --image-outline: oklch(0 0 0 / 0.1);
-  --knob-off: #f7f9fb;
-  --knob-on: #f7f9fb;
+  --knob-off: #fafafa;
+  --knob-on: #fafafa;
   --ring: color-mix(in srgb, var(--accent) 22%, transparent);
 
   --r-xs: 6px;
@@ -72,25 +72,25 @@
 
 /* Dark is an explicit choice, stored in settings and applied by script. It is never inherited from Windows. */
 :root[data-theme='dark'] {
-  --page: #141a20;
-  --card: #1b232b;
-  --popover: #222b34;
-  --ink: #e8eef3;
-  --soft: #b0bcc6;
-  --faint: #8794a0;
-  --line: #2a333c;
-  --hover: #24303a;
-  --sunk: #0f1419;
-  --track: #343e48;
-  --edge: #343e48;
-  --raise: #26303a;
+  --page: #171717;
+  --card: #202020;
+  --popover: #262626;
+  --ink: #f4f4f5;
+  --soft: #c4c4c7;
+  --faint: #a1a1aa;
+  --line: #303033;
+  --hover: #29292d;
+  --sunk: #111112;
+  --track: #3f3f46;
+  --edge: #3f3f46;
+  --raise: #29292d;
 
-  --blue: #e8eef3;
-  --wash: #1a232b;
-  --blue-line: #343e48;
-  --accent: #3ecad6;
-  --accent-wash: #163238;
-  --accent-edge: #2a6d74;
+  --blue: #f4f4f5;
+  --wash: #222225;
+  --blue-line: #3f3f46;
+  --accent: #d4d4d8;
+  --accent-wash: #2b2b2f;
+  --accent-edge: #62626a;
 
   --green: #6fbf8f;
   --green-wash: #163024;
@@ -104,8 +104,8 @@
   --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
   --lift: 0 18px 40px -28px oklch(0 0 0 / 0.55);
   --image-outline: oklch(1 0 0 / 0.1);
-  --knob-off: #8794a0;
-  --knob-on: #12181e;
+  --knob-off: #a1a1aa;
+  --knob-on: #18181b;
 }
 
 * {
@@ -130,7 +130,7 @@ body {
 body {
   background: var(--page);
   color: var(--ink);
-  font: calc(13.5px * var(--text-scale, 1))/1.5 var(--ui-font);
+  font: calc(13px * var(--text-scale, 1))/1.48 var(--ui-font);
   letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
 }

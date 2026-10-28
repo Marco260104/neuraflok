@@ -1,20 +1,20 @@
-/* Cool graphite workspace, cyan signal, green only for live status. */
+/* Graphite workspace with a neutral silver signal; green marks live status. */
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --page: oklch(18.2% .012 230);
-  --card: oklch(22.4% .012 230);
-  --popover: oklch(25.6% .013 230);
-  --ink: oklch(95.6% .008 220);
-  --soft: oklch(76% .016 230);
-  --faint: oklch(62% .016 230);
-  --line: oklch(28% .012 230);
-  --hover: oklch(26.2% .012 230);
-  --sunk: oklch(15.2% .01 230);
-  --edge: oklch(34% .014 230);
-  --raise: oklch(27% .012 230);
-  --accent: oklch(78% .09 200);
-  --accent-wash: oklch(26% .04 200);
-  --accent-edge: oklch(44% .06 200);
+  --page: #171717;
+  --card: #202020;
+  --popover: #262626;
+  --ink: #f4f4f5;
+  --soft: #c4c4c7;
+  --faint: #a1a1aa;
+  --line: #303033;
+  --hover: #29292d;
+  --sunk: #111112;
+  --edge: #3f3f46;
+  --raise: #29292d;
+  --accent: #d4d4d8;
+  --accent-wash: #2b2b2f;
+  --accent-edge: #62626a;
   --green: #6fbf8f;
   --green-wash: #163024;
   --green-line: #3d6b52;
@@ -26,9 +26,9 @@
 }
 
 :root:not([data-theme='dark']) {
-  --accent: #0d7480;
-  --accent-wash: #dceff1;
-  --accent-edge: #9ed0d6;
+  --accent: #52525b;
+  --accent-wash: #f0f0f1;
+  --accent-edge: #b7b7bd;
   --green: #2a7a52;
   --green-wash: #e8f4ec;
   --green-line: #c5dfd0;

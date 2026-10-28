@@ -1,12 +1,12 @@
 :root {
-  --toolbar-surface: var(--page, oklch(19% .008 255));
-  --toolbar-text: var(--ink, oklch(96% .006 255));
-  --toolbar-muted: var(--soft, oklch(76% .01 255));
-  --toolbar-disabled: var(--faint, oklch(60% .01 255));
-  --toolbar-border: var(--line, oklch(35% .012 255));
-  --toolbar-hover: var(--hover, oklch(28% .01 255));
-  --toolbar-selected: var(--raise, oklch(27% .01 255));
-  --toolbar-accent: var(--accent, oklch(82% .035 245));
+  --toolbar-surface: var(--page, #171717);
+  --toolbar-text: var(--ink, #f4f4f5);
+  --toolbar-muted: var(--soft, #c4c4c7);
+  --toolbar-disabled: var(--faint, #a1a1aa);
+  --toolbar-border: var(--line, #3f3f46);
+  --toolbar-hover: var(--hover, #29292d);
+  --toolbar-selected: var(--raise, #29292d);
+  --toolbar-accent: var(--accent, #d4d4d8);
   --toolbar-connected: var(--green, oklch(72% .14 155));
   --toolbar-disconnected: var(--amber, oklch(75% .14 75));
   --frame-inset-left: 8px;

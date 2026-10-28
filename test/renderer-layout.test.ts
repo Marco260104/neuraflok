@@ -92,6 +92,11 @@ it('titles every settings page the same way, Activity included', () => {
   expect(activity.querySelector('#fullFeed')?.closest('.activity-content')).not.toBeNull();
 });
 
+it('keeps page titles and supporting text compact at the default scale', () => {
+  expect(css).toMatch(/\.settings-page-head h1\s*\{[^}]*font-size:\s*calc\(20px \* var\(--text-scale, 1\)\)/);
+  expect(css).toMatch(/\.settings-page-head p\s*\{[^}]*font-size:\s*calc\(12\.5px \* var\(--text-scale, 1\)\)/);
+});
+
 it('limits the existing tool-detail preference to handoff briefs', () => {
   const toggle = document.getElementById('goalIncludeToolCalls') as HTMLInputElement;
   expect(toggle.type).toBe('checkbox');
@@ -136,9 +141,11 @@ it('keeps composer actions on one row by compacting labels instead of stacking a
   expect(css).not.toContain('#modelMenu');
 });
 
-it('centers the accessible Chats refresh icon without an extra grid text row', () => {
-  const refresh = document.getElementById('chatRefresh')!;
-  expect(refresh.getAttribute('aria-label')).toBe('Refresh chats');
+it('places the accessible project-and-chat refresh action in the workspace header', () => {
+  const refresh = document.getElementById('workspaceRefresh')!;
+  expect(refresh.getAttribute('aria-label')).toBe('Refresh projects and chats');
+  expect(refresh.closest('#chatsSection')).toBeNull();
+  expect(refresh.closest('.sidebar-brand-actions')).not.toBeNull();
   expect(refresh.children).toHaveLength(1);
   expect(refresh.firstElementChild?.matches('i.ico.ph.ph-arrow-clockwise[aria-hidden="true"]')).toBe(true);
   expect(refresh.textContent?.trim()).toBe('');

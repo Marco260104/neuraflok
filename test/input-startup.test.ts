@@ -304,17 +304,17 @@ it('does not queue an API message until its endpoint and model settings are read
   expect(ports.runApi).not.toHaveBeenCalled();
 });
 
-it('refuses a provider send until the internal browser verifies sign-in', async () => {
+it('does not send a provider message when the companion cannot verify the session', async () => {
   ports.presence.deepseek = false;
-  await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
+  await expect(sendDesktopInput(request)).rejects.toThrow('no message was sent');
   expect(ports.enqueue).not.toHaveBeenCalled();
   expect(ports.openProvider).not.toHaveBeenCalled();
 });
 
-it('does not mistake a connected browser wake channel for a signed-in provider account', async () => {
+it('keeps a detected session distinct from browser-companion connectivity', async () => {
   ports.presence.deepseek = false;
   ports.integratedWake = true;
-  await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
+  await expect(sendDesktopInput(request)).rejects.toThrow('could not verify the DeepSeek session');
   expect(ports.enqueue).not.toHaveBeenCalled();
   expect(ports.run).not.toHaveBeenCalled();
 });
@@ -322,7 +322,7 @@ it('does not mistake a connected browser wake channel for a signed-in provider a
 it('does not send while provider sign-in is unknown, even when the browser extension is reachable', async () => {
   ports.presence.deepseek = null;
   ports.integratedWake = true;
-  await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
+  await expect(sendDesktopInput(request)).rejects.toThrow('could not verify the DeepSeek session');
   expect(ports.enqueue).not.toHaveBeenCalled();
   expect(ports.run).not.toHaveBeenCalled();
 });
@@ -342,10 +342,17 @@ it('refreshes provider sign-in before accepting a message when saved presence is
   expect(ports.run).toHaveBeenCalledWith(row, 'deepseek', expect.any(AbortSignal));
 });
 
-it('does not enqueue when the live provider refresh confirms the account is signed out', async () => {
+it('does not enqueue when the live provider refresh cannot confirm the session', async () => {
   ports.presence.deepseek = false;
   ports.integratedWake = true;
-  await expect(sendDesktopInput(request)).rejects.toThrow('Connect DeepSeek in NEURAFLOK');
+  await expect(sendDesktopInput(request)).rejects.toThrow('could not verify the DeepSeek session');
+  expect(ports.enqueue).not.toHaveBeenCalled();
+  expect(ports.run).not.toHaveBeenCalled();
+});
+
+it('reports a disconnected companion without claiming that DeepSeek signed out', async () => {
+  ports.integratedWake = false;
+  await expect(sendDesktopInput(request)).rejects.toThrow('browser connection to DeepSeek is not active');
   expect(ports.enqueue).not.toHaveBeenCalled();
   expect(ports.run).not.toHaveBeenCalled();
 });

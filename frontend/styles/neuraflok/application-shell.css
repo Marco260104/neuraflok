@@ -3,14 +3,14 @@
   --sidebar-default: 280px;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   grid-template-columns: minmax(0, min(var(--sidebar-width, var(--sidebar-default)), 38vw)) minmax(0, 1fr);
-  grid-template-rows: max(44px, env(titlebar-area-height, 44px)) auto auto minmax(0, 1fr);
+  grid-template-rows: max(40px, env(titlebar-area-height, 40px)) auto auto minmax(0, 1fr);
   background: var(--page); color: var(--ink);
 }
-.app.has-bottom-dock { grid-template-rows: max(44px, env(titlebar-area-height, 44px)) auto auto minmax(0, 1fr) var(--terminal-height, 250px); }
+.app.has-bottom-dock { grid-template-rows: max(40px, env(titlebar-area-height, 40px)) auto auto minmax(0, 1fr) var(--terminal-height, 250px); }
 .app > .notices, .app > main { grid-column: 2; }
 .app.is-sidebar-collapsed { grid-template-columns: minmax(0, 0px) minmax(0, 1fr); }
 .app-topbar {
-  height: max(44px, env(titlebar-area-height, 44px)); gap: 8px;
+  height: max(40px, env(titlebar-area-height, 40px)); gap: 8px;
   padding-inline: max(12px, calc(env(titlebar-area-x, 0px) + 7px)) max(12px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
   border-bottom: 1px solid transparent; background: var(--sidebar-color, var(--page));
   box-shadow: 0 1px 0 var(--line);
@@ -42,9 +42,9 @@
 .sidebar::before, .sidebar::after { display: none; }
 .sidebar-brand { gap: 0; padding: 0 6px 14px; }
 .sidebar-brand .sidebar-brand-search { margin-left: auto; }
-.sidebar-primary { gap: 4px; padding: 0 2px 18px; }
+.sidebar-primary { gap: 4px; padding: 0 2px 12px; }
 .sidebar .sidebar-primary .new-chat {
-  min-height: 38px; justify-content: flex-start; padding-inline: 12px 10px; border: 1px solid transparent; border-radius: var(--r-md);
+  min-height: 36px; justify-content: flex-start; padding-inline: 12px 10px; border: 1px solid transparent; border-radius: var(--r-sm);
   background: var(--accent-wash); color: var(--ink); font-size: calc(13px * var(--text-scale, 1));
   box-shadow: 0 0 0 1px var(--accent-edge);
   transition-property: background-color, color, box-shadow, transform; transition-duration: 150ms; transition-timing-function: var(--ease-out);
@@ -55,13 +55,13 @@
 }
 #sidebarSkills { display: none !important; }
 .sidebar-sessions { min-height: 0; }
-.sidebar-session-heading { min-height: 33px; padding-inline: 8px; color: var(--faint); font-size: calc(11px * var(--text-scale, 1)); }
+.sidebar-session-heading { min-height: 30px; padding-inline: 8px; color: var(--faint); font-size: calc(11px * var(--text-scale, 1)); }
 .sidebar-session-heading .acts .btn { color: var(--faint); border-radius: var(--r-sm); }
 @media (hover: hover) and (pointer: fine) {
   .sidebar-session-heading .acts .btn:hover { color: var(--ink); background: var(--hover); }
 }
 .project-heading { position: relative; }
-.sess { min-height: 36px; padding-inline: 10px; border-radius: var(--r-sm); transition: background-color 150ms var(--ease-out); }
+.sess { min-height: 32px; padding-inline: 10px; border-radius: var(--r-sm); transition: background-color 150ms var(--ease-out); }
 @media (hover: hover) and (pointer: fine) {
   .sess:hover, .sess.is-pointed { background: color-mix(in srgb, var(--hover) 80%, transparent); }
 }
@@ -92,8 +92,8 @@
 .card.is-session { --composer-edge: var(--line); }
 #chatBody { padding-inline: max(28px, calc((100% - 780px) / 2)); }
 #timeline { width: 100%; max-width: 780px; margin-inline: auto; }
-.ev { padding-block: 10px; }
-.said { line-height: 1.68; }
+.ev { padding-block: 7px; }
+.said { line-height: 1.55; }
 .said.is-user > .user-message-text { border-radius: calc(var(--r-md) + 4px); }
 .composer {
   width: min(680px, calc(100% - 48px)); margin-top: 12px; margin-bottom: 16px; padding-bottom: 0;
@@ -123,7 +123,7 @@
 .card.is-session:has(#timelineEmpty:not([hidden])) { --welcome-start: max(128px, calc(44% - 20px)); }
 .card.is-session:has(#timelineEmpty:not([hidden])) .chat-head > #chatTitle { visibility: hidden; }
 #timelineEmpty.workspace-empty { top: calc(var(--welcome-start) - 38px); left: 24px; right: 24px; gap: 0; padding: 0; color: var(--ink); transform: translateY(-50%); animation: workspace-empty-in 300ms var(--ease-out) both; }
-.workspace-empty-title { font-size: calc(22px * var(--text-scale, 1)); font-weight: 570; letter-spacing: -.03em; }
+.workspace-empty-title { font-size: calc(15px * var(--text-scale, 1)); font-weight: 550; letter-spacing: -.015em; }
 .card.is-session:has(#timelineEmpty:not([hidden])) > #composer { position: absolute; grid-area: auto; top: var(--welcome-start); left: 50%; transform: translateX(-50%); margin: 0; overflow: visible; }
 .card.is-session:has(#timelineEmpty:not([hidden])) textarea { max-height: min(220px, max(72px, calc(100dvh - 540px))); }
 .work-dock-right, .work-dock-bar, .workspace-terminal { background: var(--page); }
@@ -155,7 +155,7 @@
   .composer-dock { width: calc(100% - 56px); }
 }
 @container chat-session (max-width: 520px) {
-  .workspace-empty-title { font-size: calc(20px * var(--text-scale, 1)); }
+  .workspace-empty-title { font-size: calc(15px * var(--text-scale, 1)); }
   .composer-workspace-tools { gap: 0; padding-inline: 8px; }
   .composer-workspace-tools > button { gap: 4px; padding-inline: 6px; }
 }
@@ -316,7 +316,7 @@
   animation: none;
 }
 .web-model-loading-card h2 {
-  margin: 0; font-size: calc(20px * var(--text-scale, 1)); font-weight: 550; letter-spacing: -.03em;
+  margin: 0; font-size: calc(17px * var(--text-scale, 1)); font-weight: 550; letter-spacing: -.02em;
 }
 .web-model-loading-card p {
   margin: 0; color: var(--soft); font-size: calc(13px * var(--text-scale, 1)); line-height: 1.45;
@@ -369,7 +369,7 @@
 .quick-settings-nav button[aria-current='page'] .ico { color: var(--accent); }
 .quick-settings-stage { min-width: 0; min-height: 0; overflow: auto; padding: 24px 26px; overscroll-behavior: contain; }
 .quick-settings-view { display: grid; align-content: start; gap: 14px; }
-.quick-settings-view h3 { margin: 0; font-size: calc(17px * var(--text-scale, 1)); font-weight: 600; letter-spacing: -.02em; }
+.quick-settings-view h3 { margin: 0; font-size: calc(15px * var(--text-scale, 1)); font-weight: 600; letter-spacing: -.015em; }
 .quick-settings-lead { margin: 0; max-width: 52ch; color: var(--soft); font-size: calc(12.5px * var(--text-scale, 1)); line-height: 1.5; }
 .quick-settings-body { display: grid; gap: 4px; }
 .quick-setting {

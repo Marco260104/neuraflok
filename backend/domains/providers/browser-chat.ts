@@ -199,8 +199,22 @@ async function latestAuthoredRequest(sessionId: string, excludeInputId?: string)
 }
 
 function validBootstrapReply(text: string): boolean {
-  return (text.trim() === WEB_BOOTSTRAP_ACK || text.trim() === LEGACY_WEB_BOOTSTRAP_ACK) &&
-    parseWebChatTools(text).length === 0 && !incompleteWebChatTool(text);
+  if (parseWebChatTools(text).length > 0 || incompleteWebChatTool(text)) return false;
+  const lines = text.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim().split(/\r?\n/).map(line => line.trim())
+    .filter(line => line && !/^```(?:[\w+-]+)?$/.test(line));
+  if (lines.length !== 1) return false;
+  let reply = lines[0]!.replace(/^(?:>\s*)+/, '').replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, '').trim();
+  reply = reply.replace(/[.!。！?？]+$/, '').trim();
+  const wrappers: Array<[string, string]> = [['**', '**'], ['__', '__'], ['~~', '~~'], ['`', '`'], ['*', '*'], ['_', '_'], ['“', '”'], ['\"', '\"'], ["'", "'"]];
+  for (const [open, close] of wrappers) {
+    if (reply.startsWith(open) && reply.endsWith(close) && reply.length > open.length + close.length) {
+      reply = reply.slice(open.length, -close.length).trim();
+      break;
+    }
+  }
+  reply = reply.replace(/[.!。！?？]+$/, '').trim();
+  return reply === WEB_BOOTSTRAP_ACK || reply === LEGACY_WEB_BOOTSTRAP_ACK;
 }
 
 function confirmsContextReply(text: string, expectedWords: readonly string[]): boolean {
@@ -405,7 +419,7 @@ async function acknowledgeWarmup(
     const setup = await prepareWebProviderBootstrap(entry, sessionId, system);
     const setupReply = await requestReadinessComplete(provider, conversationId, setup, signal, deadline, { fresh: true });
     if (!validBootstrapReply(setupReply.text)) {
-      throw new Error('DeepSeek did not confirm the restored project context. No message was sent.');
+      throw new Error('DeepSeek did not confirm the restored chat context. No message was sent.');
     }
     reply = await requestReadinessComplete(provider, conversationId, replay, signal, deadline);
     if (!confirmsContextReply(reply.text, check.expectedWords)) {
@@ -432,7 +446,8 @@ async function acknowledgeWarmup(
     turnId,
     final: true,
     state: 'final',
-    activeNow: false
+    activeNow: false,
+    ...(entry.warmup ? { internalWarmup: true as const } : {})
   }]);
   if (provider === 'deepseek') rememberDeepseekContext(sessionId, conversationId);
 }
@@ -466,6 +481,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     : projectPlanReadOnly ? webProjectPlanToolGuide(planTools, guideCtx)
       : webToolGuide(allTools, guideCtx);
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
+  const hasProviderTranscript = Boolean(prior?.messages.some(message => message.role !== 'system'));
   const history = !prior && session?.conversationId
     ? await readSessionEvents(sessionId, { limit: 160 })
     : null;
@@ -492,7 +508,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   // Bootstrap only when the provider transcript is actually empty. A completed
   // automatic warmup already loaded setup into this provider chat, even when
   // the first authored request arrives after the context-verification TTL.
-  const opening = isOpening(messages) && (!hasPriorAuthoredContext ||
+  const opening = isOpening(messages) && !hasProviderTranscript && (!hasPriorAuthoredContext ||
     (!session?.conversationId && !entry.conversationId) || session?.origin?.kind === 'worker' || openingWarmup);
   const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, {
     historySummary: opening || !hasPriorAuthoredContext ? undefined : historySummary,
@@ -514,13 +530,14 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   const abort = linkAbort(signal);
   flights.set(sessionId, { turnId, abort, warmup: entry.warmup === true });
   const now = () => Date.now();
+  const internalWarmup = entry.warmup ? { internalWarmup: true as const } : {};
   try {
     const accepted = (await listInputs()).find(row => row.id === entry.id && row.state === 'sent');
     if (!accepted) throw new Error(`NEURAFLOK could not verify the accepted ${WEB_PROVIDERS[provider].label} message.`);
     if (!entry.warmup) {
       await recordDeliveredInput(accepted, undefined, { turnId });
     }
-    await observe(ownedConversation, [{ kind: 'turn_start', time: now(), turnId }]);
+    await observe(ownedConversation, [{ kind: 'turn_start', time: now(), turnId, ...internalWarmup }]);
     if (!entry.warmup) await noteLocalAgentTurnStarted(ownedConversation, now());
     let thread: WebChatThread = {
       version: 1,
@@ -559,15 +576,16 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
           turnId,
           final: true,
           state: 'final',
-          activeNow: false
-        }, { kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }]);
+          activeNow: false,
+          ...internalWarmup
+        }, { kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true, ...internalWarmup }]);
         return turnId;
       }
     }
     if (entry.warmup) {
       await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, priorMessages, abort.signal,
         warmupDeadline ?? Date.now() + webChatReadinessMaxDurationMs, turnId);
-      await observe(ownedConversation, [{ kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }]);
+      await observe(ownedConversation, [{ kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true, ...internalWarmup }]);
       return turnId;
     }
     if (provider === 'deepseek' && hasPriorAuthoredContext && !hasRecentDeepseekContext(sessionId, ownedConversation)) {
@@ -756,15 +774,15 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     const aborted = abort.signal.aborted || (error instanceof Error && error.name === 'AbortError');
     if (aborted) {
       await observe(ownedConversation, [
-        { kind: 'turn_end', time: now(), turnId, outcome: 'stopped', detail: 'Stop requested' }
+        { kind: 'turn_end', time: now(), turnId, outcome: 'stopped', detail: 'Stop requested', ...internalWarmup }
       ]).catch(() => undefined);
       return null;
     }
     const detail = (error as Error).message.replace(/^DEEPSEEK_CONTEXT_UNAVAILABLE:\s*/, '').slice(0, 500);
     logWarn(`${provider}: session ${sessionId} failed: ${detail}`);
     await observe(ownedConversation, [
-      { kind: 'chat_error', time: now(), turnId, inputId: entry.id, text: detail, recoverable: false },
-      { kind: 'turn_end', time: now(), turnId, outcome: 'failed', detail }
+      { kind: 'chat_error', time: now(), turnId, inputId: entry.id, text: detail, recoverable: false, ...internalWarmup },
+      { kind: 'turn_end', time: now(), turnId, outcome: 'failed', detail, ...internalWarmup }
     ]).catch(() => undefined);
     return null;
   } finally {

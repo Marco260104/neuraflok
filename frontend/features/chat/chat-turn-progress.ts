@@ -11,7 +11,15 @@ import {
   shouldSuppressWarmupActivity,
   visibleWarmupPhase
 } from './chat-composer-ready.js';
-import { projectAuthoredInputProgress, warmupDeferredEntries, warmupDeferredProgress } from './chat-warmup-inputs.js';
+import {
+  projectAuthoredInputProgress,
+  selectedAuthoredInputPending,
+  warmupDeferredEntries,
+  warmupDeferredProgress,
+  withoutInternalWarmupEvents,
+} from './chat-warmup-inputs.js';
+import { internalWarmupTurnIds, isInternalWarmupTurnOpen } from './chat-turn-state.js';
+import { WEB_CHAT_WARMUP_TEXT } from './chat-web-warmup.js';
 
 export function createChatTurnProgress(
   runtime: ChatProgressRuntime,
@@ -63,11 +71,6 @@ export function createChatTurnProgress(
     return composerWarmupState(composerWarmupKey(runtime.selectedId, runtime.selectionGeneration));
   }
 
-  function projectScopedSelection(): boolean {
-    const session = runtime.sessions.find(entry => entry.id === runtime.selectedId);
-    return !!(session?.projectId ?? runtime.selectedProjectId);
-  }
-
   function selectedProjectId(): string | null {
     const session = runtime.sessions.find(entry => entry.id === runtime.selectedId);
     const inherited = session?.origin?.kind === 'worker' && session.origin.fromSessionId
@@ -80,28 +83,65 @@ export function createChatTurnProgress(
     return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs];
   }
 
+  function hasOpenInternalWarmupTurn(): boolean {
+    const warmupInputIds = new Set(composerInputs().filter(entry => entry.warmup).map(entry => entry.id));
+    const warmupTurns = internalWarmupTurnIds(runtime.events, warmupInputIds, WEB_CHAT_WARMUP_TEXT);
+    const summary = runtime.sessions.find(entry => entry.id === runtime.selectedId);
+    const latestSummaryTerminalAt = Math.max(summary?.lastTurnEndAt ?? Number.NEGATIVE_INFINITY,
+      summary?.lastAssistantFinalAt ?? Number.NEGATIVE_INFINITY);
+    return [...warmupTurns].some(turnId => isInternalWarmupTurnOpen(runtime.events, turnId, latestSummaryTerminalAt));
+  }
+
+  function activityEvents(): SessionEvent[] {
+    // A provider can omit the internal flag on later events in a warmup turn.
+    // Filter by the turn's marked start and its warmup input ID before those
+    // observations can be mistaken for the user's live answer.
+    return withoutInternalWarmupEvents(runtime.events, composerInputs());
+  }
+
+  function completedThrough(): number | null {
+    const session = runtime.sessions.find(entry => entry.id === runtime.selectedId);
+    const terminalEvents = runtime.events.flatMap(event =>
+      (event.kind === 'turn_end' && event.outcome !== 'unknown') ||
+      (event.kind === 'assistant_message' && (event.final === true || event.state === 'final')) ||
+      event.kind === 'chat_error' ? [event.time] : []);
+    if (!session && !terminalEvents.length) return null;
+    return Math.max(session?.lastTurnEndAt ?? 0, session?.lastAssistantFinalAt ?? 0, ...terminalEvents);
+  }
+
+  function hasSelectedAuthoredInputPending(): boolean {
+    return selectedAuthoredInputPending(composerInputs(), runtime.selectedId,
+      runtime.selectionGeneration, runtime.pendingNewInput, runtime.events, Date.now(), completedThrough());
+  }
+
+  function selectedTurnIsWorking(): boolean {
+    // The row is presentation state and can outlive the provider snapshot
+    // during navigation. Never let that stale class keep a Thinking indicator
+    // alive after the selected chat no longer has a confirmed active turn.
+    return getStateLine().working === true &&
+      turnStatusLine.classList.contains('is-working') &&
+      turnStatusLine.dataset.sessionId === (runtime.selectedId ?? '') &&
+      turnStatusLine.dataset.selectionGeneration === String(runtime.selectionGeneration);
+  }
+
   function deferredProgress() {
     const inputs = composerInputs();
     return warmupDeferredProgress(inputs, runtime.selectedId, runtime.selectionGeneration, runtime.events,
-      { showQueued: projectScopedSelection() }) ??
+      { showQueued: true, completedThrough: completedThrough() }) ??
       projectAuthoredInputProgress(inputs, runtime.selectedId, selectedProjectId(), runtime.selectionGeneration,
-        runtime.pendingNewInput, runtime.events);
+        runtime.pendingNewInput, runtime.events, completedThrough());
   }
 
   function hasPendingAuthoredMessage(): boolean {
-    if ($('inputQueue').querySelector('.pending-message')) return true;
-    const deferred = warmupDeferredEntries(composerInputs(), runtime.selectedId, runtime.selectionGeneration);
-    // Keep a deferred project send visible as active while the extension
-    // releases it after preparation; other chats keep their existing queue flow.
-    return deferred.some(entry => entry.state === 'sent' || entry.state === 'tool' ||
-      (entry.state === 'browser' && entry.offeredAt !== undefined)) || deferredProgress() !== null ||
+    const deferred = warmupDeferredEntries(composerInputs(), runtime.selectedId, runtime.selectionGeneration, completedThrough());
+    return hasSelectedAuthoredInputPending() || deferredProgress() !== null ||
       preparation()?.phase === 'failed' && deferred.length > 0;
   }
 
   function suppressWarmupWithoutPendingMessage(): boolean {
-    return preparation()?.phase === 'opening' &&
-      !$('inputQueue').querySelector('.pending-message') &&
-      warmupDeferredEntries(composerInputs(), runtime.selectedId, runtime.selectionGeneration).length === 0;
+    const hasAuthoredMessage = hasSelectedAuthoredInputPending() ||
+      warmupDeferredEntries(composerInputs(), runtime.selectedId, runtime.selectionGeneration, completedThrough()).length > 0;
+    return !hasAuthoredMessage && (preparation()?.phase === 'opening' || hasOpenInternalWarmupTurn());
   }
 
   // Prefer the current turn note, then active local tools, then a neutral thinking state.
@@ -128,13 +168,14 @@ export function createChatTurnProgress(
       };
     const thinking = { text: t('Thinking…'), icon: 'thinking', working: false };
     // A pending message indicates work before its first event is recorded.
-    if ($('inputQueue').querySelector('.pending-message, .queued-input'))
+    if (hasSelectedAuthoredInputPending())
       return thinking;
+    const events = activityEvents();
     let asked = Number.NEGATIVE_INFINITY;
-    for (const event of runtime.events)
+    for (const event of events)
       if (event.kind === 'user_message') asked = Math.max(asked, event.time);
     let newest: SessionEvent | undefined;
-    for (const event of runtime.events) {
+    for (const event of events) {
       if (
         event.time < asked ||
         !['assistant_message', 'tool_call', 'page_tool', 'progress'].includes(
@@ -144,7 +185,7 @@ export function createChatTurnProgress(
         continue;
       if (!newest || event.time >= newest.time) newest = event;
     }
-    const latestTerminalAt = runtime.events.reduce((latest, event) => {
+    const latestTerminalAt = events.reduce((latest, event) => {
       if (event.time < asked) return latest;
       const terminal = (event.kind === 'turn_end' && event.outcome !== 'unknown') ||
         (event.kind === 'assistant_message' && (event.final === true || event.state === 'final')) ||
@@ -169,8 +210,8 @@ export function createChatTurnProgress(
   }
 
   function paintTurnNow(): void {
-    const isWorking = turnStatusLine.classList.contains('is-working');
-    const hasPending = !!$('inputQueue').querySelector('.pending-message, .queued-input') || deferredProgress() !== null;
+    const isWorking = selectedTurnIsWorking();
+    const hasPending = hasSelectedAuthoredInputPending() || deferredProgress() !== null;
     const warmup = preparation();
     const suppressWarmupActivity = suppressWarmupWithoutPendingMessage() ||
       shouldSuppressWarmupActivity(warmup, hasPendingAuthoredMessage());
@@ -211,10 +252,8 @@ export function createChatTurnProgress(
     const summary = runtime.sessions.find(
       (entry) => entry.id === runtime.selectedId,
     );
-    const isWorking = turnStatusLine.classList.contains('is-working');
-    const hasPending = !!$('inputQueue').querySelector(
-      '.pending-message, .queued-input',
-    );
+    const isWorking = selectedTurnIsWorking();
+    const hasPending = hasSelectedAuthoredInputPending() || deferredProgress() !== null;
     if (!summary || (!isWorking && !hasPending)) {
       runningTools = [];
       return;
@@ -312,9 +351,7 @@ export function createChatTurnProgress(
         (entry) =>
           entry.row.matches('.ev-user_message') && Number.isFinite(entry.asked),
       );
-    const pending = !!$('inputQueue').querySelector(
-      '.pending-message, .queued-input',
-    );
+    const pending = hasSelectedAuthoredInputPending() || deferredProgress() !== null;
     const used = new Set<string>();
     // Insert rows from the end to preserve earlier indices.
     for (let i = asks.length - 1; i >= 0; i--) {
@@ -349,9 +386,25 @@ export function createChatTurnProgress(
   function parkTurnStatus(working: boolean): void {
     const warmup = preparation();
     const deferred = deferredProgress();
-    const pending = !!$('inputQueue').querySelector(
-      '.pending-message, .queued-input',
-    );
+    const pending = hasSelectedAuthoredInputPending() || deferredProgress() !== null;
+    if (!working) {
+      turnStatusLine.remove();
+      turnStatusLine.classList.remove('is-working');
+      delete turnStatusLine.dataset.sessionId;
+      delete turnStatusLine.dataset.selectionGeneration;
+      turnWorking = false;
+      if (pending) {
+        const latestMessage = runtime.detailFor === runtime.selectedId && runtime.selectedId !== null
+          ? [...$('timeline').querySelectorAll<HTMLElement>('.ev-user_message')].at(-1)
+          : undefined;
+        if (latestMessage) latestMessage.after(turnNow);
+        else $('inputQueue').after(turnNow);
+      } else {
+        turnNow.remove();
+      }
+      paintTurnNow();
+      return;
+    }
     if (suppressWarmupWithoutPendingMessage()) {
       turnStatusLine.remove();
       turnNow.remove();
@@ -401,6 +454,8 @@ export function createChatTurnProgress(
   }
 
   function paintTurnStatus(status: ProgressStatus): void {
+    turnStatusLine.dataset.sessionId = runtime.selectedId ?? '';
+    turnStatusLine.dataset.selectionGeneration = String(runtime.selectionGeneration);
     ui(
       turnStatusLine.firstElementChild as HTMLElement,
       'textContent',

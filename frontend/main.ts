@@ -42,6 +42,7 @@ import { initWebProviderActions } from './application/web-provider-actions.js';
 import { initDiagnosticsActions } from './application/diagnostics-actions.js';
 import { initFolderDropActions } from './application/folder-drop-actions.js';
 import { initActivityLogHydration } from './features/activity/activity-log-hydration.js';
+import { initDonationPage } from './features/donation/donation-page.js';
 
 declare global {
   interface Window {
@@ -60,6 +61,7 @@ mountBrandAssets();
 // First: main announces a Keychain read before it starts and may not get through again until it ends.
 initKeychainNotice(api);
 initLanguage();
+initDonationPage();
 initLegalSettings();
 publishStopNoticeTexts(texts => api.setStopNoticeTexts(texts));
 // The tray menu and desktop notices come from the main process, which has no catalogs.

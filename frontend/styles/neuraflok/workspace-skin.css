@@ -79,11 +79,11 @@
   text-align: center;
 }
 .workspace-empty-title {
-  font-size: 22px;
-  font-weight: 560;
-  letter-spacing: -0.03em;
+  font-size: calc(15px * var(--text-scale, 1));
+  font-weight: 550;
+  letter-spacing: -0.015em;
   color: var(--ink);
-  margin-bottom: 18px;
+  margin-bottom: 10px;
 }
 
 .card.is-session:has(#timelineEmpty:not([hidden])) > #composer {
@@ -109,7 +109,7 @@
 .composer textarea {
   background: transparent;
   color: var(--ink);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   padding: 4px 6px;
 }
 

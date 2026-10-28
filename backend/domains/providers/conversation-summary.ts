@@ -27,8 +27,20 @@ function visibleContent(content: unknown): string {
 }
 
 function isApplicationControl(text: string): boolean {
-  const normalized = text.trim();
-  return normalized === 'NEURAFLOK_READY' || normalized === 'NEURAL_JAM_READY' ||
+  const normalized = text.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+  const lines = normalized.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  let acknowledgement = lines.length === 1 ? lines[0]! : '';
+  acknowledgement = acknowledgement.replace(/^(?:>\s*)+/, '').replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, '').trim();
+  const wrappers: Array<[string, string]> = [['**', '**'], ['__', '__'], ['~~', '~~'], ['`', '`'], ['*', '*'], ['_', '_'], ['“', '”'], ['"', '"'], ["'", "'"]];
+  acknowledgement = acknowledgement.replace(/[.!。！?？]+$/, '').trim();
+  for (const [open, close] of wrappers) {
+    if (acknowledgement.startsWith(open) && acknowledgement.endsWith(close) && acknowledgement.length > open.length + close.length) {
+      acknowledgement = acknowledgement.slice(open.length, -close.length).trim();
+      break;
+    }
+  }
+  acknowledgement = acknowledgement.replace(/[.!。！?？]+$/, '').trim();
+  return acknowledgement === 'NEURAFLOK_READY' || acknowledgement === 'NEURAL_JAM_READY' ||
     normalized.includes('Initialize this NEURAFLOK conversation using the instructions below.') ||
     normalized.startsWith('NEURAFLOK_CONTEXT_CHECK') ||
     normalized.startsWith('COMPLETION REVIEW:') ||
@@ -128,8 +140,10 @@ export function textOnlyWebMessages(messages: readonly WebChatMessage[]): WebCha
   const output: WebChatMessage[] = [];
   for (const message of messages) {
     if (message.role === 'system' || message.role === 'tool') continue;
+    const raw = typeof message.content === 'string' ? message.content : '';
+    if (isApplicationControl(raw)) continue;
     if (message.role === 'user') { output.push({ role: 'user', content: message.content ?? '' }); continue; }
-    const content = typeof message.content === 'string' ? stripWebChatTools(message.content).trim() : '';
+    const content = stripWebChatTools(raw).trim();
     if (content) output.push({ role: 'assistant', content });
   }
   return output;

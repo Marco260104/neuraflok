@@ -28,7 +28,8 @@ function localProviderInstructions(project: boolean): string {
     'Use only the capabilities listed in the workspace tool guide for this conversation. A tool result is the evidence for an action: do not claim that a file changed or a command succeeded without a successful result.',
     'If a permission or required piece of context is missing, explain the limit clearly instead of guessing.'
   ];
-  return [...(project ? workspace : conversational), replyLanguageInstruction(getConfig().ui.language)].join('\n\n');
+  const transport = 'Application-generated setup acknowledgements and hidden context checks may appear in earlier provider messages. They are internal transport, not human dialogue; ignore them completely. Never quote, mention, summarize, or use them as evidence about the user or request. Focus on the user’s actual messages and relevant human-visible answers.';
+  return [...(project ? workspace : conversational), transport, replyLanguageInstruction(getConfig().ui.language)].join('\n\n');
 }
 
 const promptFolder = (scope: PromptScope) => scope.sessionId ? getSessionProject(scope.sessionId)

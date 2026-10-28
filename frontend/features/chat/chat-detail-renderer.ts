@@ -3,7 +3,7 @@ import { TURN_OUTCOME_LABELS, type ReasoningEffort, type SessionEvent, type Sess
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { AppState } from '../../../contracts/types.js';
 import type { LocalProject } from '../../../contracts/workspace/projects.js';
-import { optimisticProjectInputEvents, optimisticWarmupEvents, type PendingNewProjectInput } from './chat-warmup-inputs.js';
+import { optimisticProjectInputEvents, optimisticWarmupEvents, withoutInternalWarmupEvents, type PendingNewProjectInput } from './chat-warmup-inputs.js';
 import { foldAgentCommunication, participatingWorkers } from '../agents/agent-communication.js';
 import { $, compactNumber } from '../../shared/dom.js';
 import { currentLanguage, t, ui } from '../../shared/i18n.js';
@@ -88,6 +88,13 @@ export function createChatDetailRenderer(runtime: Runtime) {
     runtime.paintStateLine();
     runtime.paintBackgroundProcesses();
     const summary = sessions.find((session) => session.id === selectedId) ?? null;
+    const terminalEvents = events.flatMap(event =>
+      (event.kind === 'turn_end' && event.outcome !== 'unknown') ||
+      (event.kind === 'assistant_message' && (event.final === true || event.state === 'final')) ||
+      event.kind === 'chat_error' ? [event.time] : []);
+    const completedThrough = summary || terminalEvents.length
+      ? Math.max(summary?.lastTurnEndAt ?? 0, summary?.lastAssistantFinalAt ?? 0, ...terminalEvents)
+      : null;
     runtime.applyComposerSessionModel(selectedId ? `${selectedId}:${runtime.selectionGeneration}` : null,
       runtime.composerSessionSelection(summary) ?? null);
     const config = runtime.state()?.config;
@@ -112,12 +119,13 @@ export function createChatDetailRenderer(runtime: Runtime) {
     $('timeline').removeAttribute('inert');
     $('timeline').removeAttribute('aria-busy');
     $('inputQueue').removeAttribute('inert');
-    const filtered = runtime.visibleEvents();
     const authoredInputs = [...startingInputs.values(), ...pendingComposerInputs];
+    const visibleHistory = withoutInternalWarmupEvents(events, authoredInputs);
+    const filtered = withoutInternalWarmupEvents(runtime.visibleEvents(), authoredInputs);
     const optimistic = [
-      ...optimisticWarmupEvents(events, authoredInputs, selectedId, runtime.selectionGeneration),
+      ...optimisticWarmupEvents(events, authoredInputs, selectedId, runtime.selectionGeneration, completedThrough),
       ...optimisticProjectInputEvents(events, authoredInputs, selectedId, summary?.projectId ?? project?.id ?? null,
-        runtime.selectionGeneration, runtime.pendingNewInput),
+        runtime.selectionGeneration, runtime.pendingNewInput, completedThrough),
     ];
     const shown = foldAgentCommunication([...filtered, ...optimistic]);
     const pane = $('chatBody');
@@ -150,9 +158,9 @@ export function createChatDetailRenderer(runtime: Runtime) {
         timelineRows.push(row);
       }
     };
-    const duplicateErrors = duplicateChatErrors(events);
-    const anchors = answerAnchors(events);
-    const workedSeconds = runtime.exchangeDurations(events);
+    const duplicateErrors = duplicateChatErrors(visibleHistory);
+    const anchors = answerAnchors(visibleHistory);
+    const workedSeconds = runtime.exchangeDurations(visibleHistory);
     const workers = sessions.filter(entry => entry.origin?.kind === 'worker' && entry.origin.fromSessionId === selectedId && selectedId !== null);
     for (const item of runtime.timelineItems(shown)) {
       if (item.kind === 'event' && duplicateErrors.has(item.event.seq)) continue;
@@ -161,13 +169,13 @@ export function createChatDetailRenderer(runtime: Runtime) {
           item.event.kind === 'progress' && item.event.progressId?.startsWith('browser-repair:')) continue;
       if (!runtime.state()?.config.ui.developerMode && item.kind === 'event' &&
           ['session_start', 'session_end', 'turn_start', 'turn_end', 'note'].includes(item.event.kind) &&
-          !runtime.stoppedTurnEnd(item.event, events)) continue;
+          !runtime.stoppedTurnEnd(item.event, visibleHistory)) continue;
       const key = runtime.itemKey(item);
       const answerTurn = item.kind === 'event' && item.event.kind === 'assistant_message' && item.event.turnId &&
         anchors.get(item.event.turnId) === item.event.seq ? item.event.turnId : null;
       const sig = runtime.itemSignature(item) + (item.kind === 'event' && item.event.kind === 'chat_error'
-        ? JSON.stringify(chatErrorPresentation(item.event, events)) : '') + (answerTurn ? '\u0000answer' : '') +
-        (item.kind === 'event' && runtime.stoppedTurnEnd(item.event, events) ? '\u0000stopped' : '');
+        ? JSON.stringify(chatErrorPresentation(item.event, visibleHistory)) : '') + (answerTurn ? '\u0000answer' : '') +
+        (item.kind === 'event' && runtime.stoppedTurnEnd(item.event, visibleHistory) ? '\u0000stopped' : '');
       keep.add(key);
       const cached = rowCache.get(key);
       const workerIds = JSON.stringify(item.kind === 'event' ? participatingWorkers(item.event, workers).map(worker => worker.id) : []);

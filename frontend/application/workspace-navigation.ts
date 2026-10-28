@@ -27,12 +27,13 @@ export function initWorkspaceNavigation(dependencies: WorkspaceNavigationDepende
     if (name === 'skills') dependencies.openSkillsLibrary();
     placePermissions(name);
     const library = name === 'skills';
-    const settings = name !== 'chat' && !library;
+    const donation = name === 'donation';
+    const settings = name !== 'chat' && !library && !donation;
     if (settings && document.querySelector<HTMLElement>('.app')!.dataset.screen !== 'settings') void dependencies.refreshUpdate();
     document.querySelector<HTMLElement>('.app')!.dataset.screen = library ? 'library' : settings ? 'settings' : 'chat';
     const pageTitles: Record<string, string> = {
       chat: 'Workspace', setup: 'Connections', skills: 'Skills', activity: 'Activity',
-      home: 'Settings', general: 'Settings', usage: 'Usage', settings: 'Agent settings',
+      home: 'Settings', general: 'Settings', usage: 'Usage', settings: 'Agent settings', donation: 'Support the project',
       appearance: 'Appearance'
     };
     const pageTitle = pageTitles[name] ?? 'Workspace';
@@ -80,6 +81,7 @@ export function initWorkspaceNavigation(dependencies: WorkspaceNavigationDepende
   }, { capture: true });
   $('newChat').addEventListener('click', () => showTab('chat'));
   $('sidebarSkills').addEventListener('click', () => showTab('skills'));
+  $('supportProject').addEventListener('click', () => showTab('donation'));
   $('addProject').addEventListener('click', () => showTab('chat'));
   $('composerFolder').addEventListener('click', () => $('addProject').click());
   $('tabs').addEventListener('click', event => {

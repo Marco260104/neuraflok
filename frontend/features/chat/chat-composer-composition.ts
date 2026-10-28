@@ -8,7 +8,7 @@ import { createChatSessionControls } from './chat-session-controls.js';
 import { createChatDraftState } from './chat-draft-state.js';
 import { createChatDeliveryControls } from './chat-delivery-controls.js';
 import { createWebChatWarmup } from './chat-web-warmup.js';
-import { composerWarmupKey, composerWarmupState } from './chat-composer-ready.js';
+import { blocksStopForWarmup, composerWarmupKey, composerWarmupState } from './chat-composer-ready.js';
 import { localizedGoalError, type GoalDraftPresentation, type GoalProgressView } from './chat-goal-progress.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
 import type { RecoveryCountdown } from '../../../contracts/recovery.js';
@@ -207,8 +207,8 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     preparingChatInternally: () => {
       const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
       // A restored queue row is not evidence of a turn started by this view.
-      // Keep a stale provider Stop hidden throughout the history handshake.
-      return warmup?.phase === 'opening';
+      // Release a failed preparation gate only after fresh, public provider activity.
+      return blocksStopForWarmup(warmup, bindings.events, bindings.controlledTurnId, bindings.selectionGeneration);
     },
     projectScopedSelection: () => {
       const session = bindings.sessions.find(row => row.id === bindings.selectedId);

@@ -104,7 +104,7 @@
       const thinkNorm = normalized(think);
       // After bootstrap, the chat title and first ACK bubble stay NEURAFLOK_READY.
       // That is not a new answer, and posting it ends the turn before tools finish.
-      if (isAck(answer) && normalized(before)) return '';
+      if (isAck(answer) && normalized(before) && !identityProvesNewAnswer(beforeIdentity, currentIdentity)) return '';
       if (looksLikeThink(answer) && !hasToolCall(answer)) return '';
       if (thinkNorm && (answerNorm === thinkNorm || (answerNorm.includes(thinkNorm) && answerNorm.length <= thinkNorm.length + 40))) return '';
       const sameAsPrevious = normalized(answer) === normalized(before);
@@ -192,15 +192,18 @@
       }
       const hadConversation = hasConversation();
       const previousPageIdentity = pageIdentity();
-      const needsNewPage = options.openNewPageOnFresh || hadConversation || Boolean(bound && bound !== message.conversationId);
-      const control = valueFrom(() => api.newChat(), null);
+      // A blank provider page already is fresh. If the background shortcut
+      // could not verify a clean route, use only the provider adapter's exact
+      // New chat control and wait for navigation before sending setup text.
+      const needsNewPage = hadConversation && message.freshPagePrepared !== true;
+      const control = needsNewPage ? valueFrom(() => api.newChat(), null) : null;
       if (needsNewPage && !control && hadConversation) {
         return `Could not find the ${provider.toUpperCase()} new-chat control. Open a blank chat, then retry.`;
       }
       if (needsNewPage && !control && bound && bound !== message.conversationId) {
         return `Could not find the ${provider.toUpperCase()} new-chat control. Open a blank chat, then retry.`;
       }
-      if (control && (options.openNewPageOnFresh || needsNewPage)) {
+      if (needsNewPage && control) {
         try {
           control.click();
         } catch {
@@ -236,9 +239,11 @@
       }
 
       const bound = stored(keys.session);
+      let freshPagePrepared = message.freshPagePrepared === true;
       if (message.fresh === true) {
         const error = await beginFreshConversation(message, bound);
         if (error) return { error };
+        freshPagePrepared = true;
       } else if (bound !== message.conversationId) {
         if (!options.bindUnclaimed && bound !== null) return { error: sessionError(message.conversationId) };
         if (!options.bindUnclaimed) return { error: sessionError(message.conversationId) };
@@ -305,8 +310,8 @@
         return { error: `${provider.toUpperCase()} send could not be dispatched. Check this conversation before retrying.` };
       }
       const publicNow = () => publicAnswer(sent, before, beforeIdentity, lastAnswerIdentity());
-      const ackRepeat = (text) => isAck(text) && isAck(before);
-      const staleAck = (text) => isAck(text) && Boolean(normalized(before));
+      const ackRepeat = (text) => isAck(text) && isAck(before) && !identityProvesNewAnswer(beforeIdentity, lastAnswerIdentity());
+      const staleAck = (text) => isAck(text) && Boolean(normalized(before)) && !identityProvesNewAnswer(beforeIdentity, lastAnswerIdentity());
       const continueAvailable = () => typeof api.continueButton === 'function' && Boolean(valueFrom(() => api.continueButton(), null));
       await until(() => generating() || publicNow() || thinkText(sent, before, beforeThink) || continueAvailable(), options.startMs);
       const finished = await until(() => {
@@ -319,11 +324,14 @@
       await wait(400);
       const text = publicNow();
       const answerIdentity = lastAnswerIdentity();
-      if (finished === 'finished' && text && !ackRepeat(text) && !staleAck(text)) return { text, before, beforeThink, beforeIdentity, answerIdentity };
+      if (finished === 'finished' && text && !ackRepeat(text) && !staleAck(text)) {
+        return { text, before, beforeThink, beforeIdentity, answerIdentity, ...(freshPagePrepared ? { freshPagePrepared: true } : {}) };
+      }
       return {
         pending: true,
         text: text || thinkText(sent, before, beforeThink),
         before, beforeThink, beforeIdentity, answerIdentity,
+        ...(freshPagePrepared ? { freshPagePrepared: true } : {}),
         generating: generating(),
         ...(continueAvailable() ? { continueAvailable: true } : {})
       };

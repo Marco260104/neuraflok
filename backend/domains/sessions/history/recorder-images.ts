@@ -13,7 +13,7 @@ export async function storeImage(sessionId: string, base64: string, mimeType: st
 export async function recordNativeImage(
   sessionId: string,
   item: ChatObservation,
-  base: { time: number; source: 'extension'; turnId?: string; agent?: string }
+  base: { time: number; source: 'extension'; turnId?: string; internalWarmup?: true; agent?: string }
 ): Promise<number> {
   if (!item.messageId || !item.providerAssetId || !item.providerRole) return 0;
   const metadata = await upsertNativeImageEvent(sessionId, {

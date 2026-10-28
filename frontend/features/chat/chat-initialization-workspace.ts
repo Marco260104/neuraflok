@@ -91,7 +91,6 @@ export function initializeChatWorkspace(bindings: ChatInitializationBindings): v
     },
     hasComposerImages: () => !!imageDrafts.get(bindings.draftKey())?.length,
     sendComposer: bindings.sendComposer,
-    toggleProjectPlanMode: () => bindings.chatTaskControls?.toggleProjectPlanMode(),
     paintDeliveryControls: bindings.paintDeliveryControls,
     refreshSessionControls: bindings.refreshSessionControls,
     selectNewChat: bindings.selectNewChat,
