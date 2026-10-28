@@ -729,6 +729,43 @@ it('keeps stale Stop hidden when an old project has no recent activity for that 
   expect(send.classList.contains('is-stop')).toBe(false);
 });
 
+it('does not show Stop for late provider activity when reopening a project without a new user question', async () => {
+  const turnId = 'old-project-late-provider-activity';
+  const askedAt = Date.now() - 20_000;
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'older-project-question', message: text('Earlier project question') }
+  ];
+  const project: LocalProject = { id: '45454545-4545-4545-8545-454545454545', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat-late-activity', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-chat-late-activity', chatIds: ['ds-old-project-chat-late-activity'], activeTurnId: turnId,
+    lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null, lastToolCallAt: null };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = [...history, {
+    seq: 2, time: Date.now(), source: 'mcp', kind: 'page_tool', messageId: 'restored-provider-progress', turnId,
+    label: 'Preparing project context'
+  }];
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
 it('does not flash Stop when an old project reply is final by message state only', async () => {
   const turnId = 'legacy-final-state-project-turn';
   const history: SessionEvent[] = [

@@ -92,6 +92,12 @@ export function hasRecentTurnActivity(
   // so also recognize the exact internal handshake text while it settles.
   if (latestQuestion?.kind === 'user_message' && internalWarmupText &&
       latestQuestion.message.text.trim() === internalWarmupText) return false;
+  // Reopening an old chat can replay a provider activity event after the
+  // selection timestamp even though it still belongs to the previous user
+  // question. Only let that activity expose Stop after this selection has a
+  // new question of its own.
+  if (selectedAt !== null && latestUserAt !== Number.NEGATIVE_INFINITY && latestUserAt < selectedAt)
+    return false;
   const recent = (event: SessionEvent): boolean => now - event.time >= -1_000 &&
     now - event.time < RECENT_TURN_ACTIVITY_MS;
   const actualActivity = events.some(event => {

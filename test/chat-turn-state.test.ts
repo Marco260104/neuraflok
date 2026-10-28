@@ -28,6 +28,13 @@ it('does not show Stop for recent activity from before opening a chat', () => {
   )).toBe(false);
 });
 
+it('does not show Stop when a restored old chat reports late activity without a new question', () => {
+  const question = { ...event('user_message', selectedAt - 2_000), message: { text: 'Earlier question', truncated: false } } as SessionEvent;
+  expect(hasRecentTurnActivity(
+    [question, event('tool_call', selectedAt + 1)], 'turn-1', selectedAt, now,
+  )).toBe(false);
+});
+
 it('does not reuse recent activity that belongs to a question before the latest one', () => {
   const firstQuestion = { ...event('user_message', selectedAt - 2_000), message: { text: 'Earlier question', truncated: false } } as SessionEvent;
   const latestQuestion = { ...event('user_message', selectedAt + 100), message: { text: 'Latest question', truncated: false } } as SessionEvent;
