@@ -548,6 +548,35 @@ it('keeps stale Stop hidden until an old chat history is loaded and confirms liv
   expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(true);
 });
 
+it('keeps Stop hidden when reopening an old chat restores only a recent turn start', async () => {
+  const turnId = 'replayed-old-turn-start';
+  const history: SessionEvent[] = [
+    { seq: 1, time: Date.now() - 1_000, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: Date.now() - 500, source: 'extension', kind: 'turn_start', turnId }
+  ];
+  const oldChat: SessionSummary = { ...summary(history), id: 'reopened-chat-with-stale-start', title: 'Old chat',
+    conversationId: 'ds-reopened-chat-with-stale-start', chatIds: ['ds-reopened-chat-with-stale-start'],
+    lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null,
+    activityExpiresAt: Date.now() + 60_000 };
+  const otherChat: SessionSummary = { ...summary([]), id: 'chat-open-before-reselect', title: 'Another chat',
+    conversationId: 'ds-chat-open-before-reselect', chatIds: ['ds-chat-open-before-reselect'] };
+  const { w } = await boot(history, false, [], [], { sessions: [oldChat, otherChat] });
+  const api = (w as any).api;
+  api.getSessionControls = (id: string) => Promise.resolve({ ok: true, data: {
+    sessionId: id, conversationId: id === oldChat.id ? oldChat.conversationId : otherChat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null
+  } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${otherChat.id}"] [data-session-select]`)!.click();
+  await settle();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${oldChat.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
 it('does not show Stop after opening a completed old project chat while provider controls lag behind', async () => {
   const turnId = 'completed-project-turn-with-lagging-controls';
   const history: SessionEvent[] = [

@@ -384,7 +384,7 @@ it('keeps actual-turn Stop through two authored sends and stops only the capture
   expect(input.value).toBe('');
 });
 
-it('does not retarget an awaiting Stop after leaving and reselecting the same chat', async () => {
+it('keeps a reselected chat on Send when a stale controls read resolves', async () => {
   const { w } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
   const api = (w as any).api;
   const baseControls = api.getSessionControls;
@@ -404,7 +404,8 @@ it('does not retarget an awaiting Stop after leaving and reselecting the same ch
     plan: { updatedAt: 1, plan: [{ step: 'Stale plan', status: 'pending' }] } } });
   await settle();
   expect(stop).not.toHaveBeenCalled();
-  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('stop');
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
   expect(w.document.getElementById('agentPlan')!.textContent).toContain('Current plan');
   expect(w.document.getElementById('agentPlan')!.textContent).not.toContain('Stale plan');
 });

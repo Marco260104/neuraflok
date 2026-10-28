@@ -3,6 +3,7 @@ import type { SessionSummary } from '../../../contracts/session.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 import { ensureSelectedChatWarmup } from './chat-composer-ready.js';
+import { recordChatSelection } from './chat-turn-state.js';
 
 interface Runtime {
   get sessions(): SessionSummary[];
@@ -45,6 +46,7 @@ interface Runtime {
 
 export function createChatNavigation(runtime: Runtime) {
   let timelineScrollTop: number | null = null;
+  let hasVisitedExistingSession = runtime.selectedId !== null;
 
   function showView(name: string): void {
     const pane = $('chatBody');
@@ -79,6 +81,8 @@ export function createChatNavigation(runtime: Runtime) {
     runtime.resetComposerQueue();
     runtime.newChatSelected = false;
     runtime.selectedId = id;
+    recordChatSelection(hasVisitedExistingSession ? id : null, runtime.selectionGeneration);
+    hasVisitedExistingSession = true;
     showView('timeline');
     runtime.refreshBackgroundProcesses();
     const selected = runtime.sessions.find(row => row.id === id);
@@ -118,6 +122,8 @@ export function createChatNavigation(runtime: Runtime) {
     runtime.resetComposerQueue();
     runtime.newChatSelected = true;
     runtime.selectedId = null;
+    recordChatSelection(null, runtime.selectionGeneration);
+    hasVisitedExistingSession = true;
     runtime.selectedProjectId = projectId;
     runtime.paintAutomationSwitch();
     runtime.resetNewChatTimeline();

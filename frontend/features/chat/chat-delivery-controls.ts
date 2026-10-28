@@ -6,13 +6,7 @@ import type { createChatTaskPlan } from './chat-task-plan.js';
 import type { SessionEvent, SessionSummary } from '../../../contracts/session.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
-import { transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
-
-// A restored activeTurnId is not by itself proof of current work. Only recent
-// activity attributed to that exact turn can make Stop visible after history
-// restoration; waiting for a stale controls snapshot to persist does not
-// confirm that the provider is still working.
-const RECENT_TURN_ACTIVITY_MS = 10_000;
+import { chatSelectionStartedAt, hasRecentTurnActivity, transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
 
 export interface ChatDeliveryControlsRuntime {
   selectedId: string | null;
@@ -44,12 +38,11 @@ export interface ChatDeliveryControlsRuntime {
 
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
   function confirmedWorkingTurn(): boolean {
-    const turnId = runtime.controlledTurnId;
-    if (!turnId) return false;
-
-    return runtime.events.some(event => event.turnId === turnId &&
-      ['turn_start', 'assistant_message', 'tool_call', 'page_tool', 'progress'].includes(event.kind) &&
-      Date.now() - event.time < RECENT_TURN_ACTIVITY_MS);
+    return hasRecentTurnActivity(
+      runtime.events,
+      runtime.controlledTurnId,
+      chatSelectionStartedAt(runtime.selectedId, runtime.selectionGeneration),
+    );
   }
 
   function paintDeliveryControls(): void {

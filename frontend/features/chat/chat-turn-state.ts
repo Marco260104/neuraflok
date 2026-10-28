@@ -1,5 +1,20 @@
 import type { SessionEvent, SessionSummary } from '../../../contracts/session.js';
 
+const RECENT_TURN_ACTIVITY_MS = 10_000;
+let currentChatSelection: { sessionId: string | null; generation: number; at: number } | null = null;
+
+/** Records the instant navigation committed to a selection, before its history read begins. */
+export function recordChatSelection(sessionId: string | null, generation: number, at = Date.now()): void {
+  currentChatSelection = { sessionId, generation, at };
+}
+
+/** Returns null for the app's initial selection, where no navigation race exists. */
+export function chatSelectionStartedAt(sessionId: string | null, generation: number): number | null {
+  return currentChatSelection?.sessionId === sessionId && currentChatSelection.generation === generation
+    ? currentChatSelection.at
+    : null;
+}
+
 function isFinalAssistantMessage(event: SessionEvent): boolean {
   return event.kind === 'assistant_message' && (event.final === true || event.state === 'final');
 }
@@ -49,4 +64,30 @@ export function transcriptShowsClosedLatestTurn(events: readonly SessionEvent[])
     else if (event.kind === 'turn_end' && event.outcome !== 'unknown') latestTurnEnd = index;
   }
   return latestUser >= 0 && latestTurnEnd > latestUser;
+}
+
+/** A restored activeTurnId may replay a recent start without any provider work. */
+export function hasRecentTurnActivity(
+  events: readonly SessionEvent[],
+  turnId: string | null | undefined,
+  selectedAt: number | null,
+  now = Date.now(),
+): boolean {
+  if (!turnId) return false;
+  const recent = (event: SessionEvent): boolean => now - event.time >= -1_000 &&
+    now - event.time < RECENT_TURN_ACTIVITY_MS;
+  const actualActivity = events.some(event => {
+    if (event.turnId !== turnId || !recent(event)) return false;
+    if (event.kind === 'assistant_message') return event.final !== true && event.state !== 'final';
+    return ['tool_call', 'page_tool', 'progress'].includes(event.kind);
+  });
+  if (actualActivity) return true;
+
+  // A current turn can start immediately after the user submits a new message.
+  // On chat restoration, however, a recent/replayed turn_start without fresh
+  // output is not evidence that the provider is still working.
+  const started = events.some(event => event.kind === 'turn_start' && event.turnId === turnId && recent(event) &&
+    (selectedAt === null || (event.time >= selectedAt && events.some(question =>
+      question.kind === 'user_message' && question.time >= selectedAt && recent(question)))));
+  return started;
 }
