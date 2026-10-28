@@ -296,6 +296,22 @@ function dsmlToolOpens(source: string): number {
   return count;
 }
 
+/** Consume unsupported provider-internal tool markup without treating it as an app tool. */
+function genericToolCallBlocks(source: string): Array<{ start: number; end: number }> {
+  const out: Array<{ start: number; end: number }> = [];
+  const open = /<tool_call\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(source))) {
+    const close = /<\/tool_call\s*>/gi;
+    close.lastIndex = open.lastIndex;
+    const closing = close.exec(source);
+    const end = closing ? close.lastIndex : source.length;
+    out.push({ start: match.index, end });
+    open.lastIndex = end;
+  }
+  return out;
+}
+
 function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder: string } {
   const source = text ?? '';
   const calls: WebChatToolCall[] = [];
@@ -306,6 +322,11 @@ function consumeToolRegions(text: string): { calls: WebChatToolCall[]; remainder
     if (!acceptToolJson(body, calls, seen)) return;
     consumed.push([start, end]);
   };
+  // Provider markup can expose runtime internals such as write_stdin session ids.
+  // It is not NeuraFlok syntax: hide it from progress/history and never execute it.
+  for (const block of genericToolCallBlocks(source)) {
+    if (!overlaps(consumed, block.start, block.end)) consumed.push([block.start, block.end]);
+  }
   for (const block of neuraflokToolBlocks(source)) {
     if (block.body) take(block.start, block.end, block.body);
     else if (!overlaps(consumed, block.start, block.end)) consumed.push([block.start, block.end]);
@@ -373,6 +394,8 @@ export function incompleteWebChatTool(text: string): boolean {
   while (banner.exec(source)) opens++;
   const brandedXml = /<neuraflok-tool\b[^>]*>/gi;
   while (brandedXml.exec(source)) opens++;
+  const generic = /<tool_call\b[^>]*>/gi;
+  while (generic.exec(source)) opens++;
   opens += xmlToolOpens(source);
   opens += dsmlToolOpens(source);
   if (!opens) return false;

@@ -61,7 +61,9 @@ export function replayWebProviderTranscript(
       const original = typeof row.content === 'string' ? row.content : '';
       const parsed = row.role === 'assistant' ? parseWebChatTools(original) : [];
       const calls = row.tool_calls?.length ? row.tool_calls : parsed;
-      const content = parsed.length ? stripWebChatTools(original) : original;
+      // Always sanitize assistant history before replay. Unsupported provider/runtime
+      // markup must never be reinjected as if it were user-facing conversation text.
+      const content = row.role === 'assistant' ? stripWebChatTools(original) : original;
       const resultIds = new Set<string>();
       for (const next of rows.slice(index + 1)) {
         if (next.role === 'assistant' || next.role === 'user') break;

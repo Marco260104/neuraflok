@@ -25,6 +25,7 @@ import {
 import { logInfo, logWarn } from '../../infrastructure/settings/logger.js';
 import { getConfig } from '../../infrastructure/settings/config.js';
 import { recoveryMessage } from '../../../contracts/recovery.js';
+import type { UiLanguage } from '../../../contracts/ui-language.js';
 import {
   persistWebProviderThread,
   replayWebProviderTranscript,
@@ -77,6 +78,25 @@ let webChatReadinessMaxDurationMs = DEFAULT_WEB_CHAT_READINESS_MAX_DURATION_MS;
 const DEEPSEEK_CONTEXT_UNAVAILABLE = 'DEEPSEEK_CONTEXT_UNAVAILABLE:';
 const VERIFIED_DEEPSEEK_CONTEXT_TTL_MS = 2 * 60_000;
 const verifiedDeepseekContexts = new Map<string, { conversationId: string; verifiedAt: number }>();
+
+function emptyAssistantReply(language: UiLanguage | undefined): string {
+  const replies: Record<UiLanguage, string> = {
+    en: 'The provider did not return a response. Please try again.',
+    de: 'Der Anbieter hat keine Antwort zurückgegeben. Bitte versuche es erneut.',
+    es: 'El proveedor no devolvió una respuesta. Inténtalo de nuevo.',
+    fr: 'Le fournisseur n’a pas renvoyé de réponse. Réessayez.',
+    'pt-BR': 'O provedor não retornou uma resposta. Tente novamente.',
+    'pt-PT': 'O fornecedor não devolveu uma resposta. Tente novamente.',
+    ru: 'Провайдер не вернул ответ. Попробуйте ещё раз.',
+    tr: 'Sağlayıcı yanıt vermedi. Lütfen tekrar deneyin.',
+    vi: 'Nhà cung cấp không trả về câu trả lời. Vui lòng thử lại.',
+    ja: 'プロバイダーから応答がありませんでした。もう一度お試しください。',
+    ko: '제공업체가 응답을 반환하지 않았습니다. 다시 시도해 주세요.',
+    'zh-CN': '提供商没有返回回复，请重试。',
+    'zh-TW': '供應商未傳回回覆，請再試一次。'
+  };
+  return replies[language ?? 'en'];
+}
 
 interface Flight {
   turnId: string;
@@ -174,6 +194,13 @@ async function latestAuthoredRequest(sessionId: string, excludeInputId?: string)
 function validBootstrapReply(text: string): boolean {
   return (text.trim() === WEB_BOOTSTRAP_ACK || text.trim() === LEGACY_WEB_BOOTSTRAP_ACK) &&
     parseWebChatTools(text).length === 0 && !incompleteWebChatTool(text);
+}
+
+function confirmsContextReply(text: string, expectedWords: readonly string[]): boolean {
+  // Remove unsupported provider-internal markup before reading the proof. Supported
+  // NeuraFlok calls still invalidate readiness and are never executed here.
+  return parseWebChatTools(text).length === 0 &&
+    confirmsWebProviderContext(stripWebChatTools(text), expectedWords);
 }
 
 function boundedText(text: string, limit: number): string {
@@ -362,8 +389,7 @@ async function acknowledgeWarmup(
   } catch (error) {
     if (provider !== 'deepseek' || !isDeepseekContextUnavailable(error)) throw error;
   }
-  const confirmed = !!reply && confirmsWebProviderContext(reply.text, check.expectedWords) &&
-    parseWebChatTools(reply.text).length === 0 && !incompleteWebChatTool(reply.text);
+  const confirmed = !!reply && confirmsContextReply(reply.text, check.expectedWords);
   if (!confirmed) {
     if (provider !== 'deepseek') throw new Error(`${WEB_PROVIDERS[provider].label} did not confirm this chat's previous context. No message was sent.`);
     const replay = replayWebProviderTranscript(priorMessages, check.prompt, 96_000);
@@ -375,8 +401,17 @@ async function acknowledgeWarmup(
       throw new Error('DeepSeek did not confirm the restored project context. No message was sent.');
     }
     reply = await requestReadinessComplete(provider, conversationId, replay, signal, deadline);
-    if (!confirmsWebProviderContext(reply.text, check.expectedWords) ||
-        parseWebChatTools(reply.text).length || incompleteWebChatTool(reply.text)) {
+    if (!confirmsContextReply(reply.text, check.expectedWords)) {
+      // A restored transcript can contain stale provider-specific tool syntax.
+      // Give DeepSeek one clean handshake retry before leaving the user's turn queued.
+      const retryPrompt = [
+        check.prompt,
+        'RECOVERY HANDSHAKE RETRY: The previous reply did not complete this hidden check.',
+        `Do not answer prior tasks or call tools. Reply with exactly ${WEB_BOOTSTRAP_ACK} on the first line and, if asked above, copy the requested words from the restored transcript on the second line.`
+      ].join('\n');
+      reply = await requestReadinessComplete(provider, conversationId, retryPrompt, signal, deadline);
+    }
+    if (!confirmsContextReply(reply.text, check.expectedWords)) {
       throw new Error('DeepSeek could not confirm the restored conversation history. No message was sent.');
     }
   }
@@ -611,7 +646,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
             pageText = 'Answer the user\'s current message directly in natural text. This is a normal chat with no file or command tools. Do not emit tool syntax.';
             continue;
           }
-          assistantText = assistantContent || 'I could not produce a plain-text response. Please send the question again.';
+          assistantText = assistantContent || emptyAssistantReply(guideCtx.language);
           break;
         }
         if (projectPlanReadOnly && calls.some(call => !(WEB_CHAT_READ_ONLY_TOOLS as readonly string[]).includes(call.function.name))) {
@@ -630,7 +665,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         }
         thread.messages = trimWebProviderThread([...thread.messages, calls.length
           ? { role: 'assistant', ...(assistantContent ? { content: assistantContent } : {}), tool_calls: calls }
-          : { role: 'assistant', content: raw }]);
+          : { role: 'assistant', content: assistantContent }]);
         await persistWebProviderThread(thread, provider);
         if (!calls.length) {
           if (incompleteWebChatTool(raw) && incompleteTries < MAX_INCOMPLETE_TOOL) {
@@ -680,8 +715,9 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         }
         pageText = webProviderRoundFollowup(entry, results, reminder, round === MAX_TOOL_ROUNDS - 1);
       }
-      if (!assistantText) assistantText = '(no assistant text)';
-      const usablePlanReply = assistantText !== '(no assistant text)' && !/could not prepare a safe read-only plan/i.test(assistantText);
+      if (!assistantText) assistantText = emptyAssistantReply(guideCtx.language);
+      const usablePlanReply = assistantText !== emptyAssistantReply(guideCtx.language) &&
+        !/could not prepare a safe read-only plan/i.test(assistantText);
       if (projectChat && usablePlanReply) {
         if (planStage === 'draft') {
           await updateProjectPlanState(sessionId, ownedConversation, { request: entry.text, plan: assistantText }, now());

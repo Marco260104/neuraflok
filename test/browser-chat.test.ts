@@ -337,6 +337,10 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
     function: { name: 'read', arguments: '{"paths":["/workspace/a.txt"]}' }
   }]);
   expect(stripWebChatTools(wrappedRead)).toBe('');
+  const providerInternalCall = 'Working.\n<tool_call> {"name":"write_stdin","arguments":{"session_id":5164,"chars":""}} </tool_call>';
+  expect(parseWebChatTools(providerInternalCall)).toEqual([]);
+  expect(stripWebChatTools(providerInternalCall)).toBe('Working.');
+  expect(incompleteWebChatTool(providerInternalCall)).toBe(true);
   expect(incompleteWebChatTool('<neuraflok-tool>{"name":"read","arguments":')).toBe(true);
   expect(parseWebChatTools('<exec_command>\n{"cmd":"rg --files","workdir":"/commander"}\n</exec_command>')).toEqual([{
     id: 'call_1',
@@ -401,12 +405,15 @@ it('replays useful DeepSeek history without duplicating the current request or r
     { role: 'assistant', content: 'The command parser has the most complex flow.' },
     { role: 'user', content: repeatedRequest },
     { role: 'assistant', content: dsmlPatch },
+    { role: 'assistant', content: '<tool_call> {"name":"write_stdin","arguments":{"session_id":5164,"chars":""}} </tool_call>' },
     { role: 'user', content: repeatedRequest }
   ], 'The prepared task and project context.', 96_000, repeatedRequest);
 
   expect(replay).not.toBeNull();
   expect(replay).toContain('The command parser has the most complex flow.');
   expect(replay).toContain('UNEXECUTED TOOL CALL REQUESTS: apply_patch');
+  expect(replay).not.toContain('<tool_call>');
+  expect(replay).not.toContain('session_id');
   expect(replay).not.toContain('hello.txt');
   expect(replay).not.toContain(repeatedRequest);
   expect(replay).toContain('CURRENT REQUEST:\nThe prepared task and project context.');
@@ -1187,6 +1194,7 @@ it('keeps DeepSeek context preparation alive while the provider reports generati
 it('restores an old DeepSeek transcript before it lets the chat pass readiness', async () => {
   const pages: Array<{ text: string; fresh: boolean }> = [];
   let loseContext = false;
+  let replayedContext = false;
   const previousRequest = 'Yesterday we fixed the broken branch names for NF-15.';
   configurePageForTests({ complete: async (text, _signal, options) => {
     pages.push({ text, fresh: options?.fresh === true });
@@ -1195,7 +1203,11 @@ it('restores an old DeepSeek transcript before it lets the chat pass readiness',
       loseContext = false;
       throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: saved DeepSeek page is unavailable');
     }
-    if (text.startsWith('The original provider page'))
+    if (text.startsWith('The original provider page')) {
+      replayedContext = true;
+      return { text: '<tool_call> {"name":"write_stdin","arguments":{"session_id":5164,"chars":""}} </tool_call>' };
+    }
+    if (replayedContext && text.includes('RECOVERY HANDSHAKE RETRY'))
       return { text: `NEURAFLOK_READY\n${previousRequest}` };
     return { text: 'The branches are ready.' };
   } });
@@ -1211,14 +1223,19 @@ it('restores an old DeepSeek transcript before it lets the chat pass readiness',
   });
   await runDeepseekProjectInput(warmup);
 
-  expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false]);
+  expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false, false]);
   expect(pages[3]!.text).toContain('Available tools');
   expect(pages[4]!.text).toContain(previousRequest);
   expect(pages[4]!.text).toContain('NEURAFLOK_CONTEXT_CHECK');
+  expect(pages[5]!.text).toContain('RECOVERY HANDSHAKE RETRY');
   await flushRecorder();
   const events = await readEvents(first.id);
   expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
     event.message.text === 'NEURAFLOK_READY')).toBe(true);
+  expect(events.some(event => event.kind === 'chat_error' && event.inputId === warmup.id)).toBe(false);
+  expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
+    event.message.text.includes('session_id'))).toBe(false);
+  expect(events.some(event => event.kind === 'tool_call' && event.call.tool === 'write_stdin')).toBe(false);
 });
 
 it('does not execute tool examples or send the user task when setup is not acknowledged', async () => {

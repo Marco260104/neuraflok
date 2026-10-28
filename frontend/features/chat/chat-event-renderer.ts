@@ -2,6 +2,7 @@ import { MAX_INPUT_IMAGES, type InputAttachment, type InputImage } from '../../.
 import { TURN_OUTCOME_LABELS, type SessionEvent, type SessionSummary } from '../../../contracts/session.js';
 import { WEB_PROVIDERS, providerForConversationId } from '../../../contracts/web-providers.js';
 import { messageReaction } from '../../../contracts/chat/reaction-content.js';
+import { stripWebChatTools } from '../../../contracts/chat-protocol.js';
 import { userPromptText } from '../../../contracts/messaging/provider-message-envelope.js';
 import { $, compactNumber, el, icon, run, setIcon, toast } from '../../shared/dom.js';
 import { ui, t } from '../../shared/i18n.js';
@@ -149,7 +150,9 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
         const box = el('div', 'said');
         const providerLabel = providerLabelForSession(context?.id ?? runtime.selectedId);
         box.append(el('b', '', () => event.final ? providerLabel : t('{0} · partial response', [providerLabel])));
-        box.append(renderedMarkdown(event.message.text));
+        const visibleText = stripWebChatTools(event.message.text);
+        if (visibleText.trim()) box.append(renderedMarkdown(visibleText));
+        else box.hidden = true;
         return box;
       }
       case 'native_image': {

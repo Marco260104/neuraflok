@@ -2,6 +2,7 @@ import type { SessionEvent } from '../../../contracts/session.js';
 import { currentLanguage, ui, t } from '../../shared/i18n.js';
 import { clockTime, disclosureChevron, el, icon } from '../../shared/dom.js';
 import { withoutMessageReaction } from '../../../contracts/chat/reaction-content.js';
+import { stripWebChatTools } from '../../../contracts/chat-protocol.js';
 import { structureTimeline, type RoundPart } from './timeline-rounds.js';
 import { createTimelineCompaction, type TimelineItem } from './timeline-compaction.js';
 import type { InputImage } from '../../../contracts/input.js';
@@ -75,7 +76,8 @@ export function createTimelinePresentation(runtime: TimelinePresentationRuntime)
     const row = el('div', `ev ev-${event.kind}`);
     // App-authored recovery note, not a provider progress caption.
     if (event.kind === 'progress' && event.source === 'app') row.dataset.appNote = '';
-    if (event.kind === 'assistant_message' && !withoutMessageReaction(event.message.text).trim()) row.hidden = true;
+    if (event.kind === 'assistant_message' &&
+        !stripWebChatTools(withoutMessageReaction(event.message.text)).trim()) row.hidden = true;
     tagImageRow(row, event);
     const time = document.createElement('time');
     time.textContent = clockTime(event.time);

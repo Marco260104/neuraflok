@@ -563,3 +563,20 @@ it('anchors the worked line to your message when the page reports an empty turn 
   expect(lines[0]!.previousElementSibling?.matches('.ev-user_message')).toBe(true);
   expect(lines[0]!.nextElementSibling?.textContent).toContain('quinto arquivo');
 });
+
+it('hides provider-internal tool markup in already saved assistant messages', async () => {
+  const { w, append } = await boot([
+    { kind: 'assistant_message', seq: 1, time: T0, source: 'extension', messageId: 'internal-only', final: true,
+      message: text('<tool_call> {"name":"write_stdin","arguments":{"session_id":5164,"chars":""}} </tool_call>') },
+    { kind: 'assistant_message', seq: 2, time: T0 + 1_000, source: 'extension', messageId: 'answer-with-internal-markup', final: true,
+      message: text('El proyecto está listo.\n<tool_call> {"name":"write_stdin","arguments":{"session_id":5164,"chars":""}} </tool_call>') }
+  ]);
+  await append([]);
+
+  const rows = [...w.document.querySelectorAll<HTMLElement>('.ev-assistant_message')];
+  expect(rows[0]!.hidden).toBe(true);
+  expect(rows[1]!.hidden).toBe(false);
+  expect(rows[1]!.textContent).toContain('El proyecto está listo.');
+  expect(rows[1]!.textContent).not.toContain('tool_call');
+  expect(rows[1]!.textContent).not.toContain('session_id');
+});
