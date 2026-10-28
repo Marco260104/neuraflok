@@ -472,6 +472,28 @@ it('does not revive Stop from a recent message when reopening an old chat withou
   expect(send.classList.contains('is-stop')).toBe(false);
 });
 
+it('keeps Stop hidden when the first old chat opened from the start page only has preselection activity', async () => {
+  const now = Date.now();
+  const turnId = 'recently-stale-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: now - 2_000, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: now - 1_000, source: 'mcp', kind: 'page_tool', messageId: 'old-page-activity', turnId, label: 'Searching…' }
+  ];
+  const oldChat: SessionSummary = { ...summary(history), id: 'first-open-old-chat', title: 'Old chat',
+    conversationId: 'ds-first-open-old-chat', chatIds: ['ds-first-open-old-chat'], activeTurnId: turnId };
+  const { w } = await boot(history, false, [], [], { sessions: [oldChat] });
+  const api = (w as any).api;
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: oldChat.id, conversationId: oldChat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${oldChat.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
 it('does not turn a restored pending message into Stop when opening an old chat', async () => {
   const history: SessionEvent[] = [
     { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'restored-question', message: text('Earlier question') },
@@ -793,6 +815,10 @@ it('keeps a cancelled project turn settled after switching away and reopening th
   w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"]`)!.click();
   await settle();
   const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+
+  await append([{ seq: 4, time: Date.now(), source: 'extension', kind: 'page_tool', messageId: 'live-after-open', turnId, label: 'Continuing…' }]);
   expect(send.dataset.action).toBe('stop');
   expect(w.document.querySelector('#timeline .turn-status.is-working')).not.toBeNull();
   send.click();
@@ -802,7 +828,7 @@ it('keeps a cancelled project turn settled after switching away and reopening th
   expect(w.document.querySelector('.turn-status.is-working')).toBeNull();
   expect(w.document.querySelector('.turn-now:not([hidden])')).toBeNull();
 
-  await append([{ seq: 4, time: asked + 900, source: 'extension', kind: 'turn_end', turnId, outcome: 'stopped' }]);
+  await append([{ seq: 5, time: Date.now(), source: 'extension', kind: 'turn_end', turnId, outcome: 'stopped' }]);
   w.document.querySelector<HTMLElement>(`.sess[data-id="${other.id}"]`)!.click();
   await settle();
   w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"]`)!.click();

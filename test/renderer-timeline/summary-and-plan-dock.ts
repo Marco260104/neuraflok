@@ -482,9 +482,14 @@ it('says a chat worked as soon as its page reports the end after its last tool c
 });
 
 it('stops directly from the empty composer without a second Stop menu action', async () => {
-  const { w } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
+  const { w, append } = await boot([]);
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   (w as any).api.stopSessionTurn = stop;
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   const send = w.document.getElementById('chatSend') as HTMLButtonElement;
   expect(send.getAttribute('aria-label')).toBe('Stop turn');

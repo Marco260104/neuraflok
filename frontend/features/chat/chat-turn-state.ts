@@ -8,7 +8,7 @@ export function recordChatSelection(sessionId: string | null, generation: number
   currentChatSelection = { sessionId, generation, at };
 }
 
-/** Returns null for the app's initial selection, where no navigation race exists. */
+/** Returns the timestamp only for the matching chat and navigation generation. */
 export function chatSelectionStartedAt(sessionId: string | null, generation: number): number | null {
   return currentChatSelection?.sessionId === sessionId && currentChatSelection.generation === generation
     ? currentChatSelection.at
@@ -74,20 +74,24 @@ export function hasRecentTurnActivity(
   now = Date.now(),
 ): boolean {
   if (!turnId) return false;
+  let latestUserAt = Number.NEGATIVE_INFINITY;
+  for (const event of events)
+    if (event.kind === 'user_message') latestUserAt = Math.max(latestUserAt, event.time);
   const recent = (event: SessionEvent): boolean => now - event.time >= -1_000 &&
     now - event.time < RECENT_TURN_ACTIVITY_MS;
   const actualActivity = events.some(event => {
-    if (event.turnId !== turnId || !recent(event)) return false;
+    if (event.turnId !== turnId || !recent(event) ||
+        (selectedAt !== null && event.time < selectedAt) ||
+        (latestUserAt !== Number.NEGATIVE_INFINITY && event.time < latestUserAt)) return false;
     if (event.kind === 'assistant_message') return event.final !== true && event.state !== 'final';
     return ['tool_call', 'page_tool', 'progress'].includes(event.kind);
   });
   if (actualActivity) return true;
 
-  // A current turn can start immediately after the user submits a new message.
-  // On chat restoration, however, a recent/replayed turn_start without fresh
-  // output is not evidence that the provider is still working.
+  // A turn start restored from an older chat is not evidence that the provider
+  // is still working. It must belong to this selection and its latest question.
   const started = events.some(event => event.kind === 'turn_start' && event.turnId === turnId && recent(event) &&
     (selectedAt === null || (event.time >= selectedAt && events.some(question =>
-      question.kind === 'user_message' && question.time >= selectedAt && recent(question)))));
+      question.kind === 'user_message' && question.time >= selectedAt && question.time >= latestUserAt && recent(question)))));
   return started;
 }

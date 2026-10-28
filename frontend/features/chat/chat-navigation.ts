@@ -46,7 +46,6 @@ interface Runtime {
 
 export function createChatNavigation(runtime: Runtime) {
   let timelineScrollTop: number | null = null;
-  let hasVisitedExistingSession = runtime.selectedId !== null;
 
   function showView(name: string): void {
     const pane = $('chatBody');
@@ -81,8 +80,7 @@ export function createChatNavigation(runtime: Runtime) {
     runtime.resetComposerQueue();
     runtime.newChatSelected = false;
     runtime.selectedId = id;
-    recordChatSelection(hasVisitedExistingSession ? id : null, runtime.selectionGeneration);
-    hasVisitedExistingSession = true;
+    recordChatSelection(id, runtime.selectionGeneration);
     showView('timeline');
     runtime.refreshBackgroundProcesses();
     const selected = runtime.sessions.find(row => row.id === id);
@@ -123,7 +121,6 @@ export function createChatNavigation(runtime: Runtime) {
     runtime.newChatSelected = true;
     runtime.selectedId = null;
     recordChatSelection(null, runtime.selectionGeneration);
-    hasVisitedExistingSession = true;
     runtime.selectedProjectId = projectId;
     runtime.paintAutomationSwitch();
     runtime.resetNewChatTimeline();

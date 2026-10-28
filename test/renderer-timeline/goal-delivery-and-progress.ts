@@ -356,7 +356,7 @@ it('does not turn an empty or repeated form submission into a Stop request', asy
 });
 
 it('keeps actual-turn Stop through two authored sends and stops only the captured active turn', async () => {
-  const { w, live } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
+  const { w, live, append } = await boot([]);
   const api = (w as any).api;
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   api.stopSessionTurn = stop;
@@ -365,6 +365,11 @@ it('keeps actual-turn Stop through two authored sends and stops only the capture
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   const send = w.document.getElementById('chatSend') as HTMLButtonElement;
   const form = w.document.getElementById('composer')!;
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   for (const text of ['First new direction', 'Second new direction']) {
     expect(send.dataset.action).toBe('stop');
     input.value = text; input.dispatchEvent(new w.Event('input'));
