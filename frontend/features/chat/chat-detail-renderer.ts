@@ -3,7 +3,7 @@ import { TURN_OUTCOME_LABELS, type ReasoningEffort, type SessionEvent, type Sess
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { AppState } from '../../../contracts/types.js';
 import type { LocalProject } from '../../../contracts/workspace/projects.js';
-import { optimisticWarmupEvents } from './chat-warmup-inputs.js';
+import { optimisticProjectInputEvents, optimisticWarmupEvents, type PendingNewProjectInput } from './chat-warmup-inputs.js';
 import { foldAgentCommunication, participatingWorkers } from '../agents/agent-communication.js';
 import { $, compactNumber } from '../../shared/dom.js';
 import { currentLanguage, t, ui } from '../../shared/i18n.js';
@@ -24,6 +24,7 @@ export interface ChatDetailRendererRuntime {
   rowCache: Map<string, { sig: string; row: HTMLElement }>;
   toolGroups: Map<string, HTMLElement>;
   selectionGeneration: number;
+  pendingNewInput: PendingNewProjectInput | null;
   state: () => AppState | null;
   paintStateLine: () => void;
   paintBackgroundProcesses: () => void;
@@ -112,8 +113,12 @@ export function createChatDetailRenderer(runtime: Runtime) {
     $('timeline').removeAttribute('aria-busy');
     $('inputQueue').removeAttribute('inert');
     const filtered = runtime.visibleEvents();
-    const optimistic = optimisticWarmupEvents(events,
-      [...startingInputs.values(), ...pendingComposerInputs], selectedId, runtime.selectionGeneration);
+    const authoredInputs = [...startingInputs.values(), ...pendingComposerInputs];
+    const optimistic = [
+      ...optimisticWarmupEvents(events, authoredInputs, selectedId, runtime.selectionGeneration),
+      ...optimisticProjectInputEvents(events, authoredInputs, selectedId, summary?.projectId ?? project?.id ?? null,
+        runtime.selectionGeneration, runtime.pendingNewInput),
+    ];
     const shown = foldAgentCommunication([...filtered, ...optimistic]);
     const pane = $('chatBody');
     const restoreViewport = preserveTimelineViewport(pane, $('timelineContent'), followBottom && !runtime.readingAfterSend,

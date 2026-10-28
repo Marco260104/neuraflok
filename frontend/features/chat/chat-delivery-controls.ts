@@ -40,6 +40,8 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     runtime.paintGoalProgress();
     const pending = runtime.pendingComposerInput();
     const internalProjectDelivery = runtime.projectScopedSelection() && !!pending?.warmupDeferred;
+    const hiddenProjectComposerDelivery = runtime.projectScopedSelection() && !!pending && !pending.warmupDeferred &&
+      pending.authoredSource !== 'none' && !pending.finishOwner && pending.purpose !== 'decision';
     const historyReady = runtime.selectedId !== null && runtime.detailFor === runtime.selectedId;
     const working = historyReady && !transcriptShowsCompletedLatestTurn(runtime.events) &&
       !runtime.preparingChatInternally() && !internalProjectDelivery &&
@@ -82,7 +84,7 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     if (!canInject && !canSendDirectly && !queueAtFinish) $<HTMLSelectElement>('sendMode').value = 'auto';
     const deliveryContextReady = runtime.selectedId === null || historyReady;
     const cancellablePending = deliveryContextReady && !!pending && !internalProjectDelivery &&
-      !runtime.preparingChatInternally();
+      !hiddenProjectComposerDelivery && !runtime.preparingChatInternally();
     const stop = (working || cancellablePending) && !runtime.currentPreparedPlan() && !runtime.authoredComposerText().trim() &&
       !(runtime.imageDrafts.get(runtime.draftKey())?.length);
     $('sendOptions').hidden = !canInject && !canSendDirectly && !queueAtFinish;
@@ -93,12 +95,12 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     send.disabled = planDisabled;
     send.dataset.action = stop ? 'stop' : 'send';
     ui(send, 'aria-label', () => stop ? (runtime.controlledStopPending ? t("Stop requested") : t("Stop turn")) : t("Send message"));
-    if (stop && !working && pending && !internalProjectDelivery) ui(send, 'aria-label', () => t("Cancel delivery"));
+    if (stop && !working && pending && !internalProjectDelivery && !hiddenProjectComposerDelivery) ui(send, 'aria-label', () => t("Cancel delivery"));
     const planAction = runtime.selectedId ? t("Queue plan at Session finish") : t("Start full plan");
     if (preparedPlan && !stop) send.setAttribute('aria-label', planAction);
     else if (planMode && !stop) ui(send, 'aria-label', () => t("Generate plan"));
     send.classList.toggle('is-plan-ready', !!preparedPlan && !stop);
-    ui(send, 'title', () => stop && !working && pending && !internalProjectDelivery ? t("Cancel delivery") : preparedPlan && !stop ? planAction : planMode && !stop ? t("Click to generate plan") : '');
+    ui(send, 'title', () => stop && !working && pending && !internalProjectDelivery && !hiddenProjectComposerDelivery ? t("Cancel delivery") : preparedPlan && !stop ? planAction : planMode && !stop ? t("Click to generate plan") : '');
     send.classList.toggle('is-stop', stop);
     for (const button of $('sendOptions').querySelectorAll<HTMLElement>('[data-delivery]')) {
       button.setAttribute('aria-checked', String(button.dataset.delivery ===

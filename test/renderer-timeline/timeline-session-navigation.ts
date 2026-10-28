@@ -492,6 +492,47 @@ it('keeps stale Stop hidden until an old chat history is loaded and confirms liv
   expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(true);
 });
 
+it('does not show Stop after opening a completed old project chat while provider controls lag behind', async () => {
+  const turnId = 'completed-project-turn-with-lagging-controls';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'completed-project-question', message: text('Earlier project question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'completed-project-answer', turnId,
+      message: text('Earlier project answer.'), state: 'final', final: true },
+    { seq: 4, time: T0 + 1100, source: 'extension', kind: 'turn_end', turnId, outcome: 'completed' }
+  ];
+  const project: LocalProject = { id: '99999999-9999-4999-8999-999999999999', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'completed-old-project-chat', title: 'Completed project chat', projectId: project.id,
+    conversationId: 'ds-completed-old-project-chat', chatIds: ['ds-completed-old-project-chat'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastAssistantFinalAt: T0 + 1000, lastTurnEndAt: T0 + 1100, lastTurnOutcome: 'completed',
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  // The provider still reports the ID of a turn that history already closed.
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(send.getAttribute('aria-label')).toBe('Send message');
+
+  await settle(50);
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
+});
+
 it('does not flash Stop while an old project chat restores completed history and stale controls', async () => {
   const turnId = 'finished-project-turn';
   const history: SessionEvent[] = [
@@ -546,7 +587,7 @@ it('keeps a cancelled project turn settled after switching away and reopening th
     lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
   const other: SessionSummary = { ...summary([]), id: 'other-chat', title: 'Other chat', conversationId: 'ds-other-chat',
     chatIds: ['ds-other-chat'], updatedAt: Date.now() - 1_000, lastToolCallAt: null, activityExpiresAt: null };
-  const { w, append } = await boot(history, false, [], [project], { sessions: [other, chat] });
+  const { w, live, append } = await boot(history, false, [], [project], { sessions: [other, chat] });
   let stopped = false;
   const api = (w as any).api;
   api.getSessionControls = (id: string) => Promise.resolve({ ok: true, data: {
@@ -576,6 +617,28 @@ it('keeps a cancelled project turn settled after switching away and reopening th
   expect(send.dataset.action).toBe('send');
   expect(w.document.querySelector('.turn-status.is-working')).toBeNull();
   expect(w.document.querySelector('.turn-now:not([hidden])')).toBeNull();
+
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  const acceptSendInput = api.sendInput;
+  let releaseAcceptance!: () => void;
+  api.sendInput = vi.fn((args: unknown) => new Promise(resolve => {
+    const result = acceptSendInput(args);
+    releaseAcceptance = () => resolve(result);
+  }));
+  input.value = 'Continue after the cancelled answer.';
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  expect(send.disabled).toBe(false);
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  expect(live.sent.at(-1)?.text).toBe('Continue after the cancelled answer.');
+  expect([...w.document.querySelectorAll<HTMLElement>('#timeline .said.is-user')]
+    .some(row => row.textContent?.includes('Continue after the cancelled answer.'))).toBe(true);
+  expect(w.document.querySelector('.turn-now:not([hidden]) .turn-now-text')?.textContent).toBe('Thinking…');
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(w.document.getElementById('inputQueue')?.textContent).not.toContain('Continue after the cancelled answer.');
+  expect(send.dataset.action).toBe('send');
+  expect(send.getAttribute('aria-label')).toBe('Send message');
+  releaseAcceptance();
+  await settle();
 });
 
 it('shows an early composer send as a chat message while project preparation stays internal', async () => {
@@ -591,6 +654,7 @@ it('shows an early composer send as a chat message while project preparation sta
   input.dispatchEvent(new w.Event('input', { bubbles: true }));
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
   expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain('Continue the task from yesterday.');
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
   expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
   expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
   expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).not.toBe('Cancel delivery');

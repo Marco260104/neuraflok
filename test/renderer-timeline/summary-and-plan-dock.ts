@@ -511,6 +511,8 @@ it('shows Stop immediately for a queued first send, switches to Send for a new d
   form.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
   expect(send.dataset.action).toBe('stop');
   expect(send.disabled).toBe(false);
+  expect(w.document.querySelector('#inputQueue .pending-message')?.textContent).toContain('First request');
+  expect(w.document.querySelector('.turn-now:not([hidden]) .turn-now-text')?.textContent).toBe('Thinking…');
   await settle();
   expect(send.dataset.action).toBe('stop');
   expect(w.document.querySelector('#inputQueue button')?.textContent).not.toBe('Cancel');

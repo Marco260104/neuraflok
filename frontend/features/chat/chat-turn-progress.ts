@@ -11,7 +11,7 @@ import {
   shouldSuppressWarmupActivity,
   visibleWarmupPhase
 } from './chat-composer-ready.js';
-import { warmupDeferredEntries, warmupDeferredProgress } from './chat-warmup-inputs.js';
+import { projectAuthoredInputProgress, warmupDeferredEntries, warmupDeferredProgress } from './chat-warmup-inputs.js';
 
 export function createChatTurnProgress(
   runtime: ChatProgressRuntime,
@@ -68,13 +68,24 @@ export function createChatTurnProgress(
     return !!(session?.projectId ?? runtime.selectedProjectId);
   }
 
+  function selectedProjectId(): string | null {
+    const session = runtime.sessions.find(entry => entry.id === runtime.selectedId);
+    const inherited = session?.origin?.kind === 'worker' && session.origin.fromSessionId
+      ? runtime.sessions.find(entry => entry.id === session.origin?.fromSessionId)?.projectId
+      : undefined;
+    return session?.projectId ?? inherited ?? runtime.selectedProjectId;
+  }
+
   function composerInputs() {
     return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs];
   }
 
   function deferredProgress() {
-    return warmupDeferredProgress(composerInputs(), runtime.selectedId, runtime.selectionGeneration, runtime.events,
-      { showQueued: projectScopedSelection() });
+    const inputs = composerInputs();
+    return warmupDeferredProgress(inputs, runtime.selectedId, runtime.selectionGeneration, runtime.events,
+      { showQueued: projectScopedSelection() }) ??
+      projectAuthoredInputProgress(inputs, runtime.selectedId, selectedProjectId(), runtime.selectionGeneration,
+        runtime.pendingNewInput, runtime.events);
   }
 
   function hasPendingAuthoredMessage(): boolean {
