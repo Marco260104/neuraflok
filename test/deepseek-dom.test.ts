@@ -20,6 +20,7 @@ interface DeepseekDomApi {
   signedIn(): boolean;
   newChat(): FakeNode | null;
   hasConversation(): boolean;
+  pageIdentity(): string;
 }
 
 interface FakeNode {
@@ -168,7 +169,7 @@ Object.defineProperty(HTMLTextAreaElement.prototype, 'value', {
   set(value: string) { nativeValues.set(this, String(value)); }
 });
 
-function load(body: FakeNode[], options: { composer?: boolean; composerId?: boolean; composerPlaceholder?: string; hiddenSearch?: boolean | 'aria-hidden' | 'visible'; sendRole?: boolean; title?: string } = {}): {
+function load(body: FakeNode[], options: { composer?: boolean; composerId?: boolean; composerPlaceholder?: string; hiddenSearch?: boolean | 'aria-hidden' | 'visible'; sendRole?: boolean; title?: string; href?: string } = {}): {
   api: DeepseekDomApi;
   composer: FakeNode | null;
   send: FakeNode;
@@ -179,6 +180,7 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
   listeners: Array<(message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown>;
   presenceObservers: Array<{ notify(): void }>;
   presenceMessages: Array<{ signedIn?: boolean }>;
+  location: { href: string };
   context: vm.Context;
 } {
   const composer = options.composer === false ? null : node('textarea', {
@@ -244,6 +246,7 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
     setItem(key: string, value: string) { sessionRows.set(key, value); },
     removeItem(key: string) { sessionRows.delete(key); }
   };
+  const location = { href: options.href ?? 'https://chat.deepseek.com/' };
   const context = vm.createContext({
     document,
     window: { HTMLTextAreaElement, Event, addEventListener() {} },
@@ -252,7 +255,7 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
     addEventListener() {},
     Date,
     URL,
-    location: { href: 'https://chat.deepseek.com/' },
+    location,
     sessionStorage,
     setTimeout,
     chrome: { runtime: {
@@ -276,6 +279,7 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
     listeners,
     presenceObservers,
     presenceMessages,
+    location,
     context
   };
 }
@@ -514,6 +518,73 @@ it('rebinds a tab only when the background worker proves the old project chat is
   await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Fresh chat is ready.' }), { timeout: 2_000 });
   expect(newChat.events).toContain('click');
   expect(sessionStorage.getItem('neuraflok.providerSession')).toBe(SESSION_ID);
+});
+
+it('accepts a DeepSeek route change as New chat acknowledgement while old messages remain mounted', async () => {
+  const oldConversation = node('div', { class: 'ds-message' }, [
+    node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Previous conversation still mounted' })
+  ]);
+  const newChat = node('button', { text: 'New chat' });
+  const freshAnswer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { listeners, location, send, api } = load([oldConversation, newChat, freshAnswer], {
+    href: 'https://chat.deepseek.com/a/chat/s/previous'
+  });
+  expect(api.hasConversation()).toBe(true);
+  expect(api.pageIdentity()).toBe('https://chat.deepseek.com/a/chat/s/previous');
+  newChat.click = function click() {
+    this.events.push('click');
+    // DeepSeek updates its SPA route before it removes the old virtual-list DOM.
+    location.href = 'https://chat.deepseek.com/a/chat/s/fresh';
+  };
+  send.click = function click() {
+    this.events.push('click');
+    freshAnswer.textContent = 'Reply from the fresh conversation';
+    freshAnswer.innerText = freshAnswer.textContent;
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000006',
+    conversationId: SESSION_ID,
+    text: 'Synthetic route transition check',
+    fresh: true
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Reply from the fresh conversation' }));
+  expect(newChat.events).toContain('click');
+  expect(send.events).toContain('click');
+  expect(api.hasConversation()).toBe(true);
+});
+
+it('does not send into an old DeepSeek conversation when New chat produces no acknowledgement', async () => {
+  vi.useFakeTimers();
+  try {
+    const oldConversation = node('div', { class: 'ds-message' }, [
+      node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Previous conversation' })
+    ]);
+    const newChat = node('button', { text: 'New chat' });
+    const { listeners, send } = load([oldConversation, newChat], {
+      href: 'https://chat.deepseek.com/a/chat/s/previous'
+    });
+    newChat.click = function click() { this.events.push('click'); };
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete',
+      id: '00000000-0000-4000-8000-000000000007',
+      conversationId: SESSION_ID,
+      text: 'Synthetic fail-closed check',
+      fresh: true
+    }, {}, value => { reply = value; });
+
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(reply).toMatchObject({ error: expect.stringMatching(/Could not open a new DEEPSEEK conversation/i) });
+    expect(newChat.events).toContain('click');
+    expect(send.events).not.toContain('click');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('only clicks Continue for the currently bound session and send claim', () => {

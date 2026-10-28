@@ -423,6 +423,15 @@ var NEURAFLOK_DEEPSEEK = (() => {
     [...document.querySelectorAll('.ds-message, .ds-assistant-message-main-content, ._9663006, [data-role="assistant"], [data-role="user"]')]
       .some(node => visible(node) && Boolean(nodeText(node).trim())), false);
 
+  // DeepSeek keeps the previous conversation DOM mounted briefly while its SPA
+  // navigates to a fresh chat. The delivery agent uses this route key alongside
+  // hasConversation() so those stale nodes cannot make a successful navigation
+  // look like a failed New chat action.
+  const pageIdentity = () => safe(() => {
+    const url = new URL(location.href);
+    return `${url.origin}${url.pathname}${url.hash}`;
+  }, '');
+
   const sendButton = () => {
     const direct = buttonFor(SEND_PATH) || primaryCircle() || labeledButton(SEND_LABEL);
     if (direct) return direct;
@@ -532,6 +541,7 @@ var NEURAFLOK_DEEPSEEK = (() => {
     lastAnswerIdentity,
     lastThink,
     hasConversation,
+    pageIdentity,
     setValue,
     signedIn: () => !!composer() || authenticatedWorkspace() || workspaceNavigationPresent() || !!document.querySelector('.ds-avatar, [class*="avatar"], button[class*="user"], .user-profile'),
     newChat,

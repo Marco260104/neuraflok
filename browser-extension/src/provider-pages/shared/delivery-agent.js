@@ -137,6 +137,10 @@
       return valueFrom(() => api.hasConversation(), false) === true;
     }
 
+    function pageIdentity() {
+      return String(valueFrom(() => api.pageIdentity?.(), '') || '');
+    }
+
     async function until(test, timeoutMs, stepMs = 200) {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
@@ -187,6 +191,7 @@
         return 'This provider page already belongs to another NEURAFLOK session.';
       }
       const hadConversation = hasConversation();
+      const previousPageIdentity = pageIdentity();
       const needsNewPage = options.openNewPageOnFresh || hadConversation || Boolean(bound && bound !== message.conversationId);
       const control = valueFrom(() => api.newChat(), null);
       if (needsNewPage && !control && hadConversation) {
@@ -201,7 +206,11 @@
         } catch {
           return `Could not open a new ${provider.toUpperCase()} conversation. The current page was left unchanged.`;
         }
-        if (hadConversation && !await until(() => !hasConversation(), 8000)) {
+        const openedNewPage = () => {
+          const current = pageIdentity();
+          return Boolean(previousPageIdentity && current && current !== previousPageIdentity);
+        };
+        if (hadConversation && !await until(() => !hasConversation() || openedNewPage(), 8000)) {
           return `Could not open a new ${provider.toUpperCase()} conversation. The current page was left unchanged.`;
         }
       }
