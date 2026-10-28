@@ -1147,6 +1147,33 @@ it('finds DeepSeek New chat inside its custom ds-button wrapper', () => {
   expect(api.newChat()).toBe(starter);
 });
 
+it('finds DeepSeek New chat when its sidebar exposes only an exact group label', () => {
+  const label = node('span', { text: 'Nuevo chat' });
+  const row = node('div', { role: 'group' }, [label]);
+  row.textContent = 'Nuevo chat Ctrl + J';
+  row.innerText = row.textContent;
+  const { api } = load([row]);
+
+  expect(api.newChat()).toBe(label);
+});
+
+it('finds DeepSeek New chat inside an open shadow root', () => {
+  const content = node('span', { class: 'ds-button__content', text: 'Nuevo chat' });
+  const starter = node('div', { class: 'ds-button' }, [content]);
+  const host = node('div');
+  host.shadowRoot = node('shadow-root', {}, [starter]);
+  const { api } = load([host]);
+
+  expect(api.newChat()).toBe(starter);
+});
+
+it('does not mistake assistant prose about a new chat for the sidebar control', () => {
+  const prose = node('div', { class: 'ds-markdown', text: 'We should start a new chat after this task.' });
+  const { api } = load([prose]);
+
+  expect(api.newChat()).toBeNull();
+});
+
 it.each([
   { label: 'very short', question: 'Hi' },
   { label: 'very long', question: 'Please inspect the project context and propose a safe edit. '.repeat(400) }

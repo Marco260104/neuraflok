@@ -7,6 +7,7 @@ var NEURAFLOK_DEEPSEEK = (() => {
   const STOP_LABEL = /^(stop|cancel|detener|parar|停止|중지|arrêt|остановить)$/i;
   const CONTINUE_LABEL = /^(continue(?:\s+(?:generating|response|answer))?|keep going|continuar(?:\s+(?:generando|respuesta))?|seguir(?:\s+generando)?|continuer(?:\s+la génération)?|fortsetzen|weiter(?:\s+generieren)?|weitermachen|続行|続ける|生成を続ける|계속(?:\s*생성)?|继续(?:生成|回答)?|繼續(?:生成|回答)?|продолжить(?:\s+генерацию)?|devam(?:\s+et)?|tiếp tục)$/i;
   const NEW_CHAT_LABEL = /new[-_\s]+(?:chat|conversation|thread)|(?:start|create)\s+(?:a\s+)?new\s+(?:chat|conversation|thread)|nuevo\s+chat|nueva\s+conversación|nouvelle\s+conversation|neuer\s+chat|新しいチャット|新对话|新對話|새\s*채팅/i;
+  const EXACT_NEW_CHAT_LABEL = /^(?:new[-_\s]+(?:chat|conversation|thread)|(?:start|create)\s+(?:a\s+)?new\s+(?:chat|conversation|thread)|nuevo\s+chat|nueva\s+conversación|nouvelle\s+conversation|neuer\s+chat|新しいチャット|新对话|新對話|새\s*채팅)(?:\s+(?:ctrl|control)\s*\+\s*[a-z0-9]+)?$/i;
 
   const safe = (fn, fallback) => {
     try {
@@ -38,6 +39,27 @@ var NEURAFLOK_DEEPSEEK = (() => {
     return [...new Set(found)];
   };
 
+  const openShadowRoots = () => {
+    const roots = [document];
+    const visited = new Set();
+    let inspected = 0;
+    for (let index = 0; index < roots.length && index < 32 && inspected < 5_000; index += 1) {
+      const root = roots[index];
+      if (!root || visited.has(root)) continue;
+      visited.add(root);
+      for (const host of safe(() => [...root.querySelectorAll('*')], [])) {
+        inspected += 1;
+        if (host?.shadowRoot && !visited.has(host.shadowRoot)) roots.push(host.shadowRoot);
+        if (inspected >= 5_000) break;
+      }
+    }
+    return roots;
+  };
+
+  const queryOpenRoots = (roots, selector) => roots.flatMap(root =>
+    safe(() => [...root.querySelectorAll(selector)], [])
+  );
+
   const pathOf = (button) => button?.querySelector?.('svg path')?.getAttribute?.('d') || '';
   const visible = (node, allowBackgroundLayout = false) => {
     if (!node) return false;
@@ -51,7 +73,7 @@ var NEURAFLOK_DEEPSEEK = (() => {
       const style = safe(() => typeof getComputedStyle === 'function' ? getComputedStyle(current) : current.style, null);
       if (style && (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' ||
           Number.parseFloat(style.opacity) === 0)) return false;
-      current = current.parentElement || current.parent || null;
+      current = current.parentElement || current.parent || safe(() => current.getRootNode?.().host, null) || null;
     }
     const rects = typeof node.getClientRects === 'function' ? node.getClientRects() : [];
     if (rects.length > 0) return true;
@@ -436,7 +458,8 @@ var NEURAFLOK_DEEPSEEK = (() => {
   };
 
   const newChat = () => {
-    const nodes = [...document.querySelectorAll('a[href], button, [role="button"]')];
+    const roots = openShadowRoots();
+    const nodes = queryOpenRoots(roots, 'a[href], button, [role="button"]');
     // The home/logo link also points at `/` on DeepSeek, but it can reopen the
     // last conversation instead of starting a fresh one. Only trust an
     // explicitly named new-chat control; an unknown control must fail closed.
@@ -447,12 +470,28 @@ var NEURAFLOK_DEEPSEEK = (() => {
     // whose label is only exposed by its child span, without a button role.
     // Resolve only that explicit label and click its nearest known wrapper;
     // bubbling from the span remains a safe fallback for custom controls.
-    const content = [...document.querySelectorAll('.ds-button__content')].find((node) =>
+    const content = queryOpenRoots(roots, '.ds-button__content').find((node) =>
       visible(node, true) && NEW_CHAT_LABEL.test(String(node.textContent || '').replace(/\s+/g, ' ').trim())
     );
-    if (!content) return null;
-    const control = content.closest?.('button, [role="button"], .ds-button');
-    return control && visible(control, true) ? control : content;
+    if (content) {
+      const control = content.closest?.('button, [role="button"], .ds-button');
+      return control && visible(control, true) ? control : content;
+    }
+
+    // Some DeepSeek layouts expose the sidebar action only as a labeled group,
+    // with neither a button role nor the usual ds-button content class. Match
+    // the exact action text (and optional keyboard shortcut) so conversation
+    // text such as "start a new chat" can never become a navigation target.
+    const labeled = queryOpenRoots(roots, '*').filter(node => {
+      if (!visible(node, true)) return false;
+      const label = String(node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+      return label.length <= 80 && EXACT_NEW_CHAT_LABEL.test(label);
+    }).sort((left, right) =>
+      String(left.innerText || left.textContent || '').length - String(right.innerText || right.textContent || '').length
+    )[0];
+    if (!labeled) return null;
+    const control = labeled.closest?.('button, [role="button"], a[href], .ds-button');
+    return control && visible(control, true) ? control : labeled;
   };
 
   const workspaceNavigationPresent = () => {
