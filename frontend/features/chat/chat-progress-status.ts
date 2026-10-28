@@ -1,7 +1,7 @@
 import type { AgentState } from '../../../contracts/session.js';
 import { t } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
-import { transcriptShowsClosedLatestTurn } from './chat-turn-state.js';
+import { transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
 
 export interface ProgressStatus {
   text: string;
@@ -39,7 +39,7 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
         .find(
           (event) => event.kind === 'turn_start' || event.kind === 'turn_end',
         );
-      const completedLatestTurn = transcriptShowsClosedLatestTurn(runtime.events);
+      const completedLatestTurn = transcriptOrSummaryShowsCompletedLatestTurn(runtime.events, summary);
       const controlledTurn =
         runtime.controlledSessionId === runtime.selectedId &&
         runtime.controlledSelection === runtime.selectionGeneration
@@ -48,7 +48,9 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       // A stale active-turn control must not keep the UI spinning after the
       // event stream has already closed that exact turn.
       const controlledTurnEnded = !!controlledTurn && runtime.events.some(
-        (event) => event.kind === 'turn_end' && event.turnId === controlledTurn && event.outcome !== 'unknown',
+        (event) => (event.kind === 'turn_end' && event.turnId === controlledTurn && event.outcome !== 'unknown') ||
+          (event.kind === 'assistant_message' && event.turnId === controlledTurn &&
+            (event.final === true || event.state === 'final')),
       );
       const active = controlledTurnEnded || completedLatestTurn ? null : controlledTurn;
       if (!active && lastBoundary?.kind === 'turn_end' &&

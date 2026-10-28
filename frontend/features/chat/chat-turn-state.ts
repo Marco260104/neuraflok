@@ -1,5 +1,9 @@
 import type { SessionEvent, SessionSummary } from '../../../contracts/session.js';
 
+function isFinalAssistantMessage(event: SessionEvent): boolean {
+  return event.kind === 'assistant_message' && (event.final === true || event.state === 'final');
+}
+
 /** True when the latest authored question has a recorded terminal event after it. */
 export function transcriptShowsCompletedLatestTurn(events: readonly SessionEvent[]): boolean {
   let latestUser = -1;
@@ -8,7 +12,7 @@ export function transcriptShowsCompletedLatestTurn(events: readonly SessionEvent
     const event = events[index]!;
     if (event.kind === 'user_message') latestUser = index;
     else if ((event.kind === 'turn_end' && event.outcome !== 'unknown') ||
-      (event.kind === 'assistant_message' && event.final === true) || event.kind === 'chat_error') {
+      isFinalAssistantMessage(event) || event.kind === 'chat_error') {
       latestTerminal = index;
     }
   }

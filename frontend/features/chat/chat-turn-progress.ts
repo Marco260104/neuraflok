@@ -147,7 +147,7 @@ export function createChatTurnProgress(
     const latestTerminalAt = runtime.events.reduce((latest, event) => {
       if (event.time < asked) return latest;
       const terminal = (event.kind === 'turn_end' && event.outcome !== 'unknown') ||
-        (event.kind === 'assistant_message' && event.final === true);
+        (event.kind === 'assistant_message' && (event.final === true || event.state === 'final'));
       return terminal ? Math.max(latest, event.time) : latest;
     }, Number.NEGATIVE_INFINITY);
     // Errors and closed turns are terminal activity. They must not be

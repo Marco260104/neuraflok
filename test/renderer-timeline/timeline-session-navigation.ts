@@ -533,6 +533,42 @@ it('does not show Stop after opening a completed old project chat while provider
   expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
 });
 
+it('does not flash Stop when an old project reply is final by message state only', async () => {
+  const turnId = 'legacy-final-state-project-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'legacy-project-question', message: text('Earlier project question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    // Older recordings can carry the final state without the compatibility boolean.
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'legacy-project-answer', turnId,
+      message: text('Earlier project answer.'), state: 'final', final: false }
+  ];
+  const project: LocalProject = { id: '67676767-6767-4676-8676-676767676767', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'legacy-final-state-project-chat', title: 'Earlier project chat', projectId: project.id,
+    conversationId: 'ds-legacy-final-state-project-chat', chatIds: ['ds-legacy-final-state-project-chat'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+  chatRuntimeBindings.paintStateLine();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+});
+
 it('does not flash Stop when an old chat history page omits its terminal event but the session summary records completion', async () => {
   const turnId = 'completed-turn-omitted-from-history-page';
   const askedAt = T0 + 20_000;
