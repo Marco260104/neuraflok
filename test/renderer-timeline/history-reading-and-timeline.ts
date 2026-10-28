@@ -495,6 +495,21 @@ it('clears the thinking indicator when a failed turn ends even if controls still
   expect(w.document.querySelectorAll('.turn-status.is-working, .turn-now:not([hidden])')).toHaveLength(0);
 });
 
+it('does not show stale Stop or Thinking for an old chat with an internal warmup failure and no authored message', async () => {
+  const now = Date.now();
+  const { w, append } = await boot([
+    { seq: 1, time: now - 1_000, source: 'extension', kind: 'chat_error', turnId: 'internal-warmup',
+      recoverable: false, message: text('Could not open a new conversation.') }
+  ]);
+  await append([]);
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.getAttribute('aria-label')).toBe('Send message');
+  expect(w.document.querySelectorAll('.turn-status.is-working, .turn-now:not([hidden])')).toHaveLength(0);
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+});
+
 it('ends the running turn with a row saying what it is doing now', async () => {
   const asked = Date.now() - 12_000;
   const { w, append } = await boot([

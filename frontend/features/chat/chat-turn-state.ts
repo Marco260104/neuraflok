@@ -4,7 +4,7 @@ function isFinalAssistantMessage(event: SessionEvent): boolean {
   return event.kind === 'assistant_message' && (event.final === true || event.state === 'final');
 }
 
-/** True when the latest authored question has a recorded terminal event after it. */
+/** True when the latest authored question (or an internal turn with no question) has a recorded terminal event after it. */
 export function transcriptShowsCompletedLatestTurn(events: readonly SessionEvent[]): boolean {
   let latestUser = -1;
   let latestTerminal = -1;
@@ -16,7 +16,7 @@ export function transcriptShowsCompletedLatestTurn(events: readonly SessionEvent
       latestTerminal = index;
     }
   }
-  return latestUser >= 0 && latestTerminal > latestUser;
+  return latestTerminal > latestUser;
 }
 
 /**

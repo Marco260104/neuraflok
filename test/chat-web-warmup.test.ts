@@ -197,6 +197,61 @@ it('keeps stale Stop hidden until old-chat controls refresh after the warmup ack
   resetComposerWarmupForTests();
 });
 
+it('keeps stale Stop hidden until old-project controls refresh after a failed warmup', async () => {
+  const sessionId = 'old-project-chat-with-failed-warmup';
+  const conversationId = 'ds-00000000-0000-4000-8000-000000000042';
+  let entry: any;
+  let activeTurnId: string | null = 'stale-turn-from-before-failed-warmup';
+  let releaseControls!: () => void;
+  const visibleStopStates: boolean[] = [];
+  const runtime: any = {
+    api: {
+      sendInput: vi.fn(async (request: any) => {
+        entry = { ...request, sessionId, deliveredSessionId: sessionId, state: 'sent', createdAt: Date.now(), conversationId };
+        return { ok: true, data: entry };
+      }),
+      listInputs: async () => ({ ok: true, data: entry ? [entry] : [] }),
+      getSession: async () => ({ ok: true, data: { summary: { id: sessionId, conversationId },
+        events: entry ? [{ kind: 'chat_error', inputId: entry.id, message: { text: 'Synthetic warmup failure' } }] : [] } }),
+      cancelInput: vi.fn()
+    },
+    state: () => ({ config: { ui: { chatExecutor: 'web', webProvider: 'deepseek' } },
+      bridge: { webProviders: { deepseek: { signedIn: true } } } }),
+    newChatSelected: false,
+    selectedId: sessionId,
+    selectedProjectId: 'synthetic-project',
+    selectionGeneration: 10,
+    sessions: [{ id: sessionId, conversationId, projectId: 'synthetic-project' }],
+    turnWorking: () => false,
+    pendingNewInput: null,
+    startingInputs: new Map(),
+    pendingComposerInputs: [],
+    adoptAcceptedOpening: async () => false,
+    selectSession: vi.fn(),
+    paintDeliveryControls: vi.fn(() => {
+      visibleStopStates.push(composerWarmupState(sessionId)?.phase !== 'opening' && activeTurnId !== null);
+    }),
+    paintPreparationStatus: vi.fn(),
+    refreshSessionControls: vi.fn(() => new Promise<void>(resolve => {
+      releaseControls = () => { activeTurnId = null; resolve(); };
+    })),
+    refreshInputQueue: vi.fn(async () => undefined),
+    setPendingNewInput: vi.fn()
+  };
+  resetComposerWarmupForTests();
+  const warmup = createWebChatWarmup(runtime);
+
+  warmup.ensure();
+  await vi.waitFor(() => expect(runtime.refreshSessionControls).toHaveBeenCalledTimes(1));
+
+  expect(composerWarmupState(sessionId)?.phase).toBe('opening');
+  expect(visibleStopStates).not.toContain(true);
+  releaseControls();
+  await vi.waitFor(() => expect(composerWarmupState(sessionId)?.phase).toBe('failed'));
+  expect(visibleStopStates).not.toContain(true);
+  resetComposerWarmupForTests();
+});
+
 it('releases the preparing gate when a readiness IPC call never returns', async () => {
   vi.useFakeTimers();
   try {

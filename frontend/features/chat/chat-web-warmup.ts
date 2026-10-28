@@ -261,6 +261,12 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
       const failedKey = boundId ?? key;
       if (failedKey !== key) clearComposerWarmup(key);
+      // The provider flight for a failed warmup is internal preparation, not
+      // an authored turn. Keep its gate in place until the old-chat controls
+      // snapshot is refreshed, just as we do after a successful acknowledgement.
+      if (runtime.selectedId === boundId) {
+        try { await runtime.refreshSessionControls(); } catch { /* Preserve the original preparation error. */ }
+      }
       markComposerWarmupFailed(failedKey, message,
         runtime.selectedId === boundId ? runtime.selectionGeneration : generation);
       if (runtime.pendingNewInput?.id === id && runtime.pendingNewInput.generation === generation)
