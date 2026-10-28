@@ -440,7 +440,19 @@ var NEURAFLOK_DEEPSEEK = (() => {
     // The home/logo link also points at `/` on DeepSeek, but it can reopen the
     // last conversation instead of starting a fresh one. Only trust an
     // explicitly named new-chat control; an unknown control must fail closed.
-    return nodes.find((node) => visible(node, true) && NEW_CHAT_LABEL.test(labelOf(node))) || null;
+    const accessible = nodes.find((node) => visible(node, true) && NEW_CHAT_LABEL.test(labelOf(node)));
+    if (accessible) return accessible;
+
+    // Some DeepSeek builds render the sidebar action as a custom .ds-button
+    // whose label is only exposed by its child span, without a button role.
+    // Resolve only that explicit label and click its nearest known wrapper;
+    // bubbling from the span remains a safe fallback for custom controls.
+    const content = [...document.querySelectorAll('.ds-button__content')].find((node) =>
+      visible(node, true) && NEW_CHAT_LABEL.test(String(node.textContent || '').replace(/\s+/g, ' ').trim())
+    );
+    if (!content) return null;
+    const control = content.closest?.('button, [role="button"], .ds-button');
+    return control && visible(control, true) ? control : content;
   };
 
   const workspaceNavigationPresent = () => {

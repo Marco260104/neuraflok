@@ -200,6 +200,8 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
   bindings.chatDeliveryControls = createChatDeliveryControls({
     get selectedId() { return bindings.selectedId; },
     get selectionGeneration() { return bindings.selectionGeneration; },
+    get detailFor() { return bindings.detailFor; },
+    get events() { return bindings.events; },
     preparingChatInternally: () => {
       const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
       // The provider can briefly report the prior response as active while the

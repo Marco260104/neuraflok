@@ -417,6 +417,51 @@ it('hides a stale Stop action while an old ordinary chat opens its history hands
   expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
 });
 
+it('keeps stale Stop hidden until an old chat history is loaded and confirms live turns only', async () => {
+  const turnId = 'old-chat-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'old-answer', turnId,
+      message: text('Earlier answer.'), state: 'final', final: true },
+    { seq: 4, time: T0 + 1100, source: 'extension', kind: 'turn_end', turnId, outcome: 'completed' }
+  ];
+  const ordinary = { ...summary(history), id: 'old-chat-history-loading', title: 'Earlier chat',
+    conversationId: 'ds-old-chat-history-loading', chatIds: ['ds-old-chat-history-loading'], activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, true, [], [], { sessions: [ordinary] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const sessionId = chatRuntimeBindings.selectedId!;
+  const generation = chatRuntimeBindings.selectionGeneration;
+
+  chatRuntimeBindings.detailFor = null;
+  chatRuntimeBindings.events = [];
+  chatRuntimeBindings.controlledSessionId = sessionId;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+
+  chatRuntimeBindings.detailFor = sessionId;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+
+  const liveTurn = 'currently-running-chat-turn';
+  chatRuntimeBindings.events = [
+    ...history,
+    { seq: 5, time: T0 + 1200, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
+    { seq: 6, time: T0 + 1300, source: 'extension', kind: 'turn_start', turnId: liveTurn }
+  ];
+  chatRuntimeBindings.controlledTurnId = liveTurn;
+  chatRuntimeBindings.paintDeliveryControls();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('stop');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(true);
+});
+
 it('shows an early composer send as a chat message while project preparation stays internal', async () => {
   const project: LocalProject = { id: '66666666-6666-4666-8666-666666666666', name: 'Workspace', path: '/workspace', createdAt: T0 };
   const { w, live } = await boot([], true, [], [project]);

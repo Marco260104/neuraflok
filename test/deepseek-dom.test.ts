@@ -1139,6 +1139,14 @@ it('chooses the labeled New chat control instead of the home link', () => {
   expect(api.newChat()).toBe(starter);
 });
 
+it('finds DeepSeek New chat inside its custom ds-button wrapper', () => {
+  const content = node('span', { class: 'ds-button__content', text: 'Nuevo chat' });
+  const starter = node('div', { class: 'ds-button' }, [content]);
+  const { api } = load([starter]);
+
+  expect(api.newChat()).toBe(starter);
+});
+
 it.each([
   { label: 'very short', question: 'Hi' },
   { label: 'very long', question: 'Please inspect the project context and propose a safe edit. '.repeat(400) }
