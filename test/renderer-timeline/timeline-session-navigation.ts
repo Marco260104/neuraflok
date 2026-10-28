@@ -462,6 +462,92 @@ it('keeps stale Stop hidden until an old chat history is loaded and confirms liv
   expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(true);
 });
 
+it('does not flash Stop while an old project chat restores completed history and stale controls', async () => {
+  const turnId = 'finished-project-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'project-question', message: text('Earlier project question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'project-answer', turnId,
+      message: text('Earlier project answer.'), state: 'final', final: true },
+    { seq: 4, time: T0 + 1100, source: 'extension', kind: 'turn_end', turnId, outcome: 'completed' }
+  ];
+  const project: LocalProject = { id: '88888888-8888-4888-8888-888888888888', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-chat', chatIds: ['ds-old-project-chat'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastAssistantFinalAt: T0 + 1000, lastTurnEndAt: T0 + 1100, lastTurnOutcome: 'completed',
+    lastToolCallAt: Date.now() - 5_000, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  const controls: Array<(value: unknown) => void> = [];
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = () => new Promise(resolve => controls.push(resolve));
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  await vi.waitFor(() => expect(controls).toHaveLength(1));
+  await settle();
+  expect(w.document.getElementById('chatState')!.classList.contains('is-working')).toBe(false);
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector(`.sess[data-id="${chat.id}"] .session-status.is-active`)).not.toBeNull();
+
+  controls[0]!({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId, automation: 'off',
+    activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+  await settle();
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector(`.sess[data-id="${chat.id}"] .session-status.is-active`)).not.toBeNull();
+});
+
+it('keeps a cancelled project turn settled after switching away and reopening the old chat', async () => {
+  const asked = Date.now() - 8_000;
+  const turnId = 'cancelled-project-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: asked - 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 2, time: asked, source: 'app', kind: 'user_message', messageId: 'cancelled-project-question', message: text('Synthetic cancellation test') },
+    { seq: 3, time: asked + 500, source: 'extension', kind: 'assistant_message', messageId: 'cancelled-project-partial', turnId,
+      message: text('A partial synthetic response…'), state: 'streaming', final: false }
+  ];
+  const project: LocalProject = { id: '77777777-7777-4777-8777-777777777777', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'cancelled-project-chat', title: 'Stopped project turn',
+    projectId: project.id, conversationId: 'ds-cancelled-project-chat', chatIds: ['ds-cancelled-project-chat'],
+    updatedAt: Date.now(), lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null,
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const other: SessionSummary = { ...summary([]), id: 'other-chat', title: 'Other chat', conversationId: 'ds-other-chat',
+    chatIds: ['ds-other-chat'], updatedAt: Date.now() - 1_000, lastToolCallAt: null, activityExpiresAt: null };
+  const { w, append } = await boot(history, false, [], [project], { sessions: [other, chat] });
+  let stopped = false;
+  const api = (w as any).api;
+  api.getSessionControls = (id: string) => Promise.resolve({ ok: true, data: {
+    sessionId: id, conversationId: id === chat.id ? chat.conversationId : other.conversationId,
+    automation: 'off', activeTurnId: id === chat.id && !stopped ? turnId : null,
+    finishHeld: false, blocked: '', job: null
+  } });
+  api.stopSessionTurn = vi.fn(async () => { stopped = true; return { ok: true, data: {} }; });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"]`)!.click();
+  await settle();
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('stop');
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).not.toBeNull();
+  send.click();
+  await settle();
+  expect(api.stopSessionTurn).toHaveBeenCalledWith(chat.id, turnId);
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector('.turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('.turn-now:not([hidden])')).toBeNull();
+
+  await append([{ seq: 4, time: asked + 900, source: 'extension', kind: 'turn_end', turnId, outcome: 'stopped' }]);
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${other.id}"]`)!.click();
+  await settle();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"]`)!.click();
+  await settle();
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector('.turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('.turn-now:not([hidden])')).toBeNull();
+});
+
 it('shows an early composer send as a chat message while project preparation stays internal', async () => {
   const project: LocalProject = { id: '66666666-6666-4666-8666-666666666666', name: 'Workspace', path: '/workspace', createdAt: T0 };
   const { w, live } = await boot([], true, [], [project]);
@@ -518,6 +604,19 @@ it('shows an early composer send as a chat message while project preparation sta
   entry.state = 'sent';
   chatRuntimeBindings.pendingComposerInputs = [entry];
   chatRuntimeBindings.paintDetail(true);
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+
+  const internalWarmup: InputEntry = {
+    id: 'internal-project-warmup', sessionId, deliveredSessionId: sessionId, projectId: project.id,
+    text: 'NEURAFLOK_WARMUP', warmup: true, mode: 'after-turn', afterTurn: true, dueAt: T0,
+    model: null, reasoningEffort: null, state: 'queued', owner: null, createdAt: Date.now(), conversationId: 'chat-b'
+  };
+  live.inputs.push(internalWarmup);
+  chatRuntimeBindings.pendingComposerInputs = [entry, internalWarmup];
+  await chatRuntimeBindings.refreshInputQueue();
+  expect(w.document.getElementById('finishQueue')!.hidden).toBe(true);
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
   expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
 });
 

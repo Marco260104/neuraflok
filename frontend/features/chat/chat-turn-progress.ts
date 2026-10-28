@@ -379,7 +379,9 @@ export function createChatTurnProgress(
       $('timeline').append(turnNow);
     } else if (working || pending)
       $('inputQueue').after(turnStatusLine, turnNow);
-    else if (!turnStatusLine.closest('#timeline')) {
+    else {
+      // A turn can be stopped before its terminal event is written. Remove its
+      // old live row even when it was previously anchored inside the timeline.
       turnStatusLine.remove();
       turnNow.remove();
     }

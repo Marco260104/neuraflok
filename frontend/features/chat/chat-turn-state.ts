@@ -14,3 +14,15 @@ export function transcriptShowsCompletedLatestTurn(events: readonly SessionEvent
   }
   return latestUser >= 0 && latestTerminal > latestUser;
 }
+
+/** True only when the latest authored question has a closed turn boundary. */
+export function transcriptShowsClosedLatestTurn(events: readonly SessionEvent[]): boolean {
+  let latestUser = -1;
+  let latestTurnEnd = -1;
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index]!;
+    if (event.kind === 'user_message') latestUser = index;
+    else if (event.kind === 'turn_end' && event.outcome !== 'unknown') latestTurnEnd = index;
+  }
+  return latestUser >= 0 && latestTurnEnd > latestUser;
+}

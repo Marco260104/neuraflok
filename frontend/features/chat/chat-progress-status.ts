@@ -1,6 +1,7 @@
 import type { AgentState } from '../../../contracts/session.js';
 import { t } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
+import { transcriptShowsClosedLatestTurn } from './chat-turn-state.js';
 
 export interface ProgressStatus {
   text: string;
@@ -38,6 +39,7 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
         .find(
           (event) => event.kind === 'turn_start' || event.kind === 'turn_end',
         );
+      const completedLatestTurn = transcriptShowsClosedLatestTurn(runtime.events);
       const controlledTurn =
         runtime.controlledSessionId === runtime.selectedId &&
         runtime.controlledSelection === runtime.selectionGeneration
@@ -48,7 +50,7 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       const controlledTurnEnded = !!controlledTurn && runtime.events.some(
         (event) => event.kind === 'turn_end' && event.turnId === controlledTurn && event.outcome !== 'unknown',
       );
-      const active = controlledTurnEnded ? null : controlledTurn;
+      const active = controlledTurnEnded || completedLatestTurn ? null : controlledTurn;
       if (!active && lastBoundary?.kind === 'turn_end' &&
           lastBoundary.outcome !== 'completed' && lastBoundary.outcome !== 'unknown') {
         return { text: '', tone: '' };
@@ -61,6 +63,7 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       );
       const blind =
         !active &&
+        !completedLatestTurn &&
         summary.lastToolCallAt !== null &&
         Date.now() - summary.lastToolCallAt < BLIND_CAPTION_MS &&
         summary.lastToolCallAt > reportedEnd

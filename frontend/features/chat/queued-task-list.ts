@@ -35,6 +35,9 @@ export function createQueuedTaskList(runtime: Runtime) {
     const selectedProjectId = runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? runtime.selectedProjectId;
     const hiddenDeferredProjectInput = (entry: InputEntry): boolean =>
       !!selectedProjectId && !!entry.warmupDeferred && ['queued', 'browser', 'tool'].includes(entry.state);
+    // Project preparation handshakes can inherit after-turn queue metadata from
+    // persisted rows. They are internal transport work, never user-authored tasks.
+    const internalPreparation = (entry: InputEntry): boolean => entry.warmup === true;
     const belongsToSelection = (entry: {
       id: string;
       sessionId: string | null;
@@ -47,6 +50,7 @@ export function createQueuedTaskList(runtime: Runtime) {
     const queuedTasks = all.filter(
       (entry) =>
         belongsToSelection(entry) &&
+        !internalPreparation(entry) &&
         !hiddenDeferredProjectInput(entry) &&
         queuedFollowup(entry) &&
         ['queued', 'tool', 'browser'].includes(entry.state),
@@ -60,6 +64,7 @@ export function createQueuedTaskList(runtime: Runtime) {
     ].filter(
       (entry) =>
         belongsToSelection(entry) &&
+        !internalPreparation(entry) &&
         !hiddenDeferredProjectInput(entry) &&
         !entry.stagesApplied &&
         ['queued', 'browser', 'tool'].includes(entry.state),
