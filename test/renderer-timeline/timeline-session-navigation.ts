@@ -533,6 +533,37 @@ it('does not show Stop after opening a completed old project chat while provider
   expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
 });
 
+it('does not flash Stop when an old chat history page omits its terminal event but the session summary records completion', async () => {
+  const turnId = 'completed-turn-omitted-from-history-page';
+  const askedAt = T0 + 20_000;
+  // A bounded transcript page may not include the final boundary even though
+  // the sidebar summary has already projected it from durable history.
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier project question') }
+  ];
+  const project: LocalProject = { id: '12121212-1212-4212-8212-121212121212', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-summary-completed', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-summary-completed', chatIds: ['ds-old-project-summary-completed'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastAssistantFinalAt: askedAt + 1_000, lastTurnEndAt: askedAt + 1_200, lastTurnOutcome: 'completed',
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  const controls: Array<(value: unknown) => void> = [];
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = () => new Promise(resolve => controls.push(resolve));
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  await vi.waitFor(() => expect(controls).toHaveLength(1));
+  controls[0]!({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId, automation: 'off', activeTurnId: turnId,
+    finishHeld: false, blocked: '', job: null } });
+  await settle();
+
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
 it('does not flash Stop while an old project chat restores completed history and stale controls', async () => {
   const turnId = 'finished-project-turn';
   const history: SessionEvent[] = [

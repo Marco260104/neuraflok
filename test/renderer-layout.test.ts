@@ -307,7 +307,7 @@ describe('a session row', () => {
     expect(sessionWorkingAt({ ...summary, activityExpiresAt: 100 + 10 * 60_000 }, 101 + CHAT_ACTIVE_MS)).toBe(true);
     expect(sessionWorkingAt({ ...summary, activityExpiresAt: null }, 101)).toBe(false);
     expect(chatSessionRowSource).toMatch(/else if \(!agent && workerReportedFinish\(summary\)\)\s*badges\.push\(AGENT_BADGE\.sleeping\)/);
-    expect(chatSessionRowSource).toMatch(/(?:else )?if \(runtime\.sessionWorking\(summary\)\) badges\.push\(AGENT_BADGE\.active\)/);
+    expect(chatSessionRowSource).toMatch(/else if \(!runtime\.suppressWarmupActivity\(summary\) && runtime\.sessionWorking\(summary\)\) badges\.push\(AGENT_BADGE\.active\)/);
     expect(chatSessionListSource).toMatch(/scheduleToolActivityExpiry/);
   });
 

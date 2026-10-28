@@ -4,6 +4,7 @@ import path from 'node:path';
 import { defaultConfig, initConfigPath, saveConfig } from '../backend/infrastructure/settings/config.js';
 import { initDurableStore, resetDurableForTests } from '../backend/persistence/durable.js';
 import { addProject, assignSessionProject } from '../backend/domains/workspace/projects.js';
+import { buildProjectContextTree } from '../backend/domains/workspace/projects/context-tree.js';
 import { createSession, initSessionStore, rebindSession, resetSessionStoreForTests } from '../backend/domains/sessions/history/store.js';
 import { fitSessionPrompt, prepareProviderSessionPrompt, prepareProviderSkillFollowup, prepareSessionPrompt } from '../backend/domains/sessions/input/prompt.js';
 import { MAX_PROVIDER_MESSAGE_CHARS, prependUserPrompt, userPromptText } from '../contracts/messaging/provider-message-envelope.js';
@@ -206,6 +207,50 @@ it('bounds a large file and refuses invalid file types and revoked access withou
   expect(noRead).toContain('Selected project directory: /work');
   await saveConfig(defaultConfig());
   await expect(prepareSessionPrompt('Revoked', { projectId: project.id })).rejects.toThrow();
+});
+
+it('keeps a large project tree bounded, names-only, and explicit about omitted paths', async () => {
+  const projectPath = path.join(directory, 'large-project-tree');
+  await fs.mkdir(path.join(projectPath, '.git'), { recursive: true });
+  await fs.mkdir(path.join(projectPath, 'node_modules', 'private-package'), { recursive: true });
+  await fs.mkdir(path.join(projectPath, 'packages', 'service', 'src'), { recursive: true });
+  await fs.writeFile(path.join(projectPath, '.env.production'), 'NEVER_INLINE_ENV_CONTENT');
+  await fs.writeFile(path.join(projectPath, 'secret.key'), 'NEVER_INLINE_SECRET_CONTENT');
+  await fs.writeFile(path.join(projectPath, 'node_modules', 'private-package', 'index.js'), 'NEVER_INLINE_DEPENDENCY_CONTENT');
+  await fs.writeFile(path.join(projectPath, 'packages', 'service', 'src', 'index.ts'), 'NEVER_INLINE_SOURCE_CONTENT');
+  for (let index = 0; index < 350; index++)
+    await fs.writeFile(path.join(projectPath, `zz-generated-${String(index).padStart(3, '0')}.md`), 'NEVER_INLINE_REPOSITORY_CONTENT');
+  const project = await addProject(projectPath);
+
+  const tree = await buildProjectContextTree(project.id);
+
+  expect(tree).toContain('PROJECT FILE TREE (names only; bounded)');
+  expect(tree.length).toBeLessThanOrEqual(12_200);
+  expect(tree).toContain('packages/');
+  expect(tree).toContain('project tree shortened; use the project tools to inspect omitted paths');
+  expect(tree).not.toMatch(/^\s*\.git\/?\s*$/m);
+  expect(tree).not.toContain('node_modules');
+  expect(tree).not.toContain('.env.production');
+  expect(tree).not.toContain('secret.key');
+  expect(tree).not.toContain('NEVER_INLINE');
+});
+
+const largeProjectFixture = process.env.NEURAFLOK_QA_LARGE_PROJECT_ROOT;
+it.skipIf(!largeProjectFixture)('keeps a real large repository context bounded on the supplied QA fixture', async () => {
+  const projectPath = path.resolve(largeProjectFixture!);
+  await saveConfig({ ...defaultConfig(), roots: [
+    { name: 'work', path: directory },
+    { name: 'large-project', path: projectPath },
+  ] });
+  const project = await addProject(projectPath);
+
+  const tree = await buildProjectContextTree(project.id);
+
+  expect(tree.length).toBeLessThanOrEqual(12_200);
+  expect(tree).toContain('PROJECT FILE TREE (names only; bounded)');
+  expect(tree).toContain('project tree shortened; use the project tools to inspect omitted paths');
+  expect(tree).not.toContain('node_modules');
+  expect(tree).not.toMatch(/^\s*\.git\/?\s*$/m);
 });
 
 it('tells the provider to reply in the configured interface language', async () => {

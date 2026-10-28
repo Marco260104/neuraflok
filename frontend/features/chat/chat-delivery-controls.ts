@@ -3,16 +3,17 @@ import type { InputEntry } from '../../../backend/domains/sessions/input/input.j
 import type { GoalDraftPresentation } from './chat-goal-progress.js';
 import type { ComposerAttachment } from './chat-composer-attachments.js';
 import type { createChatTaskPlan } from './chat-task-plan.js';
-import type { SessionEvent } from '../../../contracts/session.js';
+import type { SessionEvent, SessionSummary } from '../../../contracts/session.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
-import { transcriptShowsCompletedLatestTurn } from './chat-turn-state.js';
+import { transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
 
 export interface ChatDeliveryControlsRuntime {
   selectedId: string | null;
   selectionGeneration: number;
   detailFor: string | null;
   events: SessionEvent[];
+  selectedSummary: () => SessionSummary | undefined;
   controlledSessionId: string | null;
   controlledSelection: number;
   controlledTurnId: string | null;
@@ -43,7 +44,7 @@ export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime)
     const hiddenProjectComposerDelivery = runtime.projectScopedSelection() && !!pending && !pending.warmupDeferred &&
       pending.authoredSource !== 'none' && !pending.finishOwner && pending.purpose !== 'decision';
     const historyReady = runtime.selectedId !== null && runtime.detailFor === runtime.selectedId;
-    const working = historyReady && !transcriptShowsCompletedLatestTurn(runtime.events) &&
+    const working = historyReady && !transcriptOrSummaryShowsCompletedLatestTurn(runtime.events, runtime.selectedSummary()) &&
       !runtime.preparingChatInternally() && !internalProjectDelivery &&
       runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration &&

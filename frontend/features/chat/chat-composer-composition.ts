@@ -202,6 +202,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get selectionGeneration() { return bindings.selectionGeneration; },
     get detailFor() { return bindings.detailFor; },
     get events() { return bindings.events; },
+    selectedSummary: () => bindings.sessions.find(row => row.id === bindings.selectedId),
     preparingChatInternally: () => {
       const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
       // A restored queue row is not evidence of a turn started by this view.
