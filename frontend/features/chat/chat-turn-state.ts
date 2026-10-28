@@ -72,11 +72,26 @@ export function hasRecentTurnActivity(
   turnId: string | null | undefined,
   selectedAt: number | null,
   now = Date.now(),
+  internalInputIds: ReadonlySet<string> = new Set(),
+  internalWarmupText?: string,
 ): boolean {
   if (!turnId) return false;
+  let latestQuestion: Extract<SessionEvent, { kind: 'user_message' }> | undefined;
   let latestUserAt = Number.NEGATIVE_INFINITY;
   for (const event of events)
-    if (event.kind === 'user_message') latestUserAt = Math.max(latestUserAt, event.time);
+    if (event.kind === 'user_message') {
+      latestQuestion = event;
+      latestUserAt = Math.max(latestUserAt, event.time);
+    }
+  // A provider turn started by the hidden chat handshake is not the user's
+  // turn. The provider can briefly keep it active after acknowledging setup;
+  // exposing Stop in that gap lets navigation cancel internal preparation.
+  if (latestQuestion?.kind === 'user_message' && latestQuestion.inputId &&
+      internalInputIds.has(latestQuestion.inputId)) return false;
+  // Provider-observed warmup messages do not always carry the app outbox id,
+  // so also recognize the exact internal handshake text while it settles.
+  if (latestQuestion?.kind === 'user_message' && internalWarmupText &&
+      latestQuestion.message.text.trim() === internalWarmupText) return false;
   const recent = (event: SessionEvent): boolean => now - event.time >= -1_000 &&
     now - event.time < RECENT_TURN_ACTIVITY_MS;
   const actualActivity = events.some(event => {

@@ -4,6 +4,7 @@ import type { GoalDraftPresentation } from './chat-goal-progress.js';
 import type { ComposerAttachment } from './chat-composer-attachments.js';
 import type { createChatTaskPlan } from './chat-task-plan.js';
 import type { SessionEvent, SessionSummary } from '../../../contracts/session.js';
+import { WEB_CHAT_WARMUP_TEXT } from './chat-web-warmup.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 import { chatSelectionStartedAt, hasRecentTurnActivity, transcriptOrSummaryShowsCompletedLatestTurn } from './chat-turn-state.js';
@@ -38,10 +39,19 @@ export interface ChatDeliveryControlsRuntime {
 
 export function createChatDeliveryControls(runtime: ChatDeliveryControlsRuntime) {
   function confirmedWorkingTurn(): boolean {
+    const internalInputIds = new Set(
+      [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs]
+        .filter(entry => entry.warmup &&
+          (entry.sessionId ?? entry.deliveredSessionId) === runtime.selectedId)
+        .map(entry => entry.id),
+    );
     return hasRecentTurnActivity(
       runtime.events,
       runtime.controlledTurnId,
       chatSelectionStartedAt(runtime.selectedId, runtime.selectionGeneration),
+      Date.now(),
+      internalInputIds,
+      WEB_CHAT_WARMUP_TEXT,
     );
   }
 

@@ -43,6 +43,27 @@ it('shows Stop when a new question starts a turn after opening the selected chat
   )).toBe(true);
 });
 
+it('does not show Stop for a provider turn started by hidden chat preparation', () => {
+  const warmup = { ...event('user_message', selectedAt + 1), inputId: 'hidden-warmup',
+    message: { text: 'NEURAFLOK_WARMUP', truncated: false } } as SessionEvent;
+  const providerObservedWarmup = { ...warmup, inputId: undefined } as Extract<SessionEvent, { kind: 'user_message' }>;
+  expect(hasRecentTurnActivity(
+    [providerObservedWarmup, event('turn_start', selectedAt + 2), event('page_tool', selectedAt + 3)],
+    'turn-1', selectedAt, now, new Set(), 'NEURAFLOK_WARMUP',
+  )).toBe(false);
+});
+
+it('shows Stop after an authored question follows hidden chat preparation', () => {
+  const warmup = { ...event('user_message', selectedAt + 1), inputId: 'hidden-warmup',
+    message: { text: 'NEURAFLOK_WARMUP', truncated: false } } as SessionEvent;
+  const authored = { ...event('user_message', selectedAt + 10), inputId: 'user-input',
+    message: { text: 'Continue my project task', truncated: false } } as SessionEvent;
+  expect(hasRecentTurnActivity(
+    [warmup, event('turn_start', selectedAt + 2), authored, event('page_tool', selectedAt + 11)],
+    'turn-1', selectedAt, now, new Set(['hidden-warmup']), 'NEURAFLOK_WARMUP',
+  )).toBe(true);
+});
+
 it('does not restore Stop from a partial answer that predates opening the chat', () => {
   const partial = { ...event('assistant_message', selectedAt - 1), final: false, state: 'streaming' } as SessionEvent;
   expect(hasRecentTurnActivity(

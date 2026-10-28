@@ -472,6 +472,54 @@ it('does not revive Stop from a recent message when reopening an old chat withou
   expect(send.classList.contains('is-stop')).toBe(false);
 });
 
+it('keeps Stop hidden while an old project chat settles its hidden preparation turn', async () => {
+  const project: LocalProject = { id: '13131313-1313-4313-8313-131313131313', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary([]), id: 'old-project-chat-with-internal-warmup', title: 'Old project chat',
+    projectId: project.id, conversationId: 'ds-old-project-chat-with-internal-warmup',
+    chatIds: ['ds-old-project-chat-with-internal-warmup'], lastAssistantFinalAt: null, lastTurnEndAt: null,
+    lastTurnOutcome: null, lastToolCallAt: null };
+  const { w } = await boot([], false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId,
+    automation: 'off', activeTurnId: 'internal-warmup-turn', finishHeld: false, blocked: '', job: null } });
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupFailed } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  const warmupId = 'hidden-project-warmup-input';
+  const warmupInput = { id: warmupId, sessionId: chat.id, deliveredSessionId: chat.id, projectId: project.id,
+    conversationId: chat.conversationId, text: 'NEURAFLOK_WARMUP', warmup: true, state: 'sent',
+    mode: 'auto', dueAt: Date.now(), model: null, reasoningEffort: null, owner: 'browser', createdAt: Date.now() } as InputEntry;
+  const activityAt = Date.now();
+  chatRuntimeBindings.pendingComposerInputs = [warmupInput];
+  chatRuntimeBindings.events = [
+    { seq: 1, time: activityAt, source: 'extension', kind: 'user_message', messageId: 'hidden-warmup-message',
+      message: text('NEURAFLOK_WARMUP') },
+    { seq: 2, time: activityAt + 1, source: 'extension', kind: 'turn_start', turnId: 'internal-warmup-turn' },
+    { seq: 3, time: activityAt + 2, source: 'mcp', kind: 'page_tool', messageId: 'warmup-progress',
+      turnId: 'internal-warmup-turn', label: 'Preparing…' }
+  ];
+  markComposerWarmupFailed(composerWarmupKey(chat.id, generation), 'Synthetic delayed acknowledgement', generation);
+  chatRuntimeBindings.paintDeliveryControls();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+
+  const authoredAt = Date.now();
+  chatRuntimeBindings.events = [...chatRuntimeBindings.events,
+    { seq: 4, time: authoredAt, source: 'app', kind: 'user_message', messageId: 'authored-question', inputId: 'authored-input',
+      message: text('Continue my project task') },
+    { seq: 5, time: authoredAt + 1, source: 'mcp', kind: 'page_tool', messageId: 'authored-progress',
+      turnId: 'internal-warmup-turn', label: 'Working on the requested task…' }
+  ];
+  chatRuntimeBindings.paintDeliveryControls();
+  expect(send.dataset.action).toBe('stop');
+  expect(send.classList.contains('is-stop')).toBe(true);
+});
+
 it('keeps Stop hidden when the first old chat opened from the start page only has preselection activity', async () => {
   const now = Date.now();
   const turnId = 'recently-stale-turn';
