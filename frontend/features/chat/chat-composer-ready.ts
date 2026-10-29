@@ -5,7 +5,7 @@ const HANDSHAKE_ACK = /^(NEURAFLOK_READY|NEURAL_JAM_READY)$/;
 
 export type ComposerWarmupState =
   | { phase: 'opening'; generation?: number; priorTurnWorking?: boolean }
-  | { phase: 'failed'; error: string; generation?: number; priorTurnWorking?: boolean };
+  | { phase: 'failed'; error: string; failedAt?: number; generation?: number; priorTurnWorking?: boolean };
 
 export function visibleWarmupPhase(
   phase: 'opening' | 'failed' | null,
@@ -14,11 +14,32 @@ export function visibleWarmupPhase(
   return hasPendingMessage ? phase : null;
 }
 
+/** Keep a stale provider Stop from cancelling internal chat preparation or its retry. */
+export function blocksStopForWarmup(
+  warmup: ComposerWarmupState | null,
+  events: readonly SessionEvent[] = [],
+  turnId: string | null = null,
+  generation?: number
+): boolean {
+  if (warmup?.phase === 'opening') return true;
+  if (warmup?.phase !== 'failed') return false;
+  if (generation !== undefined && warmup.generation !== undefined && warmup.generation !== generation) return false;
+  if (warmup.failedAt === undefined || !turnId) return true;
+  // A real provider event after preparation failed proves the user's turn is
+  // live. Internal warmup events remain hidden and cannot expose Stop.
+  return !events.some(event => event.turnId === turnId && event.time >= warmup.failedAt! &&
+    event.internalWarmup !== true && (
+      ['tool_call', 'page_tool', 'progress'].includes(event.kind) ||
+      (event.kind === 'assistant_message' && event.final !== true && event.state !== 'final')
+    ));
+}
+
 export function shouldSuppressWarmupActivity(
   warmup: { phase: 'opening' | 'failed'; priorTurnWorking?: boolean } | null,
   hasPendingMessage: boolean
 ): boolean {
-  return warmup?.phase === 'opening' && warmup.priorTurnWorking !== true && !hasPendingMessage;
+  return (warmup?.phase === 'opening' || warmup?.phase === 'failed') &&
+    !hasPendingMessage;
 }
 
 const openingSessions = new Set<string>();
@@ -47,10 +68,10 @@ export function markComposerWarmupOpening(key: string, generation?: number, prio
   });
 }
 
-export function markComposerWarmupFailed(key: string, error: string, generation?: number): void {
+export function markComposerWarmupFailed(key: string, error: string, generation?: number, failedAt = Date.now()): void {
   const existing = composerWarmups.get(key);
   composerWarmups.set(key, {
-    phase: 'failed', error,
+    phase: 'failed', error, failedAt,
     ...(generation === undefined ? existing?.generation === undefined ? {} : { generation: existing.generation } : { generation }),
     ...(existing?.priorTurnWorking === undefined ? {} : { priorTurnWorking: existing.priorTurnWorking })
   });

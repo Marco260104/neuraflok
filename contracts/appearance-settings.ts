@@ -19,10 +19,10 @@ export interface AppearanceSettings {
 
 export function defaultAppearance(): AppearanceSettings {
   return {
-    light: { background: '#eef2f5', sidebar: '#e1e7ec', accent: '#0d7480', contrast: 40 },
-    dark: { background: '#141a20', sidebar: '#0c1014', accent: '#3ecad6', contrast: 50 },
+    light: { background: '#f4f4f5', sidebar: '#e9e9eb', accent: '#52525b', contrast: 40 },
+    dark: { background: '#171717', sidebar: '#111111', accent: '#d4d4d8', contrast: 50 },
     font: 'system',
-    fontSize: 14,
+    fontSize: 12,
     translucentSidebar: true
   };
 }
@@ -38,6 +38,14 @@ function paletteEqual(left: Palette, right: Palette): boolean {
 
 const SHIPPED_APPEARANCE_PALETTES: ReadonlyArray<{ light: Palette; dark: Palette }> = [
   {
+    light: { background: '#f4f4f5', sidebar: '#e9e9eb', accent: '#52525b', contrast: 40 },
+    dark: { background: '#171717', sidebar: '#111111', accent: '#d4d4d8', contrast: 50 }
+  },
+  {
+    light: { background: '#eef2f5', sidebar: '#e1e7ec', accent: '#0d7480', contrast: 40 },
+    dark: { background: '#141a20', sidebar: '#0c1014', accent: '#3ecad6', contrast: 50 }
+  },
+  {
     light: { background: '#f3f1f6', sidebar: '#ebe7f0', accent: '#c45e32', contrast: 42 },
     dark: { background: '#16141c', sidebar: '#1c1924', accent: '#e8a07a', contrast: 52 }
   }
@@ -48,7 +56,12 @@ export function adoptShippedAppearance(settings: AppearanceSettings | undefined)
   const shipped = SHIPPED_APPEARANCE_PALETTES.some(old => paletteEqual(settings.light, old.light) && paletteEqual(settings.dark, old.dark));
   if (!shipped) return settings;
   const next = defaultAppearance();
-  return { ...next, font: settings.font, fontSize: settings.fontSize, translucentSidebar: settings.translucentSidebar };
+  return {
+    ...next,
+    font: settings.font,
+    fontSize: settings.fontSize === 14 ? next.fontSize : settings.fontSize,
+    translucentSidebar: settings.translucentSidebar
+  };
 }
 
 function mergeValue<T>(current: T, baseline: T, requested: T): T {

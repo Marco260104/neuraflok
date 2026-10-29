@@ -711,6 +711,8 @@ it('keeps stale Stop hidden when an old project has no recent activity for that 
   const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
   const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
   const generation = chatRuntimeBindings.selectionGeneration;
+  const { chatSelectionStartedAt } = await import('../../frontend/features/chat/chat-turn-state.js');
+  expect(chatSelectionStartedAt(chat.id, generation)).toBeGreaterThan(askedAt + 1_000);
   clearComposerWarmup(composerWarmupKey(chat.id, generation));
   chatRuntimeBindings.detailFor = chat.id;
   chatRuntimeBindings.events = history;
@@ -718,10 +720,13 @@ it('keeps stale Stop hidden when an old project has no recent activity for that 
   chatRuntimeBindings.controlledSelection = generation;
   chatRuntimeBindings.controlledTurnId = turnId;
   chatRuntimeBindings.paintDeliveryControls();
+  chatRuntimeBindings.paintStateLine();
 
   const send = w.document.getElementById('chatSend') as HTMLButtonElement;
   expect(send.dataset.action).toBe('send');
   await settle(250);
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.querySelectorAll('#timeline .turn-status.is-working, #timeline .turn-now:not([hidden])')).toHaveLength(0);
   chatRuntimeBindings.controlledTurnId = null;
   chatRuntimeBindings.paintDeliveryControls();
   await settle(1_050);
@@ -760,10 +765,12 @@ it('does not show Stop for late provider activity when reopening a project witho
   chatRuntimeBindings.controlledSelection = generation;
   chatRuntimeBindings.controlledTurnId = turnId;
   chatRuntimeBindings.paintDeliveryControls();
+  chatRuntimeBindings.paintStateLine();
 
   const send = w.document.getElementById('chatSend') as HTMLButtonElement;
   expect(send.dataset.action).toBe('send');
   expect(send.classList.contains('is-stop')).toBe(false);
+  expect(w.document.querySelectorAll('#timeline .turn-status.is-working, #timeline .turn-now:not([hidden])')).toHaveLength(0);
 });
 
 it('does not flash Stop when an old project reply is final by message state only', async () => {
@@ -1018,7 +1025,7 @@ it('shows an early composer send as a chat message while project preparation sta
   expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
 });
 
-it('keeps ordinary chat warmup queue presentation unchanged', async () => {
+it('shows an old ordinary chat message as sent while its hidden warmup waits internally', async () => {
   const { w, live } = await boot([]);
   const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
   const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
@@ -1032,9 +1039,58 @@ it('keeps ordinary chat warmup queue presentation unchanged', async () => {
   await settle();
 
   expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(input.value || 'Continue this ordinary conversation.');
-  expect(w.document.querySelector('#finishQueue .queued-input')?.textContent).toContain('Continue this ordinary conversation.');
-  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')).toBeNull();
+  expect(w.document.getElementById('finishQueue')!.hidden).toBe(true);
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+  expect((w.document.getElementById('chatSend') as HTMLButtonElement).dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
   expect(live.sent[0]).toMatchObject({ sessionId, mode: 'after-turn' });
+});
+
+it('does not restore a completed project receipt as a duplicate message or Thinking status', async () => {
+  const projectId = '78787878-7878-4787-8787-787878787878';
+  const askedAt = Date.now() - 8_000;
+  const completedAt = askedAt + 2_000;
+  const turnId = 'old-project-completed-turn';
+  // Simulate a bounded history page where the user row is off-page while its
+  // assistant final is visible. The durable outbox receipt proves the input
+  // was recorded and the summary proves that turn has already finished.
+  const history: SessionEvent[] = [
+    { seq: 34, time: completedAt, source: 'extension', kind: 'assistant_message', messageId: 'old-project-final', turnId,
+      message: text('The previous project task is complete.'), state: 'final', final: true }
+  ];
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat-no-stale-thinking', title: 'Earlier project chat', projectId,
+    conversationId: 'ds-old-project-chat-no-stale-thinking', chatIds: ['ds-old-project-chat-no-stale-thinking'],
+    activeTurnId: null, lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: 'completed' };
+  const project: LocalProject = { id: projectId, name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const other: SessionSummary = { ...summary([]), id: 'other-chat-during-navigation', title: 'Another chat',
+    conversationId: 'ds-other-chat-during-navigation', chatIds: ['ds-other-chat-during-navigation'] };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat, other] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const input: InputEntry = {
+    id: 'old-project-authored-receipt', sessionId: chat.id, deliveredSessionId: chat.id, projectId,
+    text: 'Synthetic old project request', authoredSource: 'text', mode: 'auto', dueAt: askedAt, model: null,
+    reasoningEffort: null, state: 'sent', owner: null, createdAt: askedAt, deliveredAt: askedAt,
+    conversationId: chat.conversationId, historyRecorded: true, historyAnchored: true, historySeq: 17
+  };
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${other.id}"] [data-session-select]`)!.click();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.pendingComposerInputs = [input];
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.paintDetail(true);
+
+  expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(w.document.querySelector('#timeline')?.textContent).not.toContain(input.text);
+  expect((w.document.getElementById('chatSend') as HTMLButtonElement).dataset.action).toBe('send');
 });
 
 it('shows a new-chat send immediately while its opening session is still being adopted', async () => {

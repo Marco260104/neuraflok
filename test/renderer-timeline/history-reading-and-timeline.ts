@@ -399,7 +399,12 @@ it('does not show a handoff note as a recovery verdict', async () => {
 });
 
 it('uses the Working label for active turns', async () => {
-  const { w } = await boot([{ seq: 1, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
+  const { w, append } = await boot([]);
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'extension', kind: 'user_message', messageId: 'active-question', turnId: 'held-turn', message: text('Current request') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   expect(w.document.getElementById('chatState')!.textContent).toMatch(/^Working for /);
 });
 
@@ -550,12 +555,16 @@ it('ends the running turn with a row saying what it is doing now', async () => {
 });
 
 it('shows a just-started turn working right after your message, never in the header first', async () => {
-  // The controls report a running turn before any of its rows reached the timeline.
-  const { w } = await boot([]);
+  const { w, append } = await boot([]);
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'extension', kind: 'user_message', messageId: 'just-sent-question', turnId: 'held-turn', message: text('A new request') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   const line = w.document.querySelector<HTMLElement>('.turn-status')!;
   expect(line.textContent).toMatch(/^Working/);
   expect(line.classList.contains('is-working')).toBe(true);
-  expect(line.previousElementSibling?.id).toBe('inputQueue');
+  expect(line.previousElementSibling?.matches('.ev-user_message')).toBe(true);
   expect(w.document.getElementById('chatState')!.classList.contains('is-mirrored')).toBe(true);
 });
 

@@ -24,7 +24,7 @@ import type { AppearanceSettings } from '../contracts/appearance-settings.js';
 import type { AppApi } from '../backend/preload/index.js';
 import { requiresApprovedFilesystemRoot } from '../contracts/capabilities.js';
 import { usesApiProvider } from '../contracts/chat-protocol.js';
-import { WEB_PROVIDERS, isWebProviderId } from '../contracts/web-providers.js';
+import { WEB_PROVIDERS, selectableWebProviderOrDefault } from '../contracts/web-providers.js';
 import type { AppState, Capability } from '../contracts/types.js';
 import {
   DESKTOP_CAPABILITIES
@@ -42,6 +42,7 @@ import { initWebProviderActions } from './application/web-provider-actions.js';
 import { initDiagnosticsActions } from './application/diagnostics-actions.js';
 import { initFolderDropActions } from './application/folder-drop-actions.js';
 import { initActivityLogHydration } from './features/activity/activity-log-hydration.js';
+import { initDonationPage } from './features/donation/donation-page.js';
 
 declare global {
   interface Window {
@@ -60,6 +61,7 @@ mountBrandAssets();
 // First: main announces a Keychain read before it starts and may not get through again until it ends.
 initKeychainNotice(api);
 initLanguage();
+initDonationPage();
 initLegalSettings();
 publishStopNoticeTexts(texts => api.setStopNoticeTexts(texts));
 // The tray menu and desktop notices come from the main process, which has no catalogs.
@@ -195,7 +197,7 @@ const providerStatusView = createProviderStatusView({
 function paintConnectionCapsule(next: AppState): void {
   const apiExecutor = usesApiProvider(next.config.ui.chatExecutor);
   const apiConfigured = apiProviderConfigured(next);
-  const selectedProvider = isWebProviderId(next.config.ui.webProvider) ? next.config.ui.webProvider : 'deepseek';
+  const selectedProvider = selectableWebProviderOrDefault(next.config.ui.webProvider);
   const selectedSession = providerStatusView.providerPresence(next.bridge, selectedProvider);
   const workspaceConnected = apiExecutor ? apiConfigured : next.bridge.present && selectedSession?.signedIn === true;
   const workspaceLabel = apiExecutor ? apiProviderWorkspaceLabel(next) : providerStatusView.webProviderWorkspaceLabel(next);
@@ -224,7 +226,7 @@ function apply(next: AppState): void {
   appearance.apply(appearanceUi);
 
   // Provider status capsule section.
-  const selectedProvider = isWebProviderId(config.ui.webProvider) ? config.ui.webProvider : 'deepseek';
+  const selectedProvider = selectableWebProviderOrDefault(config.ui.webProvider);
   paintConnectionCapsule(next);
   webModelLoading.paint(next);
   ui($('headerSub'), 'textContent', () => apiExecutor

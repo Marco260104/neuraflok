@@ -3,6 +3,7 @@ import type { InputEntry } from '../../../backend/domains/sessions/input/input.j
 import type { SessionSummary } from '../../../contracts/session.js';
 import { $ } from '../../shared/dom.js';
 import { t } from '../../shared/i18n.js';
+import { isInternallyDeferredAuthoredInput } from './chat-warmup-inputs.js';
 import { createPausedHelperCard, createQueuedTaskCard, type PausedHelper } from './queued-task-card.js';
 
 export interface QueuedTaskListRuntime {
@@ -32,9 +33,7 @@ export function createQueuedTaskList(runtime: Runtime) {
     pausedHelpers: PausedHelper[] | null,
     selection: number,
   ): void {
-    const selectedProjectId = runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? runtime.selectedProjectId;
-    const hiddenDeferredProjectInput = (entry: InputEntry): boolean =>
-      !!selectedProjectId && !!entry.warmupDeferred && ['queued', 'browser', 'tool'].includes(entry.state);
+    const hiddenDeferredInput = (entry: InputEntry): boolean => isInternallyDeferredAuthoredInput(entry);
     // Project preparation handshakes can inherit after-turn queue metadata from
     // persisted rows. They are internal transport work, never user-authored tasks.
     const internalPreparation = (entry: InputEntry): boolean => entry.warmup === true;
@@ -51,7 +50,7 @@ export function createQueuedTaskList(runtime: Runtime) {
       (entry) =>
         belongsToSelection(entry) &&
         !internalPreparation(entry) &&
-        !hiddenDeferredProjectInput(entry) &&
+        !hiddenDeferredInput(entry) &&
         queuedFollowup(entry) &&
         ['queued', 'tool', 'browser'].includes(entry.state),
     );
@@ -65,7 +64,7 @@ export function createQueuedTaskList(runtime: Runtime) {
       (entry) =>
         belongsToSelection(entry) &&
         !internalPreparation(entry) &&
-        !hiddenDeferredProjectInput(entry) &&
+        !hiddenDeferredInput(entry) &&
         !entry.stagesApplied &&
         ['queued', 'browser', 'tool'].includes(entry.state),
     );

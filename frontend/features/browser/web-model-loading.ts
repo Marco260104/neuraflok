@@ -1,6 +1,6 @@
 import { usesApiProvider } from '../../../contracts/chat-protocol.js';
 import type { AppState } from '../../../contracts/types.js';
-import { WEB_PROVIDERS, isWebProviderId } from '../../../contracts/web-providers.js';
+import { WEB_PROVIDERS, selectableWebProviderOrDefault } from '../../../contracts/web-providers.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 
@@ -21,7 +21,7 @@ export function markInitialBootComplete(): void {
 }
 
 function selectedPresence(state: AppState) {
-  const provider = isWebProviderId(state.config.ui.webProvider) ? state.config.ui.webProvider : 'deepseek';
+  const provider = selectableWebProviderOrDefault(state.config.ui.webProvider);
   return { provider, presence: state.bridge.webProviders?.[provider] ?? null };
 }
 

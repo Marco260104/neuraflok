@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { SessionEvent } from '../contracts/session.js';
-import { chatSelectionStartedAt, hasRecentTurnActivity, recordChatSelection } from '../frontend/features/chat/chat-turn-state.js';
+import { chatSelectionStartedAt, hasRecentTurnActivity, internalWarmupTurnIds, recordChatSelection } from '../frontend/features/chat/chat-turn-state.js';
 
 const selectedAt = 50_000;
 const now = selectedAt + 2_000;
@@ -69,6 +69,22 @@ it('shows Stop after an authored question follows hidden chat preparation', () =
     [warmup, event('turn_start', selectedAt + 2), authored, event('page_tool', selectedAt + 11)],
     'turn-1', selectedAt, now, new Set(['hidden-warmup']), 'NEURAFLOK_WARMUP',
   )).toBe(true);
+});
+
+it('associates provider warmup and later authored work when transcript user rows omit turn ids', () => {
+  const warmup = { ...event('user_message', selectedAt + 1), turnId: undefined,
+    message: { text: 'NEURAFLOK_WARMUP', truncated: false } } as SessionEvent;
+  const start = event('turn_start', selectedAt + 2);
+  const progress = event('page_tool', selectedAt + 3);
+  expect(internalWarmupTurnIds([warmup, start, progress], new Set(), 'NEURAFLOK_WARMUP')).toEqual(new Set(['turn-1']));
+  expect(hasRecentTurnActivity([warmup, start, progress], 'turn-1', selectedAt, now, new Set(), 'NEURAFLOK_WARMUP')).toBe(false);
+
+  const authored = { ...event('user_message', selectedAt + 10), turnId: undefined,
+    message: { text: 'Continue the project task', truncated: false } } as SessionEvent;
+  const authoredProgress = event('page_tool', selectedAt + 11);
+  expect(internalWarmupTurnIds([warmup, start, progress, authored, authoredProgress], new Set(), 'NEURAFLOK_WARMUP')).toEqual(new Set());
+  expect(hasRecentTurnActivity([warmup, start, progress, authored, authoredProgress], 'turn-1', selectedAt, now,
+    new Set(), 'NEURAFLOK_WARMUP')).toBe(true);
 });
 
 it('does not restore Stop from a partial answer that predates opening the chat', () => {

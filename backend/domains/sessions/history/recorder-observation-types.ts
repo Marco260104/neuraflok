@@ -68,6 +68,8 @@ export interface ChatObservation {
   messageId?: string;
   /** Exact local outbox identity for an app-generated assistant acknowledgement or setup failure. */
   inputId?: string;
+  /** App-owned provider preparation; never expose its transient turns in the chat UI. */
+  internalWarmup?: true;
   /** Raw public provider message UUID, retained as evidence, never used to guess ownership. */
   providerMessageId?: string;
   /** Server-reported model of an assistant reply; see SessionEvent.resolvedModel. */

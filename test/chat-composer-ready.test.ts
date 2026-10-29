@@ -30,7 +30,9 @@ it('tracks project preparation separately from the composer input', () => {
   markComposerWarmupOpening(key, 3);
   expect(composerWarmupState(key)).toEqual({ phase: 'opening', generation: 3 });
   markComposerWarmupFailed(key, 'provider timed out', 3);
-  expect(composerWarmupState(key)).toEqual({ phase: 'failed', error: 'provider timed out', generation: 3 });
+  const failed = composerWarmupState(key);
+  expect(failed).toMatchObject({ phase: 'failed', error: 'provider timed out', generation: 3 });
+  expect(failed?.phase === 'failed' ? failed.failedAt : undefined).toEqual(expect.any(Number));
   resetComposerWarmupForTests();
 });
 

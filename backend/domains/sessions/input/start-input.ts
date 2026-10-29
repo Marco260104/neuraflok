@@ -27,7 +27,9 @@ function waitForProviderPresence(ms: number): Promise<void> {
 
 async function assertWebProviderReady(provider: WebProviderId): Promise<void> {
   const label = WEB_PROVIDERS[provider].label;
-  if (!browserWakeConnected()) throw new Error(`Connect the NEURAFLOK browser and sign in to ${label} before sending.`);
+  if (!browserWakeConnected()) {
+    throw new Error(`NeuraFlok's browser connection to ${label} is not active. The provider sign-in state was not changed and no message was sent. Reconnect the browser companion and retry.`);
+  }
 
   const before = webProvidersStatus()[provider]?.lastSeenAt ?? 0;
   // Refresh authentication from the provider page immediately before the
@@ -38,11 +40,11 @@ async function assertWebProviderReady(provider: WebProviderId): Promise<void> {
     const presence = webProvidersStatus()[provider];
     if ((presence?.lastSeenAt ?? 0) > before) {
       if (presence?.signedIn === true) return;
-      throw new Error(`Connect ${label} in NEURAFLOK's browser before sending.`);
+      throw new Error(`NeuraFlok could not verify the ${label} session through its browser companion. No sign-in state was changed and no message was sent. Refresh the provider page and retry; if ${label} itself shows a sign-in page, sign in there.`);
     }
     await waitForProviderPresence(PROVIDER_AUTH_POLL_MS);
   }
-  throw new Error(`Could not verify your ${label} session. Reopen the provider in NEURAFLOK and sign in before sending.`);
+  throw new Error(`NeuraFlok could not confirm the ${label} session through its browser companion. No sign-in state was changed and no message was sent. Reopen or refresh the provider page and retry.`);
 }
 
 export function onLocalExecutorTurnSettled(

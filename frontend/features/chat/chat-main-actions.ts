@@ -13,7 +13,6 @@ export interface ChatMainActionsRuntime {
   controlledSelection: number;
   hasComposerImages: () => boolean;
   sendComposer: (delivery?: 'finish') => Promise<boolean | void>;
-  toggleProjectPlanMode: () => void;
   paintDeliveryControls: () => void;
   refreshSessionControls: () => Promise<void>;
   selectNewChat: (projectId?: string | null) => void;
@@ -48,7 +47,6 @@ export function bindChatMainActions(runtime: ChatMainActionsRuntime): void {
       finally { button.disabled = false; if (runtime.selectedId === id) void runtime.refreshSessionControls(); }
     });
   }
-  $('composerPlanBtn').addEventListener('click', () => runtime.toggleProjectPlanMode());
   $('composerProjectPill').addEventListener('click', () => $('addProject').click());
   $('generateFinishGoal').addEventListener('click', async () => {
     const button = $<HTMLButtonElement>('generateFinishGoal');
@@ -83,7 +81,15 @@ export function bindChatMainActions(runtime: ChatMainActionsRuntime): void {
       if (generation === runtime.selectionGeneration) runtime.selectNewChat(project.id); else runtime.paintSessions();
     } finally { button.disabled = false; }
   });
-  $('chatRefresh').addEventListener('click', event => { event.preventDefault(); void runtime.refreshAll(); });
+  $('workspaceRefresh').addEventListener('click', async event => {
+    event.preventDefault();
+    const button = $<HTMLButtonElement>('workspaceRefresh');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    try { await runtime.refreshAll(); }
+    finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+  });
   $('copyHandoff').addEventListener('click', async () => {
     if (!runtime.handoff) return;
     const copied = await runtime.run(runtime.api.writeClipboard(runtime.handoff.text));

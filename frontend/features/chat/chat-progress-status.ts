@@ -1,6 +1,8 @@
 import type { AgentState } from '../../../contracts/session.js';
 import { t } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
+import { chatSelectionStartedAt, hasRecentTurnActivity, internalWarmupTurnIds, isInternalWarmupQuestionText } from './chat-turn-state.js';
+import { WEB_CHAT_WARMUP_TEXT } from './chat-web-warmup.js';
 
 export interface ProgressStatus {
   text: string;
@@ -25,6 +27,58 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
   // An open provider turn is not proof of progress. Stop displaying a growing
   // elapsed clock when the chat has produced no visible output or tool activity.
   const PROVIDER_SILENCE_MS = 90_000;
+  // Restored provider controls can carry a stale turn from before this chat
+  // was reopened. Confirm that work belongs to this selection before showing
+  // a live caption, then retain that confirmation during quiet reasoning.
+  let confirmedSelectionTurn: string | null = null;
+  const RECENT_AUTHORED_TURN_MS = 15_000;
+
+  function turnConfirmedForSelection(turnId: string): boolean {
+    const sessionId = runtime.selectedId;
+    if (!sessionId) return false;
+    const key = `${sessionId}:${runtime.selectionGeneration}:${turnId}`;
+    const internalInputIds = new Set(
+      [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs]
+        .filter(entry => entry.warmup &&
+          (entry.sessionId ?? entry.deliveredSessionId) === sessionId)
+        .map(entry => entry.id),
+    );
+    const warmupTurns = internalWarmupTurnIds(runtime.events, internalInputIds, WEB_CHAT_WARMUP_TEXT);
+    if (warmupTurns.has(turnId)) {
+      if (confirmedSelectionTurn === key) confirmedSelectionTurn = null;
+      return false;
+    }
+    if (confirmedSelectionTurn === key) return true;
+    const selectedAt = chatSelectionStartedAt(sessionId, runtime.selectionGeneration);
+    const now = Date.now();
+    // Initial restoration may not have recorded a navigation boundary yet.
+    // In that case only accept evidence from the last few seconds, and still
+    // reject replayed MCP progress for a question from an older selection.
+    const activityBoundary = selectedAt ?? now - 10_000;
+    const latestQuestion = [...runtime.events].reverse().find(event => event.kind === 'user_message' &&
+      event.internalWarmup !== true &&
+      !warmupTurns.has(event.turnId ?? '') &&
+      !(event.inputId && internalInputIds.has(event.inputId)) &&
+      !isInternalWarmupQuestionText(event.message.text, WEB_CHAT_WARMUP_TEXT));
+    const recentAuthoredQuestion = latestQuestion?.kind === 'user_message' &&
+      now - latestQuestion.time >= -1_000 &&
+      now - latestQuestion.time < RECENT_AUTHORED_TURN_MS &&
+      (!latestQuestion.turnId || latestQuestion.turnId === turnId);
+    // A restored `turn_start` can be replayed after navigation even when its
+    // authored question and answer belong to the previous visit. A start by
+    // itself is not evidence of a new turn; require a fresh question or the
+    // activity gate that also ties a start to one.
+    if (!recentAuthoredQuestion && !hasRecentTurnActivity(
+      runtime.events,
+      turnId,
+      activityBoundary,
+      now,
+      internalInputIds,
+      WEB_CHAT_WARMUP_TEXT,
+    )) return false;
+    confirmedSelectionTurn = key;
+    return true;
+  }
 
   function stateLine(): ProgressStatus {
     if (!runtime.state()?.config.ui.developerMode) {
@@ -75,7 +129,9 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       // Assistant messages can be finalized between steps of one provider turn.
       // An explicit turn end or error closes the active control; a final message
       // alone does not when the selected session still reports that same turn.
-      const active = controlledTurnEnded || completedLatestTurn ? null : controlledTurn;
+      const candidateActive = controlledTurnEnded || completedLatestTurn ? null : controlledTurn;
+      const active = candidateActive && turnConfirmedForSelection(candidateActive) ? candidateActive : null;
+      if (!candidateActive || controlledTurnEnded || completedLatestTurn) confirmedSelectionTurn = null;
       if (!active && lastBoundary?.kind === 'turn_end' &&
           lastBoundary.outcome !== 'completed' && lastBoundary.outcome !== 'unknown') {
         return { text: '', tone: '' };

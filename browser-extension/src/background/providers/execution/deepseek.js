@@ -1,5 +1,6 @@
 import { createDeepseekSessionResolver } from '../deepseek-session.js';
 import { createDeepseekReplyWatcher, hasDeepseekToolCall, isDeepseekAck, looksLikeDeepseekThink } from './deepseek-reply-watch.js';
+import { openFreshDeepseekChat } from '../deepseek-new-chat.js';
 
 export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, usableProviderTab, state, replyWatchTimings = {} }) {
   const { stoppedProviderOffers, readDeepseekSent, writeDeepseekSent, readProviderTab, writeProviderTab } = state;
@@ -135,8 +136,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           }
         }
         if (!Number.isInteger(tab?.id)) {
-          await fail('Sign in to DeepSeek at chat.deepseek.com in the same browser as this app, then send again.');
-          return;
+          throw new Error('NeuraFlok could not find the DeepSeek chat tab for this request. Open DeepSeek in the integrated browser and retry. No message was sent.');
         }
         if (offer.fresh !== true && await restoreDeepseekTab(tab.id) === false) {
           throw new Error('Could not refresh the DeepSeek chat controls. Reload the provider page and retry.');
@@ -160,11 +160,29 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           }
         }
         if (!snapshot || snapshot.signedIn !== true) {
+          if (status?.signedIn === true) {
+            throw new Error('DeepSeek is still signed in, but NeuraFlok could not detect its chat controls. Refresh the DeepSeek page and retry. No message was sent.');
+          }
           const diagnostics = snapshot?.diagnostics;
           const safeSummary = diagnostics && typeof diagnostics === 'object'
             ? JSON.stringify(diagnostics).slice(0, 350)
             : `status=${String(status?.signedIn ?? 'missing')}; snapshot=${String(snapshot?.signedIn ?? 'missing')}`;
-          throw new Error(`Sign in to DeepSeek in this browser, then try again. [diagnostic ${safeSummary}]`);
+          throw new Error(`NeuraFlok could not verify the active DeepSeek session through its browser connection. It did not change the provider sign-in state and no message was sent. Refresh the DeepSeek page and retry; if DeepSeek itself shows a sign-in form, sign in there. [diagnostic ${safeSummary}]`);
+        }
+        let freshPagePrepared = false;
+        if (offer.fresh === true) {
+          try {
+            snapshot = await openFreshDeepseekChat({
+              chrome, tabReply, conversationPageUrl, tabId: tab.id,
+              previousSnapshot: { ...snapshot, url: tab.url || tab.pendingUrl },
+              readTimeoutMs: DEEPSEEK_READ_MS, readyTimeoutMs: 8_000, pollMs: DEEPSEEK_READY_POLL_MS
+            });
+            freshPagePrepared = true;
+          } catch {
+            // The content agent can use DeepSeek's exact, visible New chat
+            // control when the browser shortcut is unavailable. It verifies
+            // the route change before it sends any setup text.
+          }
         }
         if (offer.fresh !== true && snapshot.conversationId && snapshot.conversationId !== offer.conversationId) {
           const savedPageMatches = savedUrl && conversationPageUrl(tab.url || tab.pendingUrl) === savedUrl && snapshot.hasConversation === true;
@@ -195,6 +213,7 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           text: typeof offer.text === 'string' ? offer.text : '',
           stop: offer.stop === true,
           fresh: offer.fresh === true,
+          ...(freshPagePrepared ? { freshPagePrepared: true } : {}),
           ...(rebindSavedConversation ? { rebindSavedConversation: true } : {}),
           before: claim.before,
           beforeThink: claim.beforeThink,
@@ -209,9 +228,9 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           return;
         }
         const immediate = reply && typeof reply.text === 'string' ? reply.text : '';
-        const before = claim.before;
-        const beforeThink = claim.beforeThink;
-        const beforeIdentity = claim.beforeIdentity;
+        const before = typeof reply?.before === 'string' ? reply.before : claim.before;
+        const beforeThink = typeof reply?.beforeThink === 'string' ? reply.beforeThink : claim.beforeThink;
+        const beforeIdentity = typeof reply?.beforeIdentity === 'string' ? reply.beforeIdentity : claim.beforeIdentity;
         const answerIdentity = typeof reply?.answerIdentity === 'string' ? reply.answerIdentity : '';
         const normalized = (value) => String(value || '').replace(/\s+/g, ' ').trim();
         const sameAsPrior = normalized(immediate) === normalized(before) || normalized(immediate) === normalized(offer.text);
@@ -220,8 +239,8 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         const newAssistantMessage = Boolean(beforeIdentity && answerIdentity && beforeIdentity !== answerIdentity &&
           (!(beforePage || answerPage) || (beforePage && answerPage && beforePage === answerPage)));
         const staleAnswer = sameAsPrior && !newAssistantMessage;
-        const ackRepeat = isDeepseekAck(immediate) && isDeepseekAck(before);
-        const staleAck = isDeepseekAck(immediate) && String(before || '').trim() !== '';
+        const ackRepeat = isDeepseekAck(immediate) && isDeepseekAck(before) && !newAssistantMessage;
+        const staleAck = isDeepseekAck(immediate) && String(before || '').trim() !== '' && !newAssistantMessage;
         const planningOnly = looksLikeDeepseekThink(immediate) && !hasDeepseekToolCall(immediate);
         if (immediate && reply.pending !== true && reply.continueAvailable !== true && !staleAnswer && !ackRepeat && !staleAck && !planningOnly) {
           await postDeepseekPage(offer, { text: immediate }, tab.id);

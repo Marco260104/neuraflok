@@ -3,6 +3,8 @@ import { expect, it, vi } from 'vitest';
 import { createDeepseekPageExecutor } from '../browser-extension/src/background/providers/execution/deepseek.js';
 // @ts-expect-error Browser extension scripts are plain JavaScript and are exercised directly here.
 import { createDeepseekReplyWatcher } from '../browser-extension/src/background/providers/execution/deepseek-reply-watch.js';
+// @ts-expect-error Browser extension scripts are plain JavaScript and are exercised directly here.
+import { openFreshDeepseekChat } from '../browser-extension/src/background/providers/deepseek-new-chat.js';
 
 const conversationId = 'ds-00000000-0000-4000-8000-000000000001';
 const requestId = '00000000-0000-4000-8000-000000000002';
@@ -12,6 +14,7 @@ it('waits for a fresh DeepSeek workspace to finish hydrating before reporting si
   try {
     let snapshots = 0;
     let posted: Record<string, unknown> | undefined;
+    let completed: Record<string, unknown> | undefined;
     const state = {
       stoppedProviderOffers: new Set<string>(),
       readDeepseekSent: async () => null,
@@ -20,7 +23,15 @@ it('waits for a fresh DeepSeek workspace to finish hydrating before reporting si
       writeProviderTab: vi.fn(async () => true)
     };
     const executor = createDeepseekPageExecutor({
-      chrome: { tabs: { get: async () => ({ id: 7, url: 'https://chat.deepseek.com/', status: 'complete' }) } },
+      chrome: {
+        tabs: { get: async () => ({ id: 7, url: 'https://chat.deepseek.com/', status: 'complete' }) },
+        debugger: {
+          attach: vi.fn(async () => undefined),
+          sendCommand: vi.fn(async () => undefined),
+          detach: vi.fn(async () => undefined)
+        },
+        runtime: { getPlatformInfo: async () => ({ os: 'win' }) }
+      },
       activeTabs: { set: async () => undefined },
       call: async (path: string, init: { body?: string }) => {
         if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
@@ -35,6 +46,7 @@ it('waits for a fresh DeepSeek workspace to finish hydrating before reporting si
             : { signedIn: true, hasConversation: false, before: '', beforeIdentity: '' };
         }
         if (message.type === 'neuraflok-deepseek-complete') {
+          completed = message;
           return { text: 'NF_HYDRATED_OK', pending: false, generating: false };
         }
         return null;
@@ -51,8 +63,290 @@ it('waits for a fresh DeepSeek workspace to finish hydrating before reporting si
     executor.inspect({ id: requestId, provider: 'deepseek', conversationId, text: 'Short hydration test', stop: false, fresh: true }, false);
     for (let tick = 0; tick < 20 && !posted; tick += 1) await vi.advanceTimersByTimeAsync(250);
 
-    expect(snapshots).toBe(3);
+    expect(snapshots).toBeGreaterThanOrEqual(6);
     expect(posted).toMatchObject({ id: requestId, text: 'NF_HYDRATED_OK' });
+    expect(completed).toMatchObject({ fresh: true, freshPagePrepared: true });
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('reuses the active-tabs debugger lease while opening a fresh DeepSeek page', async () => {
+  const attach = vi.fn(async () => undefined);
+  const detach = vi.fn(async () => undefined);
+  const sendCommand = vi.fn(async () => undefined);
+  const chrome = {
+    debugger: { attach, detach, sendCommand, getTargets: async () => [{ tabId: 7, attached: true }] },
+    tabs: { get: async () => ({ id: 7, url: 'https://chat.deepseek.com/', status: 'complete' }) },
+    runtime: { getPlatformInfo: async () => ({ os: 'win' }) }
+  };
+  const snapshot = await openFreshDeepseekChat({
+    chrome,
+    tabId: 7,
+    previousSnapshot: { url: 'https://chat.deepseek.com/a/chat/s/old' },
+    conversationPageUrl: (url: string) => url,
+    tabReply: async () => ({ signedIn: true, hasConversation: false }),
+    pollMs: 1
+  });
+
+  expect(snapshot).toMatchObject({ signedIn: true, hasConversation: false });
+  expect(attach).not.toHaveBeenCalled();
+  expect(detach).not.toHaveBeenCalled();
+  expect(sendCommand).toHaveBeenCalledTimes(4);
+});
+
+it('opens a clean DeepSeek page for fresh recovery even when the old page is bound to the same app chat', async () => {
+  const oldUrl = 'https://chat.deepseek.com/a/chat/s/same-app-chat';
+  let currentUrl = oldUrl;
+  let newChatOpened = false;
+  let posted: Record<string, unknown> | undefined;
+  let completed: Record<string, unknown> | undefined;
+  const state = {
+    stoppedProviderOffers: new Set<string>(),
+    readDeepseekSent: async () => null,
+    writeDeepseekSent: vi.fn(async () => true),
+    readProviderTab: vi.fn(async () => ({ provider: 'deepseek', tab: 7, url: oldUrl })),
+    writeProviderTab: vi.fn(async () => true)
+  };
+  const sendCommand = vi.fn(async (_target: { tabId: number }, method: string, params: Record<string, unknown>) => {
+    if (method === 'Input.dispatchKeyEvent' && params.type === 'keyUp' && params.code === 'KeyJ') {
+      newChatOpened = true;
+      currentUrl = 'https://chat.deepseek.com/';
+    }
+  });
+  const executor = createDeepseekPageExecutor({
+    chrome: {
+      tabs: { get: async () => ({ id: 7, url: currentUrl, status: 'complete' }) },
+      debugger: { attach: vi.fn(async () => undefined), detach: vi.fn(async () => undefined), sendCommand,
+        getTargets: async () => [{ tabId: 7, attached: true }] },
+      runtime: { getPlatformInfo: async () => ({ os: 'win' }) }
+    },
+    activeTabs: { set: async () => undefined },
+    call: async (path: string, init: { body?: string }) => {
+      if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
+      return { ok: true, data: { ok: true } };
+    },
+    tabReply: async (_tabId: number, message: { type: string }) => {
+      if (message.type === 'neuraflok-deepseek-status')
+        return { signedIn: true, generating: false, hasConversation: true, conversationId };
+      if (message.type === 'neuraflok-deepseek-snapshot')
+        return { signedIn: true, generating: false, hasConversation: !newChatOpened, conversationId,
+          before: newChatOpened ? '' : 'Old project answer',
+          beforeIdentity: newChatOpened ? '' : 'message:old-project-answer' };
+      if (message.type === 'neuraflok-deepseek-complete') {
+        completed = message;
+        return {
+          text: 'NEURAFLOK_READY', before: 'Prior project answer', beforeThink: '',
+          beforeIdentity: 'message:prior-project-answer', answerIdentity: 'message:fresh-ready',
+          freshPagePrepared: true, pending: false, generating: false
+        };
+      }
+      return null;
+    },
+    createBrowserTab: vi.fn(),
+    queryProviderTabs: async () => [{ id: 7, url: oldUrl, status: 'complete', lastAccessed: 1 }],
+    restoreDeepseekTab: vi.fn(async () => true),
+    waitForTabReady: vi.fn(async () => true),
+    isDeepseekUrl: (url: string) => url.startsWith('https://chat.deepseek.com/'),
+    usableProviderTab: (tab: { id?: number; status?: string }) => Number.isInteger(tab.id) && tab.status === 'complete',
+    state
+  });
+
+  executor.inspect({ id: requestId, provider: 'deepseek', conversationId, text: 'Restore the old project context', stop: false, fresh: true }, true);
+  await vi.waitFor(() => expect(posted).toMatchObject({ id: requestId, text: 'NEURAFLOK_READY' }));
+
+  expect(sendCommand).toHaveBeenCalledTimes(4);
+  expect(completed).toMatchObject({ fresh: true, freshPagePrepared: true, conversationId });
+  expect(state.writeDeepseekSent).toHaveBeenCalledTimes(1);
+});
+
+it('falls back to the provider page New chat control when the browser shortcut cannot prepare a fresh page', async () => {
+  const oldUrl = 'https://chat.deepseek.com/a/chat/s/old-project-history';
+  let completed: Record<string, unknown> | undefined;
+  let posted: Record<string, unknown> | undefined;
+  const state = {
+    stoppedProviderOffers: new Set<string>(),
+    readDeepseekSent: async () => null,
+    writeDeepseekSent: vi.fn(async () => true),
+    readProviderTab: vi.fn(async () => ({ provider: 'deepseek', tab: 7, url: oldUrl })),
+    writeProviderTab: vi.fn(async () => true)
+  };
+  const executor = createDeepseekPageExecutor({
+    chrome: {
+      tabs: { get: async () => ({ id: 7, url: oldUrl, status: 'complete' }) },
+      debugger: {
+        attach: vi.fn(async () => undefined),
+        detach: vi.fn(async () => undefined),
+        getTargets: async () => [],
+        sendCommand: vi.fn(async () => { throw new Error('debugger shortcut unavailable'); })
+      },
+      runtime: { getPlatformInfo: async () => ({ os: 'win' }) }
+    },
+    activeTabs: { set: async () => undefined },
+    call: async (path: string, init: { body?: string }) => {
+      if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
+      return { ok: true, data: { ok: true } };
+    },
+    tabReply: async (_tabId: number, message: { type: string }) => {
+      if (message.type === 'neuraflok-deepseek-status')
+        return { signedIn: true, generating: false, hasConversation: true, conversationId };
+      if (message.type === 'neuraflok-deepseek-snapshot')
+        return { signedIn: true, generating: false, hasConversation: true, conversationId,
+          before: 'Prior project answer', beforeIdentity: 'message:prior-project-answer' };
+      if (message.type === 'neuraflok-deepseek-complete') {
+        completed = message;
+        return {
+          text: 'NEURAFLOK_READY', before: 'Prior project answer', beforeThink: '',
+          beforeIdentity: 'message:prior-project-answer', answerIdentity: 'message:fresh-ready',
+          freshPagePrepared: true, pending: false, generating: false
+        };
+      }
+      return null;
+    },
+    createBrowserTab: vi.fn(),
+    queryProviderTabs: async () => [{ id: 7, url: oldUrl, status: 'complete', lastAccessed: 1 }],
+    restoreDeepseekTab: vi.fn(async () => true),
+    waitForTabReady: vi.fn(async () => true),
+    isDeepseekUrl: (url: string) => url.startsWith('https://chat.deepseek.com/'),
+    usableProviderTab: (tab: { id?: number; status?: string }) => Number.isInteger(tab.id) && tab.status === 'complete',
+    state
+  });
+
+  executor.inspect({ id: requestId, provider: 'deepseek', conversationId, text: 'Synthetic project context recovery', stop: false, fresh: true }, true);
+  await vi.waitFor(() => expect(posted).toMatchObject({ id: requestId, text: 'NEURAFLOK_READY' }));
+
+  expect(completed).toMatchObject({ fresh: true, conversationId });
+  expect(completed).not.toHaveProperty('freshPagePrepared');
+  expect(state.writeDeepseekSent).toHaveBeenCalledTimes(1);
+});
+
+it('waits through a transient blank MCP snapshot until DeepSeek changes to the new chat route', async () => {
+  const oldUrl = 'https://chat.deepseek.com/a/chat/s/old-context';
+  let currentUrl = oldUrl;
+  let snapshots = 0;
+  const chrome = {
+    debugger: {
+      attach: vi.fn(async () => undefined),
+      detach: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => undefined),
+      getTargets: async () => [{ tabId: 7, attached: true }]
+    },
+    tabs: { get: async () => ({ id: 7, url: currentUrl, status: 'complete' }) },
+    runtime: { getPlatformInfo: async () => ({ os: 'win' }) }
+  };
+  const snapshot = await openFreshDeepseekChat({
+    chrome,
+    tabId: 7,
+    previousSnapshot: { url: oldUrl, hasConversation: true },
+    conversationPageUrl: (url: string) => url === oldUrl ? oldUrl : null,
+    tabReply: async () => {
+      snapshots++;
+      if (snapshots === 1) return { signedIn: true, hasConversation: false };
+      if (snapshots === 2) return { signedIn: true, hasConversation: true };
+      currentUrl = 'https://chat.deepseek.com/';
+      return { signedIn: true, hasConversation: false };
+    },
+    pollMs: 1
+  });
+
+  expect(snapshots).toBe(4);
+  expect(snapshot).toMatchObject({ signedIn: true, hasConversation: false });
+  expect(currentUrl).toBe('https://chat.deepseek.com/');
+});
+
+it('reports an MCP page-detection failure instead of sign-out when DeepSeek reports an active session', async () => {
+  vi.useFakeTimers();
+  try {
+    let posted: Record<string, unknown> | undefined;
+    let snapshots = 0;
+    const state = {
+      stoppedProviderOffers: new Set<string>(),
+      readDeepseekSent: async () => null,
+      writeDeepseekSent: vi.fn(async () => true),
+      readProviderTab: vi.fn(async () => ({ provider: 'deepseek', tab: 7,
+        url: 'https://chat.deepseek.com/a/chat/s/old-context-chat' })),
+      writeProviderTab: vi.fn(async () => true)
+    };
+    const executor = createDeepseekPageExecutor({
+      chrome: { tabs: { get: async () => ({ id: 7,
+        url: 'https://chat.deepseek.com/a/chat/s/old-context-chat', status: 'complete' }) } },
+      activeTabs: { set: async () => undefined },
+      call: async (path: string, init: { body?: string }) => {
+        if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
+        return { ok: true, data: { ok: true } };
+      },
+      tabReply: async (_tabId: number, message: { type: string }) => {
+        if (message.type === 'neuraflok-deepseek-status') return { signedIn: true };
+        if (message.type === 'neuraflok-deepseek-snapshot') {
+          snapshots++;
+          return { signedIn: false, hasConversation: false };
+        }
+        if (message.type === 'neuraflok-deepseek-complete') return { text: 'should not send', generating: false };
+        return null;
+      },
+      createBrowserTab: vi.fn(),
+      queryProviderTabs: vi.fn(),
+      restoreDeepseekTab: vi.fn(async () => true),
+      waitForTabReady: vi.fn(async () => true),
+      isDeepseekUrl: (url: string) => url.startsWith('https://chat.deepseek.com/'),
+      usableProviderTab: vi.fn(),
+      state
+    });
+
+    executor.inspect({ id: requestId, provider: 'deepseek', conversationId, text: 'Synthetic detection check', stop: false, fresh: false }, false);
+    for (let tick = 0; tick < 90 && !posted; tick++) await vi.advanceTimersByTimeAsync(250);
+
+    expect(snapshots).toBeGreaterThan(1);
+    expect(posted?.error).toContain('still signed in');
+    expect(posted?.error).toContain('could not detect its chat controls');
+    expect(posted?.error).not.toMatch(/sign in/i);
+    expect(state.writeDeepseekSent).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+}, 15_000);
+
+it('does not claim DeepSeek signed out when the browser bridge cannot verify the page', async () => {
+  vi.useFakeTimers();
+  try {
+    let posted: Record<string, unknown> | undefined;
+    const state = {
+      stoppedProviderOffers: new Set<string>(),
+      readDeepseekSent: async () => null,
+      writeDeepseekSent: vi.fn(async () => true),
+      readProviderTab: vi.fn(async () => ({ provider: 'deepseek', tab: 7,
+        url: 'https://chat.deepseek.com/a/chat/s/existing-context' })),
+      writeProviderTab: vi.fn(async () => true)
+    };
+    const executor = createDeepseekPageExecutor({
+      chrome: { tabs: { get: async () => ({ id: 7,
+        url: 'https://chat.deepseek.com/a/chat/s/existing-context', status: 'complete' }) } },
+      activeTabs: { set: async () => undefined },
+      call: async (path: string, init: { body?: string }) => {
+        if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
+        return { ok: true, data: { ok: true } };
+      },
+      tabReply: async (_tabId: number, message: { type: string }) => {
+        if (message.type === 'neuraflok-deepseek-status') return { signedIn: false };
+        if (message.type === 'neuraflok-deepseek-snapshot') return { signedIn: false, hasConversation: false };
+        return null;
+      },
+      createBrowserTab: vi.fn(),
+      queryProviderTabs: vi.fn(),
+      restoreDeepseekTab: vi.fn(async () => true),
+      waitForTabReady: vi.fn(async () => true),
+      isDeepseekUrl: (url: string) => url.startsWith('https://chat.deepseek.com/'),
+      usableProviderTab: vi.fn(),
+      state
+    });
+
+    executor.inspect({ id: requestId, provider: 'deepseek', conversationId, text: 'Synthetic MCP detection check', stop: false, fresh: false }, false);
+    for (let tick = 0; tick < 90 && !posted; tick++) await vi.advanceTimersByTimeAsync(250);
+
+    expect(posted?.error).toContain('could not verify the active DeepSeek session');
+    expect(posted?.error).not.toMatch(/^Sign in to DeepSeek/i);
+    expect(posted?.error).toContain('no message was sent');
+    expect(state.writeDeepseekSent).not.toHaveBeenCalled();
   } finally {
     vi.useRealTimers();
   }
@@ -273,6 +567,13 @@ it('reuses an inactive DeepSeek tab only when its prior conversation has a verif
   let currentUrl = priorUrl;
   let posted: Record<string, unknown> | undefined;
   const completeMessages: Array<Record<string, unknown>> = [];
+  let newChatOpened = false;
+  const sendDebuggerCommand = vi.fn(async (_target: { tabId: number }, method: string, params: Record<string, unknown>) => {
+    if (method === 'Input.dispatchKeyEvent' && params.type === 'keyUp' && params.code === 'KeyJ') {
+      newChatOpened = true;
+      currentUrl = 'https://chat.deepseek.com/';
+    }
+  });
   const state = {
     stoppedProviderOffers: new Set<string>(),
     readDeepseekSent: async () => null,
@@ -286,8 +587,12 @@ it('reuses an inactive DeepSeek tab only when its prior conversation has a verif
   const executor = createDeepseekPageExecutor({
     chrome: { tabs: {
       get: async () => ({ id: 7, url: currentUrl, status: 'complete' }),
-      update: async (_id: number, options: { url: string }) => { currentUrl = options.url; }
-    } },
+      update: async (_id: number, options: { url: string }) => { currentUrl = options.url; newChatOpened = false; }
+    }, debugger: {
+      attach: vi.fn(async () => undefined),
+      sendCommand: sendDebuggerCommand,
+      detach: vi.fn(async () => undefined)
+    }, runtime: { getPlatformInfo: async () => ({ os: 'win' }) } },
     activeTabs: { set: async () => undefined },
     call: async (path: string, init: { body?: string }) => {
       if (path === '/provider/page') posted = JSON.parse(init.body || '{}');
@@ -298,7 +603,8 @@ it('reuses an inactive DeepSeek tab only when its prior conversation has a verif
         return { signedIn: true, generating: false, hasConversation: true, conversationId: priorConversation };
       }
       if (message.type === 'neuraflok-deepseek-snapshot') {
-        return { signedIn: true, generating: false, hasConversation: true, conversationId: priorConversation, before: 'Saved answer', beforeIdentity: 'saved-answer' };
+        return { signedIn: true, generating: false, hasConversation: !newChatOpened, conversationId: priorConversation,
+          before: 'Saved answer', beforeIdentity: 'saved-answer' };
       }
       if (message.type === 'neuraflok-deepseek-complete') {
         completeMessages.push(message);
@@ -323,7 +629,8 @@ it('reuses an inactive DeepSeek tab only when its prior conversation has a verif
   await vi.waitFor(() => expect(posted).toMatchObject({ id: requestId, text: 'NF_FRESH_CHAT_READY' }));
 
   expect(createBrowserTab).not.toHaveBeenCalled();
-  expect(completeMessages[0]).toMatchObject({ conversationId, fresh: true, rebindSavedConversation: true });
+  expect(sendDebuggerCommand).toHaveBeenCalledTimes(4);
+  expect(completeMessages[0]).toMatchObject({ conversationId, fresh: true, freshPagePrepared: true, rebindSavedConversation: true });
   expect(state.writeProviderTab).toHaveBeenCalledWith(conversationId, 7);
 
   posted = undefined;

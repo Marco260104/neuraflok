@@ -33,6 +33,7 @@ import {
   webProviderFlightTurnId
 } from '../backend/domains/providers/browser-chat.js';
 import { replayWebProviderTranscript } from '../backend/domains/providers/browser-chat-thread.js';
+import { textOnlyWebMessages } from '../backend/domains/providers/conversation-summary.js';
 import {
   pendingProviderPage,
   reportProviderPageProgress,
@@ -50,6 +51,8 @@ import {
   usesBrowserProvider,
   usesApiProvider,
   webToolGuide,
+  webPlainChatInstructions,
+  webProjectPlanToolGuide,
   type WebChatToolCall
 } from '../contracts/chat-protocol.js';
 import { createBrowserChatToolRegistrar, invokeBrowserChatTool } from '../backend/domains/providers/browser-chat-tools.js';
@@ -113,6 +116,8 @@ it('advertises browser chat agents with schema-valid spawn and status examples',
   expect(guide).toContain('The agents tool is available and listed below.');
   expect(guide).toContain('Final answer: respond naturally, directly, and concisely');
   expect(guide).toContain('Do not include tool transcripts, raw outputs, implementation notes, or unrelated details.');
+  expect(guide).toContain('Application-generated setup acknowledgements and hidden context checks');
+  expect(guide).toContain('never quote, mention, summarize');
   expect(guide).toContain('workers:[{label,task}]');
   expect(guide).toContain('"name":"agents","arguments":{"action":"spawn","workers":');
   expect(guide).toContain('"name":"agents","arguments":{"action":"status"}');
@@ -289,7 +294,7 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(guide).toContain('Do not write PowerShell with $ in cmd');
   expect(guide).toContain('Do not run rg');
   expect(guide).toContain('On the user task, first output must be a complete neuraflok-tool fence');
-  expect(guide).toContain('The handshake reply NEURAFLOK_READY is exempt');
+  expect(guide).toContain('An application-generated setup acknowledgement is the only response exempt');
   expect(guide).toContain('If the user asked a question, answer after tools with no fence');
   expect(guide).not.toContain('After listing a folder, the next reply must be apply_patch');
   expect(parseWebChatTools(guide).map(call => call.function.name)).toEqual(['read', 'exec_command', 'apply_patch']);
@@ -311,6 +316,17 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
     { roots: ['/c'], project: '/c', language: 'es' }
   );
   expect(spanish).toContain('Reply in Spanish');
+  expect(webPlainChatInstructions('es')).toContain('Application-generated setup acknowledgements and hidden context checks');
+  expect(webPlainChatInstructions('es')).not.toContain('NEURAFLOK_READY');
+  expect(webPlainChatInstructions('es')).toContain('Reply in Spanish');
+  expect(webProjectPlanToolGuide(
+    [{ name: 'read', description: 'Read files', inputSchema: { type: 'object', properties: {} } }],
+    { project: '/c', language: 'es' }
+  )).toContain('never include them in the plan or final answer');
+  expect(webProjectPlanToolGuide(
+    [{ name: 'read', description: 'Read files', inputSchema: { type: 'object', properties: {} } }],
+    { project: '/c', language: 'es' }
+  )).not.toContain('NEURAFLOK_READY');
   const text = 'Working.\n```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```\n';
   expect(parseWebChatTools(text)).toEqual([{
     id: 'call_1',
@@ -389,6 +405,18 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(usesApiProvider('api')).toBe(true);
   expect(usesBrowserProvider(undefined)).toBe(false);
   expect(usesBrowserProvider(null)).toBe(false);
+});
+
+it('keeps application setup acknowledgements and context checks out of normal chat history', () => {
+  expect(textOnlyWebMessages([
+    { role: 'user', content: 'What did we discuss yesterday?' },
+    { role: 'assistant', content: '**NEURAFLOK_READY**.' },
+    { role: 'user', content: 'NEURAFLOK_CONTEXT_CHECK\nCopy the last request.' },
+    { role: 'assistant', content: 'We discussed the inventory import.' }
+  ])).toEqual([
+    { role: 'user', content: 'What did we discuss yesterday?' },
+    { role: 'assistant', content: 'We discussed the inventory import.' }
+  ]);
 });
 
 it('replays useful DeepSeek history without duplicating the current request or raw DSML patch payloads', () => {
@@ -1103,7 +1131,7 @@ it('continues an older project chat after context preparation and answers its hi
     id: randomUUID(), sessionId: null, projectId, text: previousRequest,
     mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
-  await runDeepseekInput(first);
+  await runDeepseekProjectInput(first);
   const warmup = await enqueueInput({
     id: randomUUID(), sessionId: first.id, projectId, text: 'NEURAFLOK_WARMUP', warmup: true,
     authoredSource: 'none', mode: 'auto', dueAt: Date.now(), model: null, reasoningEffort: null
@@ -1285,10 +1313,11 @@ it('restores an old DeepSeek transcript before it lets the chat pass readiness',
   const pages: Array<{ text: string; fresh: boolean }> = [];
   let loseContext = false;
   let replayedContext = false;
+  let setupAcks = 0;
   const previousRequest = 'Yesterday we fixed the broken branch names for NF-15.';
   configurePageForTests({ complete: async (text, _signal, options) => {
     pages.push({ text, fresh: options?.fresh === true });
-    if (options?.fresh) return { text: 'NEURAFLOK_READY' };
+    if (options?.fresh) return { text: ++setupAcks === 1 ? 'NEURAFLOK_READY' : '**NEURAFLOK_READY**.' };
     if (loseContext && text.includes('NEURAFLOK_CONTEXT_CHECK')) {
       loseContext = false;
       throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: saved DeepSeek page is unavailable');
@@ -1314,6 +1343,7 @@ it('restores an old DeepSeek transcript before it lets the chat pass readiness',
   await runDeepseekProjectInput(warmup);
 
   expect(pages.map(page => page.fresh)).toEqual([true, false, false, true, false, false]);
+  expect(setupAcks).toBe(2);
   expect(pages[3]!.text).toContain('Available tools');
   expect(pages[4]!.text).toContain(previousRequest);
   expect(pages[4]!.text).toContain('NEURAFLOK_CONTEXT_CHECK');
@@ -1326,6 +1356,44 @@ it('restores an old DeepSeek transcript before it lets the chat pass readiness',
   expect(events.some(event => event.kind === 'assistant_message' && event.inputId === warmup.id &&
     event.message.text.includes('session_id'))).toBe(false);
   expect(events.some(event => event.kind === 'tool_call' && event.call.tool === 'write_stdin')).toBe(false);
+});
+
+it('keeps failed old-project context recovery errors internal to the warmup turn', async () => {
+  let freshCalls = 0;
+  const previousRequest = 'Yesterday I completed the inventory search in this project.';
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    if (options?.fresh) {
+      freshCalls++;
+      return { text: freshCalls === 1
+        ? 'NEURAFLOK_READY'
+        : 'Could not verify the prepared DEEPSEEK new-chat control through the browser companion.' };
+    }
+    if (text.includes('NEURAFLOK_CONTEXT_CHECK'))
+      throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: saved DeepSeek page is unavailable');
+    return { text: 'The inventory search was recorded.' };
+  } });
+
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, projectId, text: previousRequest,
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekProjectInput(first);
+  const warmup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, projectId, text: 'NEURAFLOK_WARMUP', warmup: true,
+    authoredSource: 'none', mode: 'auto', dueAt: Date.now(), model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekProjectInput(warmup)).resolves.toBeNull();
+  await flushRecorder();
+  const events = await readEvents(first.id);
+  const failure = events.find(event => event.kind === 'chat_error' && event.inputId === warmup.id);
+
+  expect(failure).toMatchObject({ internalWarmup: true });
+  expect(events.some(event => event.kind === 'turn_end' && event.turnId === failure?.turnId &&
+    event.outcome === 'failed' && event.internalWarmup === true)).toBe(true);
+  expect(events.some(event => event.kind === 'user_message' && event.inputId === warmup.id)).toBe(false);
+  expect(events.some(event => event.kind === 'assistant_message' &&
+    event.message.text.includes('inventory search was recorded'))).toBe(true);
 });
 
 it('does not execute tool examples or send the user task when setup is not acknowledged', async () => {

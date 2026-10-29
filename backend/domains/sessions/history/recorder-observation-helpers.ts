@@ -8,7 +8,7 @@ export async function recordPageTool(
   sessionId: string,
   live: LiveConversation | undefined,
   item: ChatObservation,
-  base: { time: number; source: 'extension'; turnId?: string; agent?: string }
+  base: { time: number; source: 'extension'; turnId?: string; internalWarmup?: true; agent?: string }
 ): Promise<boolean> {
   const id = item.messageId;
   const label = (item.text ?? '').slice(0, 300).trim();

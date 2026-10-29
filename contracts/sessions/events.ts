@@ -234,6 +234,8 @@ interface BaseEvent {
   source: EventSource;
   /** Multi-agent attribution. Absent when no swarm is running. */
   agent?: string;
+  /** Internal provider warmup activity, never content authored in the chat. */
+  internalWarmup?: true;
   /** the provider's own turn ID when the extension could read it. */
   turnId?: string;
 }

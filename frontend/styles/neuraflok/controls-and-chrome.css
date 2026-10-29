@@ -126,8 +126,8 @@ select option { border-radius: var(--r-sm); }
   width: 22px;
   height: 22px;
   border-radius: var(--r-sm);
-  background: #101418;
-  color: #e8eef3;
+  background: #111112;
+  color: #f4f4f5;
   padding: 4px;
 }
 .appearance-preview-sidebar span { border-radius: var(--r-xs); height: 8px; }
@@ -220,7 +220,7 @@ select option { border-radius: var(--r-sm); }
 .setup-rail-mark { border-radius: 50%; }
 
 .skill-page-head h1 {
-  font-size: 22px;
+  font-size: calc(18px * var(--text-scale, 1));
   font-weight: 600;
   letter-spacing: -0.03em;
 }

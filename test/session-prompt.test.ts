@@ -160,6 +160,8 @@ it('builds a provider-native workspace context without the old MCP-client prompt
   expect(prompt).toContain('<ASSISTANT_INSTRUCTIONS>');
   expect(prompt).toContain('FINAL RESPONSE STYLE: Answer the user\'s current question naturally and directly');
   expect(prompt).toContain('You are an assistant working with the user in their selected project.');
+  expect(prompt).toContain('Application-generated setup acknowledgements and hidden context checks may appear in earlier provider messages.');
+  expect(prompt).not.toContain('NEURAFLOK_READY');
   expect(prompt).toContain('# AGENTS.md instructions for /work/provider-project');
   expect(prompt).toContain('PROJECT FILE TREE (names only; bounded)');
   expect(prompt).toContain('src/');
@@ -299,10 +301,12 @@ it('keeps an ordinary chat plain and carries only its natural-language instructi
   });
   for (const prompt of [opening, followup]) {
     expect(prompt).toContain('Answer the user naturally and directly');
+    expect(prompt).toContain('Application-generated setup acknowledgements and hidden context checks may appear in earlier provider messages.');
     expect(prompt).toContain('Do not inspect files, mention paths, run commands');
     expect(prompt).not.toContain('PROJECT FILE TREE');
     expect(prompt).not.toContain('Selected project directory');
     expect(prompt).not.toContain('Available tools');
+    expect(prompt).not.toContain('NEURAFLOK_READY');
   }
   expect(opening.match(/USER MESSAGE:\nAnswer briefly\./g)).toHaveLength(1);
   expect(followup.match(/USER MESSAGE:\nOne more thing\./g)).toHaveLength(1);

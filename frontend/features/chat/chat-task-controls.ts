@@ -48,13 +48,47 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     return runtime.taskPlans.projectPlanMode(runtime.draftKey());
   }
 
-  function toggleProjectPlanMode(): void {
-    if (!isProjectChat()) return;
-    runtime.taskPlans.toggleProjectPlanMode(runtime.draftKey());
+  function paintProjectPlanButton(): void {
+    const button = document.getElementById('composerPlanBtn');
+    if (!button) return;
+    const active = projectPlanMode();
+    button.hidden = !projectComposerControlVisibility(isProjectChat()).planButton;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+    const glyph = button.querySelector<HTMLElement>('.ico');
+    if (glyph) glyph.className = `ico ph ${active ? 'ph-check-circle' : 'ph-list-checks'}`;
+    const label = button.querySelector('span');
+    if (label) ui(label, 'textContent', () => t(active ? 'Plan active' : 'Plan'));
+    ui(button, 'aria-label', () => t(active ? 'Plan active' : 'Plan'));
+    ui(button, 'title', () => active
+      ? t('Plan mode is on. The assistant will read project files and ask before making changes.')
+      : t('Read relevant project files and propose a plan before making changes.'));
   }
+
+  function toggleProjectPlanMode(): void {
+    const button = document.getElementById('composerPlanBtn');
+    if (!button || button.hidden) return;
+    try {
+      runtime.taskPlans.toggleProjectPlanMode(runtime.draftKey());
+    } finally {
+      // Keep the toggle feedback synchronous with the user's click, even if another
+      // composer repaint is deferred while a restored project chat is settling.
+      paintProjectPlanButton();
+    }
+  }
+
+  // The composer can be restored while switching chats. Delegate from document so
+  // replacing its button does not leave the visible Plan control without a handler.
+  document.addEventListener('click', event => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>('#composerPlanBtn');
+    if (!target) return;
+    event.preventDefault();
+    toggleProjectPlanMode();
+  });
 
   function clearProjectPlanMode(key = runtime.draftKey()): void {
     runtime.taskPlans.clearProjectPlanMode(key);
+    if (runtime.draftKey() === key) paintProjectPlanButton();
   }
 
   function goalReachedShown(): boolean {
@@ -124,6 +158,7 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     ui(button.querySelector('span')!, 'textContent', () => t('Plan'));
     ui(button, 'aria-label', () => planMode ? t('Cancel plan') : t('Create plan'));
     ui(button, 'title', () => planMode ? t('Return to a normal message; keep your draft') : t('Split your message into editable stages'));
+    paintProjectPlanButton();
   }
 
   function paintLoopDelivery(): void {
@@ -156,22 +191,11 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     const loop = editMode === 'loop';
     ui(document.querySelector('label[for="sessionObjective"]')!, 'textContent', () => loop ? t('Loop instructions') : t('Goal'));
     ui($<HTMLTextAreaElement>('sessionObjective'), 'placeholder', () => loop ? t('What should each continuation focus on?') : t('Optional. Leave empty to work toward what you asked in this chat.'));
-    const projectControls = projectComposerControlVisibility(isProjectChat());
     const accessPicker = $<HTMLDetailsElement>('composerAccess');
+    const projectControls = projectComposerControlVisibility(isProjectChat());
     accessPicker.hidden = !projectControls.accessPicker;
     if (accessPicker.hidden) accessPicker.open = false;
-    const planBtn = document.getElementById('composerPlanBtn');
-    if (planBtn) {
-      planBtn.hidden = !projectControls.planButton;
-      planBtn.classList.toggle('is-active', projectPlanMode());
-      planBtn.setAttribute('aria-pressed', String(projectPlanMode()));
-      ui(planBtn, 'aria-label', () => t('Plan'));
-      const label = planBtn.querySelector('span');
-      if (label) ui(label, 'textContent', () => t('Plan'));
-      ui(planBtn, 'title', () => projectPlanMode()
-        ? t('Plan mode is on. The assistant will read project files and ask before making changes.')
-        : t('Read relevant project files and propose a plan before making changes.'));
-    }
+    paintProjectPlanButton();
     paintTaskActions();
   }
 

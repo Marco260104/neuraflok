@@ -34,4 +34,4 @@ Borders for structure, Better UI shadow rings for depth. Light: three-layer `--s
 
 ## Typography
 
-System UI stack. Product scale, not display. Body ~13.5px. Welcome title 22px / 570. Tabular numbers on meters and timestamps.
+System UI stack. Product scale, not display. Body ~13px. Welcome title 15px / 550. Tabular numbers on meters and timestamps.

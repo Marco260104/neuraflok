@@ -6,14 +6,14 @@
   box-shadow: var(--shadow-border) !important;
 }
 .settings-page-head h1, .appearance-page-head h1 {
-  font-size: 22px !important;
+  font-size: calc(18px * var(--text-scale, 1)) !important;
   font-weight: 600 !important;
   letter-spacing: -0.03em !important;
   color: var(--ink) !important;
 }
 .settings-page-head p, .appearance-page-head p {
   color: var(--soft) !important;
-  font-size: 13px !important;
+  font-size: calc(12px * var(--text-scale, 1)) !important;
 }
 .setting {
   border-bottom: 1px solid var(--line) !important;
@@ -23,12 +23,12 @@
   border-bottom: none !important;
 }
 .setting-text strong, .setting-text b {
-  font-size: 13.5px !important;
+  font-size: calc(12px * var(--text-scale, 1)) !important;
   font-weight: 550 !important;
   color: var(--ink) !important;
 }
 .setting-text p, .setting-text em {
-  font-size: 12px !important;
+  font-size: calc(11px * var(--text-scale, 1)) !important;
   color: var(--faint) !important;
 }
 

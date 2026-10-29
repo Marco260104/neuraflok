@@ -197,7 +197,7 @@ it('keeps stale Stop hidden until old-chat controls refresh after the warmup ack
   resetComposerWarmupForTests();
 });
 
-it('keeps stale Stop hidden until old-project controls refresh after a failed warmup', async () => {
+it('keeps stale Stop hidden while an old-project warmup retries in the background', async () => {
   const sessionId = 'old-project-chat-with-failed-warmup';
   const conversationId = 'ds-00000000-0000-4000-8000-000000000042';
   let entry: any;
@@ -247,13 +247,15 @@ it('keeps stale Stop hidden until old-project controls refresh after a failed wa
   expect(composerWarmupState(sessionId)?.phase).toBe('opening');
   expect(visibleStopStates).not.toContain(true);
   releaseControls();
-  await vi.waitFor(() => expect(composerWarmupState(sessionId)?.phase).toBe('failed'));
+  await vi.waitFor(() => expect(composerWarmupState(sessionId)?.phase).toBe('opening'));
   expect(visibleStopStates).not.toContain(true);
+  warmup.dispose();
   resetComposerWarmupForTests();
 });
 
-it('releases the preparing gate when a readiness IPC call never returns', async () => {
+it('retries a stalled readiness IPC call without surfacing a context error', async () => {
   vi.useFakeTimers();
+  let warmup: ReturnType<typeof createWebChatWarmup> | undefined;
   try {
     const sessionId = 'session-stalled';
     const runtime: any = {
@@ -283,13 +285,79 @@ it('releases the preparing gate when a readiness IPC call never returns', async 
       setPendingNewInput: vi.fn()
     };
     resetComposerWarmupForTests();
-    createWebChatWarmup(runtime).ensure();
+    warmup = createWebChatWarmup(runtime);
+    warmup.ensure();
     await vi.advanceTimersByTimeAsync(WEB_CHAT_PREPARATION_TIMEOUT_MS);
-    expect(composerWarmupState(sessionId)?.phase).toBe('failed');
+    expect(composerWarmupState(sessionId)?.phase).toBe('opening');
   } finally {
+    warmup?.dispose();
+    vi.clearAllTimers();
     vi.useRealTimers();
     resetComposerWarmupForTests();
   }
+});
+
+it('retries transient provider context failures and releases the original queued chat after recovery', async () => {
+  const sessionId = 'session-context-recovers-after-retry';
+  const conversationId = 'ds-00000000-0000-4000-8000-000000000061';
+  const inputs: any[] = [];
+  const queuedMessage = { id: 'user-message-stays-queued', sessionId, mode: 'after-turn', state: 'queued', createdAt: Date.now(),
+    warmupDeferred: { selectionGeneration: 21 } };
+  const getSession = vi.fn(async () => {
+    const latest = inputs.at(-1);
+    return { ok: true, data: {
+      summary: { id: sessionId, conversationId },
+      events: latest ? [inputs.length < 3
+        ? { kind: 'chat_error', inputId: latest.id, message: { text: 'Synthetic transient context failure' } }
+        : { kind: 'assistant_message', inputId: latest.id, state: 'final', final: true, message: { text: 'NEURAFLOK_READY' } }
+      ] : []
+    } };
+  });
+  const runtime: any = {
+    api: {
+      sendInput: vi.fn(async (request: any) => {
+        const entry = { ...request, sessionId, deliveredSessionId: sessionId, state: 'sent', createdAt: Date.now(), conversationId };
+        inputs.push(entry);
+        return { ok: true, data: entry };
+      }),
+      listInputs: async () => ({ ok: true, data: [queuedMessage, ...inputs] }),
+      getSession,
+      cancelInput: vi.fn()
+    },
+    state: () => ({ config: { ui: { chatExecutor: 'web', webProvider: 'deepseek' } },
+      bridge: { webProviders: { deepseek: { signedIn: true } } } }),
+    newChatSelected: false,
+    selectedId: sessionId,
+    selectedProjectId: 'synthetic-project',
+    selectionGeneration: 21,
+    sessions: [{ id: sessionId, conversationId, projectId: 'synthetic-project' }],
+    turnWorking: () => false,
+    pendingNewInput: null,
+    startingInputs: new Map(),
+    pendingComposerInputs: [queuedMessage],
+    adoptAcceptedOpening: async () => false,
+    selectSession: vi.fn(),
+    paintDeliveryControls: vi.fn(),
+    paintPreparationStatus: vi.fn(),
+    refreshSessionControls: vi.fn(async () => undefined),
+    refreshInputQueue: vi.fn(async () => undefined),
+    setPendingNewInput: vi.fn()
+  };
+  resetComposerWarmupForTests();
+  const warmup = createWebChatWarmup(runtime);
+  warmup.ensure();
+
+  await vi.waitFor(() => expect(runtime.api.sendInput).toHaveBeenCalledTimes(3), { timeout: 7_000 });
+  await vi.waitFor(() => expect(composerWarmupState(sessionId)).toBeNull());
+
+  expect(runtime.api.sendInput.mock.calls.map(([request]: [any]) => request.text)).toEqual([
+    'NEURAFLOK_WARMUP', 'NEURAFLOK_WARMUP', 'NEURAFLOK_WARMUP'
+  ]);
+  expect(runtime.api.sendInput.mock.calls.every(([request]: [any]) => request.sessionId === sessionId && request.warmup)).toBe(true);
+  expect(runtime.pendingComposerInputs).toContain(queuedMessage);
+  expect(composerWarmupState(sessionId)).toBeNull();
+  warmup.dispose();
+  resetComposerWarmupForTests();
 });
 
 it('retries chat preparation even when a user message is waiting in the queue', async () => {

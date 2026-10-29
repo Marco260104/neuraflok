@@ -131,7 +131,7 @@ it.each([false, true])('removes a project group in one click, keeps its chats an
   }
   let finishList!: (value: unknown) => void;
   api.listSessions = () => new Promise(resolve => { finishList = resolve; });
-  (w.document.getElementById('chatRefresh') as HTMLButtonElement).click();
+  (w.document.getElementById('workspaceRefresh') as HTMLButtonElement).click();
   await settle();
   api.removeProject = vi.fn(async () => ({ ok: true, data: { ...project, ungrouped: true } }));
   projectMenu(w, project.id); menuItem(w, 'remove').click();
@@ -311,7 +311,7 @@ it('Share a folder creates a sidebar project and keeps it when an older list ref
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   let finishList!: (value: unknown) => void;
   api.listSessions = () => new Promise(resolve => { finishList = resolve; });
-  (w.document.getElementById('chatRefresh') as HTMLButtonElement).click();
+  (w.document.getElementById('workspaceRefresh') as HTMLButtonElement).click();
   await settle();
   api.addProject = vi.fn(async () => ({ ok: true, data: project }));
   api.addRoot = vi.fn();
@@ -427,7 +427,7 @@ it('keeps working state per chat and marks only completed background chats as un
   ];
   const { w } = await boot([], false, [], [], { sessions: chats });
   const row = (id: string) => w.document.querySelector<HTMLElement>(`.sess[data-id="${id}"]`)!;
-  const refresh = async () => { (w.document.getElementById('chatRefresh') as HTMLButtonElement).click(); await settle(); };
+  const refresh = async () => { (w.document.getElementById('workspaceRefresh') as HTMLButtonElement).click(); await settle(); };
   let observedAt = Date.now();
   const nextAt = () => ++observedAt;
 
@@ -495,7 +495,7 @@ it('keeps the sidebar working spinner on one continuous phase across activity re
     clock.mockReturnValue(10_450);
     chats[0]!.lastToolCallAt = 10_450;
     chats[0]!.updatedAt = 10_450;
-    (w.document.getElementById('chatRefresh') as HTMLButtonElement).click();
+    (w.document.getElementById('workspaceRefresh') as HTMLButtonElement).click();
     await settle();
     // The row node was rebuilt, but the spinner resumes the wall-clock phase instead of 0deg.
     expect(spinner().style.animationDelay).toBe('-550ms');
@@ -523,7 +523,7 @@ it('keeps unseen completions unread through failed and stale A-to-B-to-A detail 
       updatedAt: completedAt
     });
   }
-  (w.document.getElementById('chatRefresh') as HTMLButtonElement).click();
+  (w.document.getElementById('workspaceRefresh') as HTMLButtonElement).click();
   await settle();
   expect(row('chat-a').querySelector('.session-status.is-unseen')).not.toBeNull();
   expect(row('chat-b').querySelector('.session-status.is-unseen')).not.toBeNull();

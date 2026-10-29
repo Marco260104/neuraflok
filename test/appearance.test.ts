@@ -58,6 +58,29 @@ describe('custom appearance', () => {
     expect(adoptShippedAppearance(undefined)).toBeUndefined();
   });
 
+  it('moves the former cyan default to the neutral graphite palette without replacing custom palettes', () => {
+    const oldDefault = {
+      light: { background: '#eef2f5', sidebar: '#e1e7ec', accent: '#0d7480', contrast: 40 },
+      dark: { background: '#141a20', sidebar: '#0c1014', accent: '#3ecad6', contrast: 50 },
+      font: 'serif' as const,
+      fontSize: 16,
+      translucentSidebar: false
+    };
+    expect(adoptShippedAppearance(oldDefault)).toEqual({
+      ...defaultAppearance(), font: 'serif', fontSize: 16, translucentSidebar: false
+    });
+    const customized = { ...oldDefault, dark: { ...oldDefault.dark, accent: '#8765ab' } };
+    expect(adoptShippedAppearance(customized)).toBe(customized);
+  });
+
+  it('reduces the shipped default text size while preserving a deliberately selected size', () => {
+    const previousDefault = { ...defaultAppearance(), fontSize: 14 };
+    expect(adoptShippedAppearance(previousDefault)?.fontSize).toBe(12);
+    const selectedSize = { ...previousDefault, fontSize: 16 };
+    expect(adoptShippedAppearance(selectedSize)?.fontSize).toBe(16);
+    expect(defaultAppearance().fontSize).toBe(12);
+  });
+
   it('uses the custom sidebar for native caption contrast and the custom page for reload backing', () => {
     const appearance = defaultAppearance();
     appearance.dark.sidebar = '#ffffff'; appearance.dark.background = '#391c56'; appearance.translucentSidebar = false;

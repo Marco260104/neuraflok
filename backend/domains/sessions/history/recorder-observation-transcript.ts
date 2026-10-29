@@ -63,6 +63,7 @@ export async function recordChatObservationsNow(
         source: 'extension' as const,
         ...(item.authoredAt !== undefined ? { authoredAt: item.authoredAt } : {}),
         ...(item.turnId ? { turnId: item.turnId } : {}),
+        ...(item.internalWarmup === true ? { internalWarmup: true as const } : {}),
         ...(agent ? { agent } : {})
       };
       switch (item.kind) {

@@ -63,6 +63,7 @@ vi.mock('../backend/domains/browser/embedded/selection.js', () => ({
 }));
 vi.mock('../backend/domains/providers/browser-chat.js', () => ({
   webProviderFlightTurnId: () => undefined,
+  webProviderAuthoredFlightTurnId: () => undefined,
   runWebProviderInput: providerBrowser.run
 }));
 vi.mock('../backend/domains/browser/browser-startup.js', async (importOriginal) => {

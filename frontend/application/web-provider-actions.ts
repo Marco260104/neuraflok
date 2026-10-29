@@ -1,6 +1,12 @@
 import type { AppApi } from '../../backend/preload/index.js';
 import type { AppState } from '../../contracts/types.js';
-import { WEB_PROVIDERS, isWebProviderId, type WebProviderId } from '../../contracts/web-providers.js';
+import {
+  WEB_PROVIDERS,
+  isSelectableWebProvider,
+  isWebProviderId,
+  selectableWebProviderOrDefault,
+  type WebProviderId,
+} from '../../contracts/web-providers.js';
 import { $, run, toast } from '../shared/dom.js';
 import { t } from '../shared/i18n.js';
 
@@ -16,7 +22,7 @@ export function initWebProviderActions(dependencies: WebProviderActionsDependenc
   const { api, getState, apply, save, showTab } = dependencies;
 
   function chooseWebProvider(value: string, persist = true): void {
-    const provider: WebProviderId = isWebProviderId(value) ? value : 'deepseek';
+    const provider: WebProviderId = selectableWebProviderOrDefault(value);
     const settings = $<HTMLSelectElement>('webProvider');
     const changed = settings.value !== provider;
     settings.value = provider;
@@ -25,7 +31,8 @@ export function initWebProviderActions(dependencies: WebProviderActionsDependenc
   }
 
   async function openWebProvider(value: string, mode?: 'connect' | 'activate'): Promise<void> {
-    const provider: WebProviderId = isWebProviderId(value) ? value : 'deepseek';
+    if (!isSelectableWebProvider(value)) return;
+    const provider: WebProviderId = value;
     chooseWebProvider(provider);
     const activeMode = mode ?? (getState()?.bridge.webProviders?.[provider]?.signedIn === true ? 'activate' : 'connect');
     await run(api.openWebProvider(provider, activeMode));
@@ -49,6 +56,7 @@ export function initWebProviderActions(dependencies: WebProviderActionsDependenc
       });
       return;
     }
+    if (!isSelectableWebProvider(value)) return;
     if (target.dataset.modelConnect) {
       void openWebProvider(value, target.dataset.mode === 'activate' ? 'activate' : 'connect');
       return;
@@ -86,17 +94,36 @@ export function initWebProviderActions(dependencies: WebProviderActionsDependenc
     }, 0);
     $<HTMLDetailsElement>('chatModelPicker').open = false;
   });
-  $('browserWebProvider').addEventListener('change', () => chooseWebProvider($<HTMLSelectElement>('browserWebProvider').value));
+  $('browserWebProvider').addEventListener('change', () => {
+    const provider = $<HTMLSelectElement>('browserWebProvider').value;
+    if (!isSelectableWebProvider(provider)) {
+      $<HTMLSelectElement>('browserWebProvider').value = selectableWebProviderOrDefault(getState()?.config.ui.webProvider);
+      return;
+    }
+    chooseWebProvider(provider);
+  });
   $('webProvider').addEventListener('change', () => {
-    chooseWebProvider($<HTMLSelectElement>('webProvider').value, false);
+    const provider = $<HTMLSelectElement>('webProvider').value;
+    if (!isSelectableWebProvider(provider)) {
+      $<HTMLSelectElement>('webProvider').value = selectableWebProviderOrDefault(getState()?.config.ui.webProvider);
+      return;
+    }
+    chooseWebProvider(provider, false);
     void save();
   });
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-select-provider]')) {
-    button.addEventListener('click', () => chooseWebProvider(button.dataset.selectProvider || 'deepseek'));
+    button.addEventListener('click', () => {
+      const provider = button.dataset.selectProvider;
+      if (isSelectableWebProvider(provider)) chooseWebProvider(provider);
+    });
   }
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-open-provider]')) {
-    button.addEventListener('click', () => void openWebProvider(button.dataset.openProvider || 'deepseek',
-      button.dataset.mode === 'activate' ? 'activate' : 'connect'));
+    button.addEventListener('click', () => {
+      const provider = button.dataset.openProvider;
+      if (isSelectableWebProvider(provider)) {
+        void openWebProvider(provider, button.dataset.mode === 'activate' ? 'activate' : 'connect');
+      }
+    });
   }
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-disconnect-provider]')) {
     button.addEventListener('click', async () => {
