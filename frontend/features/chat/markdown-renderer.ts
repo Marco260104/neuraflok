@@ -39,6 +39,107 @@ function safeRenderedHref(value: string): string | null {
 
 const escapeHtml = (value: string): string =>
   value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
+
+/** Recover visible Markdown structure from roadmap-like answers whose provider left the title and phase details as plain paragraphs. */
+function normalizeStructuredAnswerMarkdown(value: string): string {
+  const blocks = value.split(/\n\s*\n/).map(block => block.trim()).filter(Boolean);
+  const markdownBlock = (block: string): boolean => /^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\||-{3,}|_{3,}|\*{3,})/.test(block);
+  if (blocks.length >= 4) {
+    const title = blocks[0]!;
+    const plainTitle = title.length <= 100 &&
+      !/[.!?:;]$/.test(title) &&
+      !markdownBlock(title) &&
+      !/[`*_~]/.test(title);
+    if (plainTitle) {
+      const phases: Array<{ index: number; number: number; title: string }> = [];
+      for (let index = 1; index < blocks.length; index++) {
+        const match = blocks[index]!.match(/^(\d+)[.)]\s+([^\n]+)$/);
+        if (match) phases.push({ index, number: Number(match[1]), title: match[2]! });
+      }
+      if (phases.length >= 3 && !phases.some((phase, index) => phase.number !== index + 1)) {
+        const normalized = [`## ${title}`];
+        let inPhase = false;
+        for (let index = 1; index < blocks.length; index++) {
+          const block = blocks[index]!;
+          const phase = phases.find(item => item.index === index);
+          if (phase) {
+            normalized.push(`### ${phase.number}. ${phase.title}`);
+            inPhase = true;
+          } else {
+            normalized.push(inPhase && !markdownBlock(block)
+              ? `- ${block.replace(/\n/g, '\n  ')}`
+              : block);
+          }
+        }
+        return normalized.join('\n\n');
+      }
+    }
+  }
+
+  // Provider overviews often announce a feature list with a colon, then emit every feature as a separate paragraph.
+  const normalized: string[] = [];
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index]!;
+    const heading = block.match(/^([^\n:]{3,140}):$/);
+    if (!heading || markdownBlock(block)) {
+      normalized.push(block);
+      continue;
+    }
+    const items: string[] = [];
+    let next = index + 1;
+    for (; next < blocks.length; next++) {
+      const candidate = blocks[next]!;
+      if (/^(?:adem[aá]s|tambi[eé]n|adicionalmente|asimismo|also|additionally|in addition|moreover)\b/i.test(candidate) ||
+          markdownBlock(candidate) || /^[^\n]{3,140}:$/.test(candidate)) break;
+      items.push(candidate);
+    }
+    if (items.length < 3) {
+      normalized.push(block);
+      continue;
+    }
+    normalized.push(`${index === 0 ? '##' : '###'} ${heading[1]!.trim()}`);
+    normalized.push(...items.map(item => `- ${item.replace(/\n/g, '\n  ')}`));
+    index = next - 1;
+  }
+  const colonFormatted = normalized.join('\n\n');
+  const sectionBlocks = colonFormatted.split(/\n\s*\n/).map(block => block.trim()).filter(Boolean);
+  const sections: string[] = [];
+  let changedSections = false;
+  for (let index = 0; index < sectionBlocks.length; index++) {
+    const block = sectionBlocks[index]!;
+    const summary = block.match(/^(en resumen|en s[ií]ntesis|resumen|in summary|to summarize|summary):\s*(.+)$/i);
+    if (summary) {
+      sections.push(`**${summary[1]}:** ${summary[2]}`);
+      changedSections = true;
+      continue;
+    }
+    const plainLabel = block.length <= 100 && !/[.!?:;]$/.test(block) &&
+      !markdownBlock(block) && !/[`*_~]/.test(block);
+    if (!plainLabel) {
+      sections.push(block);
+      continue;
+    }
+    const items: string[] = [];
+    let next = index + 1;
+    for (; next < sectionBlocks.length; next++) {
+      const candidate = sectionBlocks[next]!;
+      const isSectionLabel = candidate.length <= 100 && !/[.!?:;]$/.test(candidate) &&
+        !markdownBlock(candidate) && !/[`*_~]/.test(candidate);
+      if (isSectionLabel || /^(?:en resumen|en s[ií]ntesis|resumen|in summary|to summarize|summary):/i.test(candidate) || markdownBlock(candidate)) break;
+      items.push(candidate);
+    }
+    if (items.length < 2) {
+      sections.push(block);
+      continue;
+    }
+    sections.push(`## ${block}`);
+    sections.push(...items.map(item => `- ${item.replace(/\n/g, '\n  ')}`));
+    changedSections = true;
+    index = next - 1;
+  }
+  return changedSections ? sections.join('\n\n') : colonFormatted;
+}
+
 const WRITING_BLOCK: TokenizerAndRendererExtension = {
   name: 'writingBlock', level: 'block',
   start: value => value.match(/^:::writing\b/m)?.index,
@@ -56,7 +157,7 @@ const WRITING_BLOCK: TokenizerAndRendererExtension = {
 
 // Convert canonical Markdown into safe transcript DOM.
 export function renderedMarkdown(source: string): HTMLElement {
-  const text = cleanProviderReply(withoutMessageReaction(source)).slice(0, MAX_RENDERED_MARKUP_CHARS);
+  const text = normalizeStructuredAnswerMarkdown(cleanProviderReply(withoutMessageReaction(source)).slice(0, MAX_RENDERED_MARKUP_CHARS));
   const math: MathSlots = { formulas: [] };
   const parser = new Marked({ gfm: true, extensions: [WRITING_BLOCK, ...createMathExtensions(math)] });
   const html = parser.parse(text, { async: false });

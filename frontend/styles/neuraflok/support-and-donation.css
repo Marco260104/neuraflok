@@ -20,8 +20,9 @@
 .app-topbar { border-bottom-color: var(--line); box-shadow: none; }
 .app[data-screen='chat'] .card.is-session { background: var(--page); }
 .chat-head > #chatTitle { letter-spacing: -.01em; }
-.said:not(.is-user) { max-width: 76ch; }
-.said.is-user > .user-message-text { max-width: min(72ch, 90%); }
+.said:not(.is-user) { width: 100%; max-width: 100%; }
+.said.is-user { max-width: 58%; }
+.said.is-user > .user-message-text { max-width: 100%; }
 .composer { box-shadow: 0 0 0 1px var(--line), 0 12px 32px -26px oklch(0 0 0 / .58); }
 .composer { padding: 6px 10px; }
 .composer textarea,

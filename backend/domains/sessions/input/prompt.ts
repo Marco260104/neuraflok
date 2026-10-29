@@ -20,7 +20,8 @@ const cutNotice = '\n\n[Cut off because of the message limit. Read AGENTS.md you
 function localProviderInstructions(project: boolean): string {
   const conversational = [
     'You are a conversational assistant.',
-    'Answer the user naturally and directly. Use the current message and relevant conversation history only. Do not inspect files, mention paths, run commands, or invent tool activity.'
+    'Answer the user naturally and directly. Use the current message and relevant conversation history only. Do not inspect files, mention paths, run commands, or invent tool activity.',
+    'For plans, roadmaps, study paths, tutorials, and other multi-part answers, Markdown is required: begin with a real Markdown heading using ##, use ### headings for phases or sections, and put the details under each section in actual bullet or numbered lists. For example: ## Study path, then ### 1. Foundations, then - Topic and - Practice. Never leave a plan title as plain text or put its details in unrelated paragraphs. Use fenced code blocks for code and tables only when they clarify comparisons. Keep greetings and short factual answers as concise prose without forced headings.'
   ];
   const workspace = [
     'You are an assistant working with the user in their selected project.',
@@ -184,7 +185,7 @@ export function fitProviderPrompt(
   ].join('\n'));
   if (extraContext.projectPlanContext) contextSections.push(extraContext.projectPlanContext);
   if (!agents) return fitPrompt(text, core, agents, budget, skills, frameProviderPrompt, contextSections);
-  const style = '\n\nFINAL RESPONSE STYLE: Answer the user\'s current question naturally and directly in the configured language. Keep it concise. Do not provide an audit report, tool transcript, command output, or file path list unless the user asks for those details. State only useful results and limitations; never invent work.';
+  const style = '\n\nFINAL RESPONSE STYLE: Answer the user\'s current question naturally and directly in the configured language. Keep it concise. For a structured answer or project overview with several features, use real Markdown headings and bullet lists: give a short summary, then group the features under a heading instead of leaving each one as a plain paragraph. Keep simple answers as concise prose. Do not provide an audit report, tool transcript, command output, or file path list unless the user asks for those details. State only useful results and limitations; never invent work.';
   const styleBytes = Buffer.byteLength(style, 'utf8');
   const contentBudget = {
     maxChars: Math.max(0, budget.maxChars - style.length),

@@ -527,7 +527,7 @@ export function webToolGuide(
     patchExample,
     '```',
     'You will receive a neuraflok-result fence with that tool\'s output. After tools finish, answer the user with no fence unless another tool call is required.',
-    `Final answer: respond naturally, directly, and concisely to the user's request in ${ctx?.language ? 'the configured language' : 'the language the user used'}. Do not include tool transcripts, raw outputs, implementation notes, or unrelated details.`
+    `Final answer: respond naturally, directly, and concisely to the user's request in ${ctx?.language ? 'the configured language' : 'the language the user used'}. For a structured answer or project overview with several features, use real Markdown headings and bullet lists: give a short summary, then group the features under a heading instead of leaving each one as a plain paragraph. Keep simple answers as concise prose. Do not include tool transcripts, raw outputs, implementation notes, or unrelated details.`
   ].join('\n');
 }
 
@@ -535,6 +535,7 @@ export function webPlainChatInstructions(language?: import('./ui-language.js').U
   return [
     'You are a conversational assistant.',
     'Answer naturally and directly using the user message and relevant chat history. This is a normal chat: do not inspect files, mention paths, run commands, or claim tool activity.',
+    'For plans, roadmaps, study paths, tutorials, and other multi-part answers, Markdown is required: begin with a real Markdown heading using ##, use ### headings for phases or sections, and put the details under each section in actual bullet or numbered lists. For example: ## Study path, then ### 1. Foundations, then - Topic and - Practice. Never leave a plan title as plain text or put its details in unrelated paragraphs. Use fenced code blocks for code and tables only when they clarify comparisons. Keep greetings and short factual answers as concise prose without forced headings.',
     'Application-generated setup acknowledgements and hidden context checks are internal transport, not part of this conversation or the user’s task. Ignore them completely; never quote, mention, summarize, or use them as evidence about the user or request.',
     replyLanguageInstruction(language)
   ].join('\n\n');
@@ -560,7 +561,7 @@ export function webProjectPlanToolGuide(
     '```neuraflok-tool',
     readExample,
     '```',
-    'After the relevant files are read, give a concise, natural plan that answers the user request and ask the user to approve before starting work. Do not include tool transcripts or unrelated details.'
+    'After the relevant files are read, give a concise, natural Markdown plan that answers the user request: use a real heading and an ordered list of concrete steps. Ask the user to approve before starting work. Do not include tool transcripts or unrelated details.'
   ].filter(Boolean).join('\n\n');
 }
 

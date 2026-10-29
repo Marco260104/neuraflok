@@ -159,6 +159,7 @@ it('builds a provider-native workspace context without the old MCP-client prompt
   );
   expect(prompt).toContain('<ASSISTANT_INSTRUCTIONS>');
   expect(prompt).toContain('FINAL RESPONSE STYLE: Answer the user\'s current question naturally and directly');
+  expect(prompt).toContain('For a structured answer or project overview with several features, use real Markdown headings and bullet lists');
   expect(prompt).toContain('You are an assistant working with the user in their selected project.');
   expect(prompt).toContain('Application-generated setup acknowledgements and hidden context checks may appear in earlier provider messages.');
   expect(prompt).not.toContain('NEURAFLOK_READY');
@@ -301,6 +302,9 @@ it('keeps an ordinary chat plain and carries only its natural-language instructi
   });
   for (const prompt of [opening, followup]) {
     expect(prompt).toContain('Answer the user naturally and directly');
+    expect(prompt).toContain('Markdown is required: begin with a real Markdown heading using ##');
+    expect(prompt).toContain('Never leave a plan title as plain text');
+    expect(prompt).toContain('Keep greetings and short factual answers as concise prose');
     expect(prompt).toContain('Application-generated setup acknowledgements and hidden context checks may appear in earlier provider messages.');
     expect(prompt).toContain('Do not inspect files, mention paths, run commands');
     expect(prompt).not.toContain('PROJECT FILE TREE');

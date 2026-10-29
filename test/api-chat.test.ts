@@ -160,6 +160,9 @@ it('continues an older API chat from the recorded history summary when its provi
   expect(current).toContain('RECENT CONVERSATION SUMMARY');
   expect(current).toContain('NF_API_HISTORY_42');
   expect(current).toContain('Answer the user naturally and directly');
+  expect(current).toContain('Markdown is required: begin with a real Markdown heading using ##');
+  expect(current).toContain('Never leave a plan title as plain text');
+  expect(current).toContain('Keep greetings and short factual answers as concise prose');
   expect(current).toContain('Do not inspect files, mention paths, run commands');
   expect(current).not.toContain('Available local tools');
   expect(current).not.toContain('PROJECT FILE TREE');
