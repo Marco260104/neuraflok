@@ -216,8 +216,8 @@ code {
 :root[data-theme='dark'] .app[data-screen='chat'] .card.is-session { background: transparent; }
 .app-topbar { position: relative; z-index: 130; grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 6px; height: env(titlebar-area-height, 28px); padding: 0 10px; padding-left: max(10px, calc(env(titlebar-area-x, 0px) + 4px)); padding-right: max(10px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); background: var(--page); -webkit-app-region: drag; }
 
-.app-topbar > .btn { -webkit-app-region: no-drag; height: 100%; padding: 0 5px; }
-.app-topbar > .btn .ico { --ico: 14px; }
+.app-topbar-leading > .btn { -webkit-app-region: no-drag; height: 100%; padding: 0 5px; }
+.app-topbar-leading > .btn .ico { --ico: 14px; }
 /* The View menu's button stays lit while its menu is open, like a row's ⋮. Its three lines draw narrower and shorter than the sidebar toggle's frame beside it: a larger glyph gives them the same width, so the pair reads as one set. */
 #viewMenu[aria-expanded='true'] { background: var(--hover); color: var(--ink); }
 #viewMenu .ico { --glyph: 18.5px; }

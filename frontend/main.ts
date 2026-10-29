@@ -43,6 +43,7 @@ import { initDiagnosticsActions } from './application/diagnostics-actions.js';
 import { initFolderDropActions } from './application/folder-drop-actions.js';
 import { initActivityLogHydration } from './features/activity/activity-log-hydration.js';
 import { initDonationPage } from './features/donation/donation-page.js';
+import { bindTopbarSocialLinks } from './features/workspace/social-links.js';
 
 declare global {
   interface Window {
@@ -369,9 +370,19 @@ for (const id of [
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   const external = target.closest<HTMLElement>('[data-link-external]');
-  if (external?.dataset.linkExternal) void run(api.openLink(external.dataset.linkExternal, { external: true }));
+  if (external?.dataset.linkExternal) {
+    event.preventDefault();
+    void run(api.openLink(external.dataset.linkExternal, { external: true }));
+    return;
+  }
   const link = target.closest<HTMLElement>('[data-link]');
-  if (link?.dataset.link) void run(api.openLink(link.dataset.link));
+  if (link?.dataset.link) {
+    if (link instanceof HTMLAnchorElement) event.preventDefault();
+    void run(api.openLink(link.dataset.link));
+  }
+});
+bindTopbarSocialLinks(document, url => {
+  void run(api.openLink(url, { external: true }));
 });
 $('updateExtension')?.addEventListener('click', () => {
   const stepBrowser = setupWizard.step('browser');

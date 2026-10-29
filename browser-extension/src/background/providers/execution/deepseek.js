@@ -1,11 +1,16 @@
 import { createDeepseekSessionResolver } from '../deepseek-session.js';
 import { createDeepseekReplyWatcher, hasDeepseekToolCall, isDeepseekAck, looksLikeDeepseekThink } from './deepseek-reply-watch.js';
+import { loadDeepseekAttachments } from './deepseek-attachments.js';
+import { stageDeepseekAttachmentsInMainWorld } from './deepseek-main-world-attachments.js';
+import { createDeepseekTabReuse } from './deepseek-tab-reuse.js';
 import { openFreshDeepseekChat } from '../deepseek-new-chat.js';
 
 export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply, createBrowserTab, queryProviderTabs, restoreDeepseekTab, waitForTabReady, isDeepseekUrl, usableProviderTab, state, replyWatchTimings = {} }) {
   const { stoppedProviderOffers, readDeepseekSent, writeDeepseekSent, readProviderTab, writeProviderTab } = state;
   let deepseekPageFlight = null;
-  const DEEPSEEK_SEND_MS = 100_000;
+  // Uploading a large PDF can take longer than the text-only send path. Keep
+  // the tab request alive while the page confirms the file and accepts send.
+  const DEEPSEEK_SEND_MS = 360_000;
   const DEEPSEEK_READ_MS = 8_000;
   const DEEPSEEK_READY_MS = 20_000;
   const DEEPSEEK_READY_POLL_MS = 250;
@@ -14,40 +19,16 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
     waitForTabReady, isDeepseekUrl, usableProviderTab, state
   });
   const { conversationPageUrl, rememberConversationPage, resolveExistingDeepseekTab } = sessionPages;
-
-  async function reusableFreshTab(offer, background) {
-    if (background !== true) return null;
-    const candidates = (await queryProviderTabs('deepseek'))
-      .filter(candidate => usableProviderTab(candidate) && Number.isInteger(candidate?.id))
-      .sort((left, right) => (left.lastAccessed ?? 0) - (right.lastAccessed ?? 0));
-    let savedBoundTab = null;
-    for (const candidate of candidates) {
-      const current = await chrome.tabs.get(candidate.id).catch(() => null);
-      if (!current || current.pendingUrl || current.status !== 'complete' || !isDeepseekUrl(current.url)) continue;
-      if (await restoreDeepseekTab(candidate.id) === false) continue;
-      const status = await tabReply(candidate.id, { type: 'neuraflok-deepseek-status' }).catch(() => null);
-      if (!status || status.signedIn !== true || status.generating === true) continue;
-      const snapshot = await tabReply(candidate.id, { type: 'neuraflok-deepseek-snapshot' }, undefined, DEEPSEEK_READ_MS).catch(() => null);
-      if (!snapshot || snapshot.signedIn !== true || snapshot.generating === true) continue;
-      const boundConversation = status.conversationId || snapshot.conversationId || null;
-      if (!boundConversation) {
-        if (snapshot.hasConversation !== true) return { tab: current, rebindSavedConversation: false };
-        continue;
-      }
-      if (boundConversation === offer.conversationId) {
-        return { tab: current, rebindSavedConversation: false };
-      }
-      const prior = await readProviderTab(boundConversation);
-      const savedUrl = conversationPageUrl(prior?.url);
-      if (!savedUrl || conversationPageUrl(current.url) !== savedUrl || snapshot.hasConversation !== true) continue;
-      if (!savedBoundTab) savedBoundTab = { tab: current, rebindSavedConversation: true };
-    }
-    return savedBoundTab;
-  }
+  const reusableFreshTab = createDeepseekTabReuse({
+    chrome, queryProviderTabs, usableProviderTab, restoreDeepseekTab, tabReply,
+    isDeepseekUrl, readProviderTab, conversationPageUrl
+  });
 
   async function postDeepseekPage(offer, body, tabId) {
     if (!offer || typeof offer.id !== 'string' || typeof offer.conversationId !== 'string') return false;
-    if (typeof body.text === 'string' && body.text.trim()) await rememberConversationPage(offer, tabId);
+    if ((typeof body.text === 'string' && body.text.trim()) || body.attachmentUploaded === true || body.attachmentRemoved === true) {
+      await rememberConversationPage(offer, tabId);
+    }
     const reply = await call('/provider/page', {
       method: 'POST',
       body: JSON.stringify({ ...body, id: offer.id, provider: 'deepseek', conversationId: offer.conversationId })
@@ -58,6 +39,20 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
       return true;
     }
     return false;
+  }
+
+  async function reportAttachmentUploaded(message, sender) {
+    const claim = await readDeepseekSent();
+    if (!claim || claim.id !== message?.id || claim.conversationId !== message?.conversationId ||
+        claim.tab !== sender?.tab?.id || claim.phase !== 'claimed') return { ok: false };
+    const reply = await call('/provider/page/progress', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: claim.id, provider: 'deepseek', conversationId: claim.conversationId,
+        attachmentsUploaded: true, generating: false
+      })
+    });
+    return { ok: reply.ok && reply.data?.ok === true };
   }
 
   const watchDeepseekReply = createDeepseekReplyWatcher({
@@ -193,7 +188,9 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           const savedPageMatches = Boolean(savedUrl && currentUrl === savedUrl);
           const legacyMappedPage = !snapshot.conversationId && binding?.tab === tab.id && Boolean(currentUrl);
           const pageIsBoundToChat = snapshot.conversationId === offer.conversationId || savedPageMatches || legacyMappedPage;
-          if (!snapshot.hasConversation || !pageIsBoundToChat) {
+          const isPreparedEmptyAttachmentPage = offer.preparedAttachmentPage === true &&
+            snapshot.hasConversation !== true && snapshot.conversationId === offer.conversationId && binding?.tab === tab.id;
+          if ((!snapshot.hasConversation && !isPreparedEmptyAttachmentPage) || !pageIsBoundToChat) {
             throw new Error('DEEPSEEK_CONTEXT_UNAVAILABLE: The saved DeepSeek page no longer contains this chat history. No message was sent.');
           }
           await writeProviderTab(offer.conversationId, tab.id, 'deepseek', currentUrl);
@@ -203,14 +200,57 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
           before: typeof snapshot.before === 'string' ? snapshot.before : '',
           beforeThink: typeof snapshot.beforeThink === 'string' ? snapshot.beforeThink : '',
           beforeIdentity: typeof snapshot.beforeIdentity === 'string' ? snapshot.beforeIdentity : '',
+          uploadOnly: offer.uploadOnly === true,
+          removeOnly: offer.removeOnly === true,
+          preparedAttachmentPage: offer.preparedAttachmentPage === true,
           at: Date.now(), phase: 'claimed'
         };
         if (!await writeDeepseekSent(claim)) throw new Error('Could not record the send claim. No message was sent; retry after restarting the extension.');
+        const attachments = offer.removeOnly === true ? [] : await loadDeepseekAttachments(offer, call);
+        let pageAttachments = attachments;
+        let preStagedAttachments = false;
+        if (attachments.some(file => String(file?.mimeType || '').startsWith('image/'))) {
+          const metadata = attachments.map(({ chunks: _chunks, ...file }) => file);
+          const attachmentState = await tabReply(tab.id, {
+            type: 'neuraflok-deepseek-attachment-state',
+            conversationId: offer.conversationId,
+            attachments: metadata
+          }, undefined, DEEPSEEK_READ_MS).catch(() => null);
+          let presentIds = Array.isArray(attachmentState?.presentIds)
+            ? attachmentState.presentIds
+            : null;
+          // A just-opened DeepSeek chat can accept the following completion
+          // message before its first attachment-state reply arrives. Retry the
+          // read-only handshake once; if it still has no response, stage the
+          // image in MAIN and let the completion handler verify the actual UI.
+          if (presentIds === null) {
+            const retry = await tabReply(tab.id, {
+              type: 'neuraflok-deepseek-attachment-state',
+              conversationId: offer.conversationId,
+              attachments: metadata
+            }, undefined, Math.min(DEEPSEEK_READ_MS, 2_000)).catch(() => null);
+            if (Array.isArray(retry?.presentIds)) presentIds = retry.presentIds;
+          }
+          const existing = new Set(presentIds || []);
+          const missing = attachments.filter(file => !existing.has(file.id));
+          if (!missing.length || await stageDeepseekAttachmentsInMainWorld(chrome, tab.id, missing)) {
+            // Files created in the provider page's main world are accepted
+            // by DeepSeek's controlled input. The isolated content script
+            // only needs metadata to verify the chip and upload receipt.
+            pageAttachments = metadata;
+            preStagedAttachments = true;
+          }
+        }
         const reply = await tabReply(tab.id, {
           type: 'neuraflok-deepseek-complete',
           id: offer.id,
           conversationId: offer.conversationId,
           text: typeof offer.text === 'string' ? offer.text : '',
+          uploadOnly: offer.uploadOnly === true,
+          removeOnly: offer.removeOnly === true,
+          preparedAttachmentPage: offer.preparedAttachmentPage === true,
+          attachments: offer.removeOnly === true ? (offer.attachments || []) : pageAttachments,
+          ...(preStagedAttachments ? { preStagedAttachments: true } : {}),
           stop: offer.stop === true,
           fresh: offer.fresh === true,
           ...(freshPagePrepared ? { freshPagePrepared: true } : {}),
@@ -225,6 +265,22 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
         }
         if (reply && typeof reply.error === 'string' && reply.error.trim()) {
           await fail(reply.error);
+          return;
+        }
+        if (offer.uploadOnly === true) {
+          if (reply?.uploaded !== true) {
+            await fail('DeepSeek did not confirm that the selected files finished uploading.');
+            return;
+          }
+          await postDeepseekPage(offer, { attachmentUploaded: true }, tab.id);
+          return;
+        }
+        if (offer.removeOnly === true) {
+          if (reply?.removed !== true) {
+            await fail('DeepSeek did not confirm that the selected files were removed.');
+            return;
+          }
+          await postDeepseekPage(offer, { attachmentRemoved: true }, tab.id);
           return;
         }
         const immediate = reply && typeof reply.text === 'string' ? reply.text : '';
@@ -264,5 +320,5 @@ export function createDeepseekPageExecutor({ chrome, activeTabs, call, tabReply,
     });
   }
 
-  return { inspect: inspectDeepseekPage, busy: () => deepseekPageFlight !== null };
+  return { inspect: inspectDeepseekPage, busy: () => deepseekPageFlight !== null, reportAttachmentUploaded };
 }

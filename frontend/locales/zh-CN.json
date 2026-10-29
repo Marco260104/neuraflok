@@ -673,6 +673,9 @@
   "Move to Trash": "移到回收站",
   "Files · {0}": "文件 · {0}",
   "Attach up to 20 files per message": "每条消息最多附加 20 个文件",
+  "Attach up to 50 files per message": "每条消息最多附加 50 个文件",
+  "Each attachment must be 100 MB or smaller": "每个文件不得超过 100 MB",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "不支持此文件格式。DeepSeek 支持 PDF、DOC/DOCX、XLS/XLSX、PPT/PPTX、图像、文本和代码文件。",
   "Handoff copied": "交接摘要已复制",
   "Run cleared — every worker ended": "运行已清除 — 所有子智能体已结束",
   "{0} cleared — its slot is free": "{0} 已清除 — 名额已释放",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "正在上传…",
+  "Uploaded": "已上传",
+  "Upload failed": "上传失败",
+  "NEURAFLOK community links": "NEURAFLOK 社区链接",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

@@ -623,6 +623,9 @@
   "Attach up to 20 files and 512 MB per message": "Mesaj başına en fazla 20 dosya ve 512 MB ekleyin",
   "Files": "Dosyalar",
   "Attach up to 20 files per message": "Mesaj başına en fazla 20 dosya ekleyin",
+  "Attach up to 50 files per message": "Mesaj başına en fazla 50 dosya ekleyin",
+  "Each attachment must be 100 MB or smaller": "Her dosya en fazla 100 MB olmalıdır",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "Desteklenmeyen dosya biçimi. DeepSeek PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, görsel, metin ve kod dosyalarını kabul eder.",
   "Handoff copied": "Devir özeti kopyalandı",
   "Run cleared — every worker ended": "Çalıştırma temizlendi — tüm yardımcı ajanlar sonlandırıldı",
   "{0} cleared — its slot is free": "{0} temizlendi — yeri boş",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "Yükleniyor…",
+  "Uploaded": "Yüklendi",
+  "Upload failed": "Yüklenemedi",
+  "NEURAFLOK community links": "NEURAFLOK topluluk bağlantıları",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

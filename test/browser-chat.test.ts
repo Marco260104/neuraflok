@@ -35,7 +35,9 @@ import {
 import { replayWebProviderTranscript } from '../backend/domains/providers/browser-chat-thread.js';
 import { textOnlyWebMessages } from '../backend/domains/providers/conversation-summary.js';
 import {
+  onProviderPageProgress,
   pendingProviderPage,
+  readProviderPageAttachmentChunk,
   reportProviderPageProgress,
   resetProviderPageForTests,
   requestProviderPageComplete,
@@ -59,6 +61,8 @@ import { createBrowserChatToolRegistrar, invokeBrowserChatTool } from '../backen
 import { sessionActivityExpiresAt } from '../backend/domains/browser/session-activity.js';
 import { isWebProviderConversationId } from '../contracts/web-providers.js';
 import { confirmsWebProviderContext, prepareWebProviderContextCheck } from '../backend/domains/sessions/input/provider-context.js';
+import { stageInputAttachment } from '../backend/domains/sessions/input/attachments/index.js';
+import { hasFreshProviderAttachmentSession, markFreshAttachmentUploadSession, preuploadDeepseekAttachments, removeDeepseekAttachments, wasProviderAttachmentPreuploaded } from '../backend/domains/providers/preuploaded-attachments.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 import { addProject, assignSessionProject } from '../backend/domains/workspace/projects.js';
 
@@ -330,6 +334,10 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(webProjectPlanToolGuide(
     [{ name: 'read', description: 'Read files', inputSchema: { type: 'object', properties: {} } }],
     { project: '/c', language: 'es' }
+  )).toContain('not the app-wide access setting');
+  expect(webProjectPlanToolGuide(
+    [{ name: 'read', description: 'Read files', inputSchema: { type: 'object', properties: {} } }],
+    { project: '/c', language: 'es' }
   )).not.toContain('NEURAFLOK_READY');
   const text = 'Working.\n```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```\n';
   expect(parseWebChatTools(text)).toEqual([{
@@ -342,6 +350,9 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
     id: 'call_1',
     type: 'function',
     function: { name: 'apply_patch', arguments: '{"patch":"x"}' }
+  }]);
+  expect(parseWebChatTools('```neuraflok-tool\n{"name":"approve_project_plan","arguments":{}}\n```')).toEqual([{
+    id: 'call_1', type: 'function', function: { name: 'approve_project_plan', arguments: '{}' }
   }]);
   const bareRead = '{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}';
   expect(parseWebChatTools(bareRead)).toEqual([{
@@ -534,6 +545,239 @@ it('publishes one page offer and settles it by id', async () => {
   expect(settleProviderPage({ id: offer!.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'reply from the page' })).toBe(true);
   await expect(pending).resolves.toEqual({ text: 'reply from the page' });
   expect(pendingProviderPage()).toBeNull();
+});
+
+it('offers the original attachment to the provider and reports its upload receipt', async () => {
+  resetProviderPageForTests();
+  const bytes = Buffer.alloc(256 * 1024 + 9, 0x5a);
+  const attachmentId = '00000000-0000-4000-8000-000000000001';
+  const pending = requestProviderPageComplete('deepseek', TEST_PROVIDER_CONVERSATION, 'Describe this PDF.', undefined, {
+    attachments: [{ id: attachmentId, name: 'scan.pdf', mimeType: 'application/pdf', size: bytes.length, bytes }]
+  });
+  const offer = pendingProviderPage()!;
+  expect(offer.attachments).toEqual([{ id: attachmentId, name: 'scan.pdf', mimeType: 'application/pdf', size: bytes.length }]);
+  const first = readProviderPageAttachmentChunk({
+    id: offer.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, attachmentId, offset: 0
+  });
+  const second = readProviderPageAttachmentChunk({
+    id: offer.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, attachmentId, offset: 256 * 1024
+  });
+  expect(Buffer.concat([Buffer.from(first!, 'base64'), Buffer.from(second!, 'base64')])).toEqual(bytes);
+  expect(readProviderPageAttachmentChunk({
+    id: offer.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, attachmentId: 'not-this-file', offset: 0
+  })).toBeNull();
+
+  const progress: Array<{ attachmentsUploaded: boolean; generating: boolean }> = [];
+  const unsubscribe = onProviderPageProgress(value => progress.push(value));
+  expect(reportProviderPageProgress({
+    id: offer.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION,
+    attachmentsUploaded: true, generating: false
+  })).toBe(true);
+  unsubscribe();
+  expect(progress).toMatchObject([{ attachmentsUploaded: true, generating: false }]);
+  expect(settleProviderPage({ id: offer.id, provider: 'deepseek', conversationId: TEST_PROVIDER_CONVERSATION, text: 'ready' })).toBe(true);
+  await expect(pending).resolves.toEqual({ text: 'ready' });
+  resetProviderPageForTests();
+});
+
+it('keeps a fresh pre-uploaded attachment page for the first authored request without spending the file on bootstrap', async () => {
+  const conversationId = `ds-${randomUUID()}`;
+  const session = await createSession({ title: 'Synthetic attachment chat', conversationId });
+  const image = await stageInputAttachment({
+    name: 'synthetic.png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+  }, new Set());
+  const requests: Array<{ text: string; fresh: boolean; uploadOnly: boolean; preparedAttachmentPage: boolean }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    requests.push({
+      text,
+      fresh: options?.fresh === true,
+      uploadOnly: options?.uploadOnly === true,
+      preparedAttachmentPage: options?.preparedAttachmentPage === true
+    });
+    return options?.uploadOnly
+      ? { text: '', attachmentUploaded: true }
+      : { text: 'The synthetic image was received and described.' };
+  } });
+  markFreshAttachmentUploadSession(session.id, conversationId);
+  await preuploadDeepseekAttachments(session.id, conversationId, [image]);
+  expect(hasFreshProviderAttachmentSession(session.id, conversationId)).toBe(true);
+
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: session.id, text: 'Describe the synthetic image.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null, attachments: [image]
+  });
+  await expect(runDeepseekInput(input)).resolves.toBeTruthy();
+
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toMatchObject({ fresh: true, uploadOnly: true, preparedAttachmentPage: false });
+  expect(requests[1]).toMatchObject({ fresh: false, uploadOnly: false, preparedAttachmentPage: true });
+  expect(requests[1]!.text).toContain('Describe the synthetic image.');
+  expect(requests.some(request => request.fresh && !request.uploadOnly)).toBe(false);
+  expect(hasFreshProviderAttachmentSession(session.id, conversationId)).toBe(false);
+});
+
+it('uploads mixed DeepSeek documents one at a time and honors a fresh page only for the first file', async () => {
+  resetProviderPageForTests();
+  const conversationId = `ds-${randomUUID()}`;
+  const session = await createSession({ title: 'Synthetic mixed attachment chat', conversationId });
+  const png = await stageInputAttachment({
+    name: 'synthetic.png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+  }, new Set());
+  const docx = await stageInputAttachment({ name: 'synthetic.docx', bytes: Buffer.from('PK\u0003\u0004synthetic document') }, new Set());
+  const offers: Array<{ fresh: boolean; attachmentCount: number; mimeType: string }> = [];
+  configurePageForTests({ complete: async (_text, _signal, options) => {
+    offers.push({
+      fresh: options?.fresh === true,
+      attachmentCount: options?.attachments?.length ?? 0,
+      mimeType: options?.attachments?.[0]?.mimeType ?? ''
+    });
+    return { text: '', attachmentUploaded: true };
+  } });
+  markFreshAttachmentUploadSession(session.id, conversationId);
+
+  await preuploadDeepseekAttachments(session.id, conversationId, [png, docx]);
+
+  expect(offers).toEqual([
+    { fresh: true, attachmentCount: 1, mimeType: 'image/png' },
+    { fresh: false, attachmentCount: 1, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
+  ]);
+  expect(wasProviderAttachmentPreuploaded(conversationId, png.id)).toBe(true);
+  expect(wasProviderAttachmentPreuploaded(conversationId, docx.id)).toBe(true);
+});
+
+it('restages a lost DeepSeek attachment in the same chat and retries the original request without exposing the transient error', async () => {
+  const conversationId = `ds-${randomUUID()}`;
+  const session = await createSession({ title: 'Synthetic recovered attachment chat', conversationId });
+  const image = await stageInputAttachment({
+    name: 'synthetic-recovery.png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+  }, new Set());
+  const requests: Array<{ text: string; fresh: boolean; uploadOnly: boolean; preparedAttachmentPage: boolean; attachments: number }> = [];
+  configurePageForTests({ complete: async (text, _signal, options) => {
+    requests.push({
+      text,
+      fresh: options?.fresh === true,
+      uploadOnly: options?.uploadOnly === true,
+      preparedAttachmentPage: options?.preparedAttachmentPage === true,
+      attachments: options?.attachments?.length ?? 0
+    });
+    if (options?.uploadOnly) return { text: '', attachmentUploaded: true };
+    if (options?.preparedAttachmentPage) {
+      throw new Error('DEEPSEEK_ATTACHMENT_STAGE_UNAVAILABLE: The uploaded attachment is no longer staged in this DeepSeek chat. No message was sent.');
+    }
+    if (options?.fresh) return { text: 'Unexpected second provider chat.' };
+    return { text: 'The synthetic image was received and described.' };
+  } });
+  markFreshAttachmentUploadSession(session.id, conversationId);
+  await preuploadDeepseekAttachments(session.id, conversationId, [image]);
+
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: session.id, text: 'Describe the synthetic image.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null, attachments: [image]
+  });
+  await expect(runDeepseekInput(input)).resolves.toBeTruthy();
+
+  expect(requests).toHaveLength(3);
+  expect(requests[0]).toMatchObject({ fresh: true, uploadOnly: true, attachments: 1 });
+  expect(requests[1]).toMatchObject({ fresh: false, preparedAttachmentPage: true, attachments: 0 });
+  expect(requests[2]).toMatchObject({ fresh: false, preparedAttachmentPage: false, attachments: 1 });
+  expect(requests[2]!.text).toContain('Describe the synthetic image.');
+  expect(requests.some(request => request.fresh && !request.uploadOnly)).toBe(false);
+  expect(hasFreshProviderAttachmentSession(session.id, conversationId)).toBe(false);
+  await flushRecorder();
+  const events = await readEvents(session.id);
+  expect(events.some(event => event.kind === 'chat_error' && event.message.text.includes('ATTACHMENT_STAGE_UNAVAILABLE'))).toBe(false);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('synthetic image was received'))).toBe(true);
+});
+
+it('keeps an attachment queued and retries a transient provider timeout until it gets an upload receipt', async () => {
+  const conversationId = `ds-${randomUUID()}`;
+  const session = await createSession({ title: 'Synthetic queued attachment chat', conversationId });
+  const image = await stageInputAttachment({
+    name: 'synthetic-queued.png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+  }, new Set());
+  const freshAttempts: boolean[] = [];
+  configurePageForTests({ complete: async (_text, _signal, options) => {
+    freshAttempts.push(options?.fresh === true);
+    if (options?.uploadOnly && freshAttempts.length === 1) throw new Error('The provider did not finish this reply in time.');
+    return { text: '', attachmentUploaded: true };
+  } });
+  markFreshAttachmentUploadSession(session.id, conversationId);
+
+  await preuploadDeepseekAttachments(session.id, conversationId, [image]);
+
+  expect(freshAttempts).toEqual([true, false]);
+  expect(hasFreshProviderAttachmentSession(session.id, conversationId)).toBe(true);
+});
+
+it('caps an attachment upload retry loop and opens a fresh DeepSeek chat only once', async () => {
+  resetProviderPageForTests();
+  const conversationId = `ds-${randomUUID()}`;
+  const session = await createSession({ title: 'Synthetic bounded attachment chat', conversationId });
+  const image = await stageInputAttachment({
+    name: 'synthetic-bounded.png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+  }, new Set());
+  const freshAttempts: boolean[] = [];
+  configurePageForTests({ complete: async (_text, _signal, options) => {
+    freshAttempts.push(options?.fresh === true);
+    throw new Error('The provider did not finish this reply in time.');
+  } });
+  markFreshAttachmentUploadSession(session.id, conversationId);
+  await expect(preuploadDeepseekAttachments(session.id, conversationId, [image]))
+    .rejects.toThrow('The provider did not finish this reply in time.');
+  expect(freshAttempts).toEqual([true, false, false]);
+});
+
+it('does not send an attachment to DeepSeek again after its upload receipt was confirmed', async () => {
+  resetProviderPageForTests();
+  const conversationId = `ds-${randomUUID()}`;
+  const session = await createSession({ title: 'Synthetic deduplicated attachment chat', conversationId });
+  const image = await stageInputAttachment({
+    name: 'synthetic-deduplicated.png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+  }, new Set());
+  let uploadCalls = 0;
+  configurePageForTests({ complete: async () => {
+    uploadCalls++;
+    return { text: '', attachmentUploaded: true };
+  } });
+
+  await preuploadDeepseekAttachments(session.id, conversationId, [image]);
+  await preuploadDeepseekAttachments(session.id, conversationId, [image]);
+
+  expect(uploadCalls).toBe(1);
+});
+
+it('removes a pre-uploaded file from its exact DeepSeek conversation and retires its receipt', async () => {
+  const conversationId = `ds-${randomUUID()}`;
+  const session = await createSession({ title: 'Synthetic removable attachment chat', conversationId });
+  const image = await stageInputAttachment({
+    name: 'synthetic-removable.png',
+    bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+  }, new Set());
+  const requests: Array<{ uploadOnly: boolean; removeOnly: boolean; attachmentTargets?: Array<{ id: string }> }> = [];
+  configurePageForTests({ complete: async (_text, _signal, options) => {
+    requests.push({
+      uploadOnly: options?.uploadOnly === true,
+      removeOnly: options?.removeOnly === true,
+      attachmentTargets: options?.attachmentTargets
+    });
+    return options?.uploadOnly
+      ? { text: '', attachmentUploaded: true }
+      : { text: '', attachmentRemoved: true };
+  } });
+
+  await preuploadDeepseekAttachments(session.id, conversationId, [image]);
+  expect(wasProviderAttachmentPreuploaded(conversationId, image.id)).toBe(true);
+  await removeDeepseekAttachments(conversationId, [image]);
+
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toMatchObject({ removeOnly: true, attachmentTargets: [{ id: image.id }] });
+  expect(wasProviderAttachmentPreuploaded(conversationId, image.id)).toBe(false);
 });
 
 it('publishes a fresh flag on an opening page offer', async () => {
@@ -1496,14 +1740,24 @@ it('reads files in Plan mode, blocks edits before approval, and executes after e
       case 1:
         return { text: 'Plan: Update the one-line value and verify the file.' };
       case 2:
-        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'apply_patch', arguments: { patch } })}\n\`\`\`` };
+        return { text: [
+          { name: 'apply_patch', arguments: { patch } },
+          { name: 'approve_project_plan', arguments: {} }
+        ].map(call => `\`\`\`neuraflok-tool\n${JSON.stringify(call)}\n\`\`\``).join('\n') };
       case 3:
-        return { text: 'I revised the plan to include the alternate idea.' };
+        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({
+          name: 'revise_project_plan',
+          arguments: { plan: 'Read the file, include the alternate idea, update the one-line value, then verify it.' }
+        })}\n\`\`\`` };
       case 4:
-        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'apply_patch', arguments: { patch } })}\n\`\`\`` };
+        return { text: 'The revised plan now includes the alternate idea. I will wait for your decision.' };
       case 5:
-        return { text: 'I made the change.' };
+        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'approve_project_plan', arguments: {} })}\n\`\`\`` };
       case 6:
+        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'apply_patch', arguments: { patch } })}\n\`\`\`` };
+      case 7:
+        return { text: 'I made the change.' };
+      case 8:
         expect(text).toContain('COMPLETION REVIEW');
         return { text: 'The approved change is complete and verified.' };
       default:
@@ -1536,10 +1790,11 @@ it('reads files in Plan mode, blocks edits before approval, and executes after e
   expect(await fs.readFile(target, 'utf8')).toBe('before\n');
   expect(await readProjectPlanState(draft.id)).toMatchObject({ plan: expect.stringContaining('alternate idea') });
   expect(pages[3]!.text).toContain('Plan awaiting approval');
-  expect(pages[4]!.text).toContain('non-read-only tool request was blocked');
+  expect(pages[3]!.text).toContain('revise_project_plan');
+  expect(pages[4]!.text).toContain('No decision or project action was applied');
 
   const approved = await enqueueInput({
-    id: randomUUID(), sessionId: draft.id, text: 'Aprobar', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+    id: randomUUID(), sessionId: draft.id, text: 'Ya hazlo', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
   await runDeepseekInput(approved);
   expect(await fs.readFile(target, 'utf8')).toBe('after\n');
@@ -1548,7 +1803,8 @@ it('reads files in Plan mode, blocks edits before approval, and executes after e
   events = await readEvents(draft.id);
   expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'apply_patch')).toHaveLength(1);
   expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'The approved change is complete and verified.')).toBe(true);
-  expect(pages[5]!.text).toContain('The user explicitly approved this plan.');
+  expect(pages[7]!.text).toContain('The user explicitly approved this plan.');
+  expect(pages[7]!.text).toContain('The earlier planning gate is cleared');
 });
 
 it('records a chat_error after accept when the page refuses, without replaying the send', async () => {

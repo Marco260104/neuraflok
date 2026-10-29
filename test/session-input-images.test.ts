@@ -33,7 +33,7 @@ describe('input image byte and pixel validation', () => {
     const file = path.join(directory, 'too-big.webp');
     await fs.writeFile(file, '');
     await fs.truncate(file, 512 * 1024 * 1024 + 1);
-    await expect(stageInputAttachment(file, new Set())).rejects.toThrow(/512 MB/);
+    await expect(stageInputAttachment(file, new Set())).rejects.toThrow(/100 MB/);
     await expect(stageInputAttachment(directory, new Set())).rejects.toThrow(/folders/);
   });
 

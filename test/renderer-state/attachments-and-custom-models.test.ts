@@ -7,7 +7,7 @@ it('attaches pasted screenshot files with previews while preserving ordinary tex
   const mounted = await mountChat({}, [], { dropFiles });
   const w = mounted.window, input = w.document.getElementById('settingsFind') as HTMLInputElement;
   input.focus();
-  const file = new w.File(['image'], 'screenshot.png', { type: 'image/png' });
+  const file = new w.File(['image'], 'screenshot.png', { type: '' });
   const paste = new w.Event('paste', { bubbles: true, cancelable: true });
   Object.defineProperty(paste, 'clipboardData', { value: { files: [file] } });
   input.dispatchEvent(paste);
@@ -20,7 +20,7 @@ it('attaches pasted screenshot files with previews while preserving ordinary tex
   expect(text.defaultPrevented).toBe(false);
   expect(w.document.activeElement).toBe(input);
   const overflow = new w.Event('paste', { bubbles: true, cancelable: true });
-  Object.defineProperty(overflow, 'clipboardData', { value: { files: Array(20).fill(file) } });
+  Object.defineProperty(overflow, 'clipboardData', { value: { files: Array(51).fill(file) } });
   input.dispatchEvent(overflow);
   expect(overflow.defaultPrevented).toBe(true);
   expect(dropFiles).toHaveBeenCalledTimes(1);

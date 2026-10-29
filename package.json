@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A desktop coding workspace for signed-in DeepSeek, Kimi, Qwen, and Z AI sessions with approved local tools.",
   "license": "MIT",
-  "author": "NEURAFLOK contributors",
+  "author": "Marco Torres (Marco260104)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MARCO260104/neuraflok.git"

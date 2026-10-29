@@ -1,7 +1,7 @@
 /** The updater, held to the two things that actually matter about it. One: a file that is going to be executed on quit is the published file and nothing else. The release pipeline writes a `SHA256SUMS.txt` over the exact artifacts it uploads, so that is the bar here — a byte count would pass a same-length wrong file straight into an installer. Two: nothing it does can wedge the app. Every failure has to leave the running version intact and be retried the next time the app opens, which is the only schedule this has. The platform is faked rather than abstracted: `stagedArtifact()` reads `process.platform` and `process.env.APPIMAGE` because those *are* the facts that decide what an installation can apply to itself, and a seam in front of them would be a second answer to the same question. */
 
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,6 +41,7 @@ const {
   manualDownloadUrl,
   markInstallOnQuit,
   releaseVersion,
+  releaseRepository,
   resetUpdateForTests,
   stagedArtifact,
   updateStatus
@@ -57,7 +58,7 @@ function github(options: {
   version?: string;
   body?: string;
   checksums?: string;
-  fail?: 'release' | 'sums' | 'asset';
+  fail?: 'release' | 'no-release' | 'sums' | 'asset';
 } = {}) {
   const version = options.version ?? NEXT;
   const body = options.body ?? 'installer bytes';
@@ -69,6 +70,7 @@ function github(options: {
     asked.push(name);
     if (url.includes('api.github.com')) {
       if (options.fail === 'release') return new Response('nope', { status: 503 });
+      if (options.fail === 'no-release') return new Response('not found', { status: 404 });
       return new Response(JSON.stringify({ tag_name: `v${version}` }), { status: 200 });
     }
     if (name === 'SHA256SUMS.txt') {
@@ -108,6 +110,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  rmSync(userData, { recursive: true, force: true });
 });
 
 afterAll(() => {
@@ -177,6 +180,12 @@ describe('which installations update themselves', () => {
 });
 
 describe('finding a newer release', () => {
+  it('uses the public repository by default and keeps the maintainer override validated', () => {
+    expect(releaseRepository(undefined)).toBe('Marco260104/neuraflok');
+    expect(releaseRepository('  custom/release-repo  ')).toBe('custom/release-repo');
+    expect(releaseRepository('not a repository')).toBeNull();
+  });
+
   it('reads a release tag, and refuses anything that is not one', () => {
     expect(releaseVersion('v2.1.0')).toBe('2.1.0');
     expect(releaseVersion('2.1.0')).toBe('2.1.0');
@@ -200,6 +209,15 @@ describe('finding a newer release', () => {
     expect(updateStatus()).toMatchObject({ current: APP_VERSION, latest: null, stage: 'idle' });
     expect(updateStatus().checkedAt).toBeGreaterThan(0);
     // It stopped at the release: no checksums, no artifact, nothing written.
+    expect(asked).toEqual(['latest']);
+    expect(readdirSync(userData)).toEqual([]);
+  });
+
+  it('treats an empty public releases page as normal before the first stable release', async () => {
+    const { asked } = github({ fail: 'no-release' });
+    await checkForUpdates();
+    expect(updateStatus()).toMatchObject({ current: APP_VERSION, latest: null, stage: 'idle', error: null });
+    expect(updateStatus().checkedAt).toBeGreaterThan(0);
     expect(asked).toEqual(['latest']);
     expect(readdirSync(userData)).toEqual([]);
   });

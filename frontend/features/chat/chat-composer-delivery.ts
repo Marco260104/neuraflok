@@ -3,7 +3,7 @@ import { isWebProviderId, type WebProviderId } from '../../../contracts/web-prov
 import type { SessionSummary } from '../../../contracts/session.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import { $, run } from '../../shared/dom.js';
-import type { ComposerAttachment } from './chat-composer-attachments.js';
+import { waitForComposerAttachmentUploads, type ComposerAttachment } from './chat-composer-attachments.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
 import { composerWarmupKey, composerWarmupState, markUnboundOpening, noteOpeningSession } from './chat-composer-ready.js';
 
@@ -94,11 +94,21 @@ export function createChatComposerDelivery(runtime: Runtime) {
   async function sendComposer(delivery?: 'finish', plan?: string[], planObjective?: string, controlAction = false): Promise<boolean | void> {
     if ($<HTMLButtonElement>('chatSend').disabled) return;
     const input = $<HTMLTextAreaElement>('chatInput');
-    const key = runtime.draftKey();
+    let key = runtime.draftKey();
+    let images = runtime.imageDrafts.get(key) ?? [];
+    const expectedAttachmentIds = images.filter((file): file is InputAttachment => 'id' in file).map(file => file.id);
+    if (!await waitForComposerAttachmentUploads(images)) return false;
+    const settledKey = runtime.draftKey();
+    if (settledKey !== key) {
+      const settledImages = runtime.imageDrafts.get(settledKey) ?? [];
+      const settledIds = new Set(settledImages.filter((file): file is InputAttachment => 'id' in file).map(file => file.id));
+      if (!expectedAttachmentIds.every(id => settledIds.has(id))) return false;
+      key = settledKey;
+      images = settledImages;
+    }
     const projectId = runtime.selectedId ? runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId ?? null : runtime.selectedProjectId;
     const projectPlan = !plan && runtime.projectPlanMode();
     if (projectPlan && !projectId) return false;
-    const images = runtime.imageDrafts.get(key) ?? [];
     const text = plan?.[0] ?? (runtime.authoredComposerText().trim() || (images.length ? 'Please look at the attached files.' : ''));
     if (!text) {
       if (!controlAction) return;

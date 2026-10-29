@@ -1,6 +1,8 @@
 import { ipcRenderer } from "electron";
 import type { SessionControlsView } from "../../domains/browser/bridge.js";
 import type { InputArgs, InputEntry } from "../../domains/sessions/input/input.js";
+import type { InputAttachment } from "../../../contracts/input.js";
+import type { SessionSummary } from "../../../contracts/session.js";
 import type { ActiveWorkspaceProcess } from "../../../contracts/workspace/execution/active-process.js";
 import type { RunningToolActivity, SessionSearchReply, SessionSearchLocation, Handoff, ImageStorageClearMode, ImageStorageClearResult, ImageStorageInfo } from "../../../contracts/session.js";
 import type { SessionList, SessionListCursor, SessionDetail } from "./contracts.js";
@@ -25,6 +27,12 @@ export function createSessionsApi() {
     compactSession: (id: string) => call<SessionControlsView>('sessions:compact', { id }),
     cancelSessionCompaction: (id: string) => call<SessionControlsView>('sessions:cancelCompaction', { id }),
     draftTaskPlan: (text: string, backend: 'api' | 'web', requestId?: string) => call<string[]>('sessions:plan', { text, backend, requestId }),
+    ensureAttachmentSession: (sessionId: string | null, projectId: string | null) =>
+      call<SessionSummary>('sessions:ensureAttachmentSession', { sessionId, projectId }),
+    uploadProviderAttachments: (sessionId: string, attachments: InputAttachment[]) =>
+      call<{ sessionId: string; attachmentIds: string[]; ready: true }>('sessions:uploadProviderAttachments', { sessionId, attachments }),
+    removeProviderAttachments: (sessionId: string, attachments: InputAttachment[]) =>
+      call<{ sessionId: string; attachmentIds: string[]; removed: true }>('sessions:removeProviderAttachments', { sessionId, attachments }),
     sendInput: (input: InputArgs) => call<InputEntry>('sessions:send', input),
     retryInputBrowser: (id: string) => call<InputEntry | null>('sessions:retryBrowser', { id }),
     listInputs: () => call<InputEntry[]>('sessions:outbox'),

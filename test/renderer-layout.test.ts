@@ -4,12 +4,13 @@ import { readRendererMarkup } from '../scripts/read-renderer-markup.cjs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { collectSettings } from '../frontend/features/settings/search/indexer.js';
 import { searchSettings } from '../frontend/features/settings/search/ranking.js';
 import { sessionWorkingAt } from '../contracts/sessions/activity-state.js';
 import { CHAT_ACTIVE_MS, type SessionSummary } from '../contracts/session.js';
 import { readRendererStyleSource } from '../scripts/read-renderer-style-source.cjs';
+import { bindTopbarSocialLinks } from '../frontend/features/workspace/social-links.js';
 
 let document: Document;
 let css = '';
@@ -24,10 +25,12 @@ let chatSessionActionsSource = '';
 let chatSessionListSource = '';
 let menuSource = '';
 let browserPreferencesSource = '';
+let mainSource = '';
+let socialLinksSource = '';
 
 beforeAll(async () => {
   browserPreferencesSource = await fs.readFile(path.join(process.cwd(), './frontend', 'features', 'settings', 'browser-preferences.ts'), 'utf8');
-  const [html, workspaceStyles, chat, chatSettings, chatSettingsPatch, chatGoalSettingsView, chatGoalSettingsEvents, chatGoalModelPicker, chatSessionRow, chatSessionActions, chatSessionList] = await Promise.all([
+  const [html, workspaceStyles, chat, chatSettings, chatSettingsPatch, chatGoalSettingsView, chatGoalSettingsEvents, chatGoalModelPicker, chatSessionRow, chatSessionActions, chatSessionList, main, socialLinks] = await Promise.all([
     readRendererMarkup(process.cwd()),
     readRendererStyleSource(process.cwd(), 'neuraflok.css'),
     fs.readFile(path.join(process.cwd(), './frontend', 'features', 'chat', 'chat.ts'), 'utf8'),
@@ -38,7 +41,9 @@ beforeAll(async () => {
     fs.readFile(path.join(process.cwd(), './frontend', 'features', 'chat', 'chat-goal-model-picker.ts'), 'utf8'),
     fs.readFile(path.join(process.cwd(), './frontend', 'features', 'chat', 'chat-session-row.ts'), 'utf8'),
     fs.readFile(path.join(process.cwd(), './frontend', 'features', 'chat', 'chat-session-actions.ts'), 'utf8'),
-    fs.readFile(path.join(process.cwd(), './frontend', 'features', 'chat', 'chat-session-list.ts'), 'utf8')
+    fs.readFile(path.join(process.cwd(), './frontend', 'features', 'chat', 'chat-session-list.ts'), 'utf8'),
+    fs.readFile(path.join(process.cwd(), './frontend', 'main.ts'), 'utf8'),
+    fs.readFile(path.join(process.cwd(), './frontend', 'features', 'workspace', 'social-links.ts'), 'utf8')
   ]);
   document = new JSDOM(html).window.document;
   css = readRendererStyleSource(process.cwd()) + '\n' + readRendererStyleSource(process.cwd(), 'settings.css') + '\n' + workspaceStyles;
@@ -51,6 +56,8 @@ beforeAll(async () => {
   chatSessionRowSource = chatSessionRow;
   chatSessionActionsSource = chatSessionActions;
   chatSessionListSource = chatSessionList;
+  mainSource = main;
+  socialLinksSource = socialLinks;
   menuSource = await fs.readFile(path.join(process.cwd(), './frontend', 'features', 'chat', 'row-menu.ts'), 'utf8');
 });
 
@@ -95,6 +102,78 @@ it('titles every settings page the same way, Activity included', () => {
 it('keeps page titles and supporting text compact at the default scale', () => {
   expect(css).toMatch(/\.settings-page-head h1\s*\{[^}]*font-size:\s*calc\(20px \* var\(--text-scale, 1\)\)/);
   expect(css).toMatch(/\.settings-page-head p\s*\{[^}]*font-size:\s*calc\(12\.5px \* var\(--text-scale, 1\)\)/);
+});
+
+it('centers the colored GitHub and Telegram links in the title bar beside each other', async () => {
+  const links = [...document.querySelectorAll<HTMLButtonElement>('.app-topbar-social-links button')];
+  expect(links.map(button => [button.getAttribute('aria-label'), button.type, button.dataset.url])).toEqual([
+    ['GitHub', 'button', 'https://google.com'],
+    ['Telegram', 'button', 'https://google.com']
+  ]);
+  expect(links.every(button => button.tagName === 'BUTTON')).toBe(true);
+  expect(mainSource).toContain('void run(api.openLink(url, { external: true }));');
+  expect(links.every(link => link.closest('.app-topbar'))).toBe(true);
+  expect(links.every(link => link.querySelector('img[alt=""]'))).toBe(true);
+  expect(links[0]?.querySelector('img')?.getAttribute('src')).toBe('./assets/brand/github.svg');
+  expect(links[1]?.querySelector('img')?.getAttribute('src')).toBe('./assets/brand/telegram.svg');
+  expect(document.querySelector('.app-topbar-leading')?.contains(document.getElementById('sidebarToggle'))).toBe(true);
+  expect(document.querySelector('.app-topbar-leading')?.contains(document.getElementById('viewMenu'))).toBe(true);
+  expect(document.querySelector('.app-topbar-trailing')?.contains(document.querySelector('.app-topbar-social-links'))).toBe(false);
+  expect(document.querySelector('.app-topbar-social-links')?.nextElementSibling?.classList.contains('app-topbar-trailing')).toBe(true);
+  expect(document.querySelector('.donation-panel .donation-social-links')).toBeNull();
+  expect(rule('.app-topbar-social-links')).toContain('position: absolute');
+  expect(rule('.app-topbar-social-links')).toContain('left: 50vw');
+  expect(rule('.app-topbar-social-links')).toContain('top: 50%');
+  expect(rule('.app-topbar-social-links')).toContain('translate: -50% -50%');
+  expect(rule('.app-topbar-social-links')).toContain('z-index: 2');
+  expect(rule('.app-topbar-social-links')).toContain('pointer-events: auto');
+  expect(rule('.app-topbar-social-links')).toContain('flex-direction: row');
+  expect(rule('.app-topbar-social-links')).toContain('gap: 8px');
+  expect(rule('.app-topbar-social-links')).not.toContain('border:');
+  expect(rule('.app-topbar-social-link')).toContain('border: 0');
+  expect(rule('.app-topbar-social-link')).toContain('border-radius: 0');
+  expect(rule('.app-topbar-social-link')).toContain('background: transparent');
+  expect(rule('.app-topbar-social-link')).toContain('cursor: pointer');
+  expect(rule('.app-topbar-social-link')).toContain('-webkit-app-region: no-drag');
+  expect(rule('.app-topbar-social-link')).toContain('width: 20px');
+  expect(rule('.app-topbar-social-link')).toContain('height: 20px');
+  expect(rule('.app-topbar-social-link')).not.toContain('box-shadow');
+  expect(css).toContain('.app-topbar-social-link:hover { transform: scale(1.08); }');
+  expect(css).toContain('.app-topbar-social-link-github:hover img');
+  expect(css).toContain('.app-topbar-social-link-telegram:hover img');
+  expect(rule('.app-topbar-social-link img')).toContain('width: 16px');
+  expect(rule('.app-topbar-social-link img')).toContain('pointer-events: none');
+  expect(rule('.app-topbar-social-link img')).toContain('-webkit-app-region: no-drag');
+  expect(rule('.app-topbar-social-link-github img')).toContain('filter: brightness(0) invert(1)');
+  expect(rule('.app-topbar-social-link-telegram img')).toContain('width: 18px');
+  expect(rule('.app-topbar-social-links')).toContain('display: flex');
+  expect(rule('.app-topbar-trailing')).toContain('justify-content: flex-end');
+  expect(css).toContain('.app-topbar-trailing > .header-dock-controls');
+  expect(css).not.toContain('.app-topbar > .header-dock-controls');
+  expect(mainSource).toContain('bindTopbarSocialLinks(document');
+  expect(mainSource).toContain('api.openLink(url, { external: true })');
+  expect(socialLinksSource).toContain("querySelectorAll<HTMLButtonElement>('.app-topbar-social-link')");
+  expect(socialLinksSource).toContain('event.stopPropagation();');
+  expect(socialLinksSource).toContain('openExternal(url);');
+  const [github, telegram, dockController] = await Promise.all([
+    fs.readFile(path.join(process.cwd(), 'frontend/public/assets/brand/github.svg'), 'utf8'),
+    fs.readFile(path.join(process.cwd(), 'frontend/public/assets/brand/telegram.svg'), 'utf8'),
+    fs.readFile(path.join(process.cwd(), 'frontend/features/workspace/docks/controller.ts'), 'utf8')
+  ]);
+  expect(github).toContain('fill="#181717"');
+  expect(telegram).toContain('fill="#26A5E4"');
+  expect(dockController).toContain("topbar.querySelector<HTMLElement>('.app-topbar-trailing')!.append(controls)");
+});
+
+it('opens a topbar community button externally when its icon is clicked', () => {
+  const root = document.createElement('nav');
+  root.innerHTML = '<button class="app-topbar-social-link" type="button" data-url="https://google.com"><img alt="" src="icon.svg"></button>';
+  const openExternal = vi.fn();
+  bindTopbarSocialLinks(root, openExternal);
+  const click = new (document.defaultView!.MouseEvent)('click', { bubbles: true, cancelable: true });
+  root.querySelector('img')!.dispatchEvent(click);
+  expect(click.defaultPrevented).toBe(true);
+  expect(openExternal).toHaveBeenCalledWith('https://google.com');
 });
 
 it('limits the existing tool-detail preference to handoff briefs', () => {
@@ -222,13 +301,15 @@ describe('the session card header', () => {
     expect(rule('.worker-group')).toContain('padding-left: 16px');
     expect(css).not.toContain('.project-group .session-row');
   });
-  /** A gear, and nothing that starts work. Compact & resume is pressed in the provider chat page, because the chat is what writes the brief — a button here would be a second way to start the one thing that must happen exactly once. */
-  it('keeps global connection status in the app bar and outside the chat header', () => {
+  /** Provider connection belongs in Settings and the composer model picker; the persistent green capsule adds no action to the workspace. */
+  it('hides the app-bar connection indicator while retaining provider connection actions', () => {
     const header = document.querySelector('#chatTitle')!.closest('header')!;
     const connection = document.getElementById('sidebarConnection')!;
     const appBar = connection.closest('.app-topbar')!;
     expect(header.contains(connection)).toBe(false);
     expect(appBar).not.toBeNull();
+    expect(rule('.app-topbar-connection')).toContain('display: none');
+    expect(document.querySelector('[data-open-provider="deepseek"]')).not.toBeNull();
     expect(document.getElementById('workspaceSettings')!.closest('#sidebar')).not.toBeNull();
     expect(document.querySelector('.app-rail')).toBeNull();
     expect(document.getElementById('quickSettingsDialog')).not.toBeNull();
@@ -237,7 +318,6 @@ describe('the session card header', () => {
     expect(rule('.connection-popover')).toContain('max-height: min(580px, calc(100vh - 70px))');
     expect(rule('.connection-popover::-webkit-scrollbar-track')).toContain('margin-block: 10px');
     expect(rule('#workspaceSettings')).toContain('height: 36px');
-    expect(css).toMatch(/\.app-topbar \.sidebar-connection \{\s*height: 30px; min-width: 34px;/);
     expect(document.getElementById('headerConnect')).toBeNull();
     expect(document.getElementById('connectionPopover')!.querySelector('details')).toBeNull();
     expect(document.getElementById('connectionAdvanced')).toBeNull();

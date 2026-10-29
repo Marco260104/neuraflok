@@ -105,6 +105,8 @@ export function initializeChatControllers(bindings: ChatInitializationBindings):
     get pendingComposerInputs() {
       return bindings.pendingComposerInputs;
     },
+    loadDetail: bindings.loadDetail,
+    refreshInputQueue: bindings.refreshInputQueue,
     openTools: bindings.openTools,
     openReview: async (projectId, sessionId, callId, indices) => {
       const opened = await bindings.reviewPanel?.openReview(projectId, sessionId, callId, indices);
@@ -116,9 +118,19 @@ export function initializeChatControllers(bindings: ChatInitializationBindings):
     }
   });
   bindings.chatComposerAttachments = createChatComposerAttachments({
+    api: bindings.api,
     draftKey: bindings.draftKey,
     owner: bindings.composerDraftOwner,
     ownsOwner: bindings.ownsComposerDraft,
+    get selectedId() { return bindings.selectedId; },
+    get selectedProjectId() { return bindings.selectedProjectId; },
+    get sessions() { return bindings.sessions; },
+    set sessions(value) { bindings.sessions = value; },
+    inputDrafts: bindings.chatDraftState!.inputDrafts,
+    authoredComposerText: bindings.authoredComposerText,
+    selectSession: bindings.selectSession,
+    paintSessions: bindings.paintSessions,
+    run,
     attachmentCard: bindings.attachmentCard,
     paintDeliveryControls: bindings.paintDeliveryControls
   });
@@ -258,6 +270,11 @@ export function initializeChatControllers(bindings: ChatInitializationBindings):
     },
     refreshInputQueue: () => {
       void bindings.refreshInputQueue();
+    },
+    stopProjectTurn: async (sessionId, previousProjectId) => {
+      const controls = await run(bindings.api.getSessionControls(sessionId));
+      if (!controls?.activeTurnId || bindings.selectedProjectId === previousProjectId) return;
+      await run(bindings.api.stopSessionTurn(sessionId, controls.activeTurnId));
     }
   });
 }

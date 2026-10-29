@@ -3,7 +3,7 @@ import { exportSessionMarkdown } from '../../infrastructure/desktop-shell/sessio
 import { z } from 'zod';
 import { committedResumeAncestorsFromSummary, type SessionChange } from '../../../contracts/session.js';
 import { sessionListCursorSchema, readSessionEvents, readSessionList } from '../../domains/sessions/history/read-model.js';
-import { clearImageStorage, clearSessionName, deleteSession, getImageStorage, getSession, readHandoff, renameSession, withSessionMutationFence } from '../../domains/sessions/history/store.js';
+import { clearImageStorage, clearSessionName, createSession, deleteSession, getImageStorage, getSession, readHandoff, rebindSession, renameSession, withSessionMutationFence } from '../../domains/sessions/history/store.js';
 import { forgetSession, notifyChanged } from '../../domains/sessions/history/recorder.js';
 import { recordedInputImage } from '../../domains/sessions/input/input-history.js';
 import { locateSearchMatch, searchSessions } from '../../domains/sessions/history/search.js';
@@ -25,6 +25,10 @@ import { randomUUID } from 'node:crypto';
 import { runTaskRequest } from '../../domains/automation/task-requests/registry.js';
 import { isApiConversationId } from '../../../contracts/chat-protocol.js';
 import { providerForConversationId } from '../../../contracts/web-providers.js';
+import { webProviderConversationId } from '../../../contracts/web-providers.js';
+import { assignSessionProject } from '../../domains/workspace/projects.js';
+import { attachmentSchema, MAX_ATTACHMENTS } from '../../domains/sessions/input/attachments/index.js';
+import { markFreshAttachmentUploadSession, preuploadDeepseekAttachments, removeDeepseekAttachments } from '../../domains/providers/preuploaded-attachments.js';
 import { getConfig } from '../../infrastructure/settings/config.js';
 import { loadIntegratedBrowser } from '../../domains/browser/embedded/selection.js';
 import { sessionControlsFor, cancelAssistantRecovery, stopSessionTurn, setSessionAutomation, setSessionObjective, compactSession, cancelSessionCompaction, revealChatInBrowser, sweepStaleSwarm } from '../../domains/browser/bridge.js';
@@ -102,19 +106,73 @@ export function registerSessionIpc({ handle, getWindow, push, deletingSessionIds
   handle('sessions:files', async () => {
     const chosen = await dialog.showOpenDialog({ title: 'Attach files', properties: ['openFile', 'multiSelections'] });
     if (chosen.canceled) return [];
-    if (chosen.filePaths.length > 20) throw new Error('Attach up to 20 files per message');
+    if (chosen.filePaths.length > MAX_ATTACHMENTS) throw new Error('Attach up to 50 files per message');
     return stageFiles(chosen.filePaths);
   });
   handle('sessions:dropFiles', async payload => {
     const { files } = z.object({ files: z.array(z.union([
       z.string().min(1).max(32768),
-      z.object({ name: z.string().min(1).max(255), bytes: z.instanceof(Uint8Array).refine(bytes => bytes.byteLength > 0 && bytes.byteLength <= 12 * 1024 * 1024) }).strict()
-    ])).min(1).max(20) }).strict().parse(payload);
+      z.object({ name: z.string().min(1).max(255), bytes: z.instanceof(Uint8Array).refine(bytes => bytes.byteLength > 0 && bytes.byteLength <= 100 * 1024 * 1024) }).strict()
+    ])).min(1).max(MAX_ATTACHMENTS) }).strict().parse(payload);
     return stageFiles(files);
   });
   handle('sessions:attachText', async payload => {
     const { text } = z.object({ text: z.string().min(1).max(4 * 1024 * 1024) }).parse(payload);
     return (await stageFiles([{ text }]))[0]!;
+  });
+  handle('sessions:ensureAttachmentSession', async payload => {
+    const { sessionId, projectId } = z.object({
+      sessionId: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i).nullable(),
+      projectId: z.string().uuid().nullable()
+    }).strict().parse(payload);
+    let summary = sessionId ? await getSession(sessionId) : null;
+    if (sessionId && !summary) throw new Error('The selected chat is no longer available.');
+    if (!summary) {
+      const conversationId = webProviderConversationId('deepseek', randomUUID());
+      summary = await createSession({ title: 'New chat', conversationId });
+      markFreshAttachmentUploadSession(summary.id, conversationId);
+      if (projectId) await assignSessionProject(summary.id, projectId);
+    } else if (!summary.conversationId) {
+      const page = await readSessionEvents(summary.id, { limit: 1 });
+      if (page?.events.length) throw new Error('This chat already has local history and cannot be changed into a DeepSeek chat.');
+      const conversationId = webProviderConversationId('deepseek', randomUUID());
+      if (!await rebindSession(summary.id, null, conversationId)) throw new Error('Could not prepare this chat for the file upload.');
+      markFreshAttachmentUploadSession(summary.id, conversationId);
+      if (projectId && !summary.projectId) await assignSessionProject(summary.id, projectId);
+    }
+    const ensuredId = summary.id;
+    if (projectId && !summary.projectId) await assignSessionProject(ensuredId, projectId);
+    summary = await getSession(ensuredId);
+    if (!summary) throw new Error('The selected chat could not be loaded.');
+    const conversationId = summary.conversationId;
+    if (!conversationId || providerForConversationId(conversationId) !== 'deepseek') {
+      throw new Error('Files can be pre-uploaded only to a DeepSeek Web chat.');
+    }
+    return summary;
+  });
+  handle('sessions:uploadProviderAttachments', async payload => {
+    const { sessionId, attachments } = z.object({
+      sessionId: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i),
+      attachments: z.array(attachmentSchema).min(1).max(MAX_ATTACHMENTS)
+    }).strict().parse(payload);
+    const summary = await getSession(sessionId);
+    if (!summary?.conversationId || providerForConversationId(summary.conversationId) !== 'deepseek') {
+      throw new Error('The selected chat is not connected to DeepSeek Web.');
+    }
+    await preuploadDeepseekAttachments(sessionId, summary.conversationId, attachments);
+    return { sessionId, attachmentIds: attachments.map(file => file.id), ready: true as const };
+  });
+  handle('sessions:removeProviderAttachments', async payload => {
+    const { sessionId, attachments } = z.object({
+      sessionId: z.string().min(8).max(64).regex(/^[0-9a-z-]+$/i),
+      attachments: z.array(attachmentSchema).min(1).max(MAX_ATTACHMENTS)
+    }).strict().parse(payload);
+    const summary = await getSession(sessionId);
+    if (!summary?.conversationId || providerForConversationId(summary.conversationId) !== 'deepseek') {
+      throw new Error('The selected chat is not connected to DeepSeek Web.');
+    }
+    await removeDeepseekAttachments(summary.conversationId, attachments);
+    return { sessionId, attachmentIds: attachments.map(file => file.id), removed: true as const };
   });
   handle('sessions:stopTurn', async payload => {
     const { id, expectedTurnId } = sessionIdArg.extend({ expectedTurnId: z.string().min(1).max(256) }).parse(payload);

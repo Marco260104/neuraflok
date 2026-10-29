@@ -673,6 +673,9 @@
   "Move to Trash": "ゴミ箱に移動",
   "Files · {0}": "ファイル · {0}",
   "Attach up to 20 files per message": "1メッセージにつき最大20ファイルまで添付できます",
+  "Attach up to 50 files per message": "1メッセージにつき最大50ファイルまで添付できます",
+  "Each attachment must be 100 MB or smaller": "各ファイルは100 MB以下にしてください",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "未対応のファイル形式です。DeepSeekではPDF、DOC/DOCX、XLS/XLSX、PPT/PPTX、画像、テキスト、コードファイルを利用できます。",
   "Handoff copied": "引き継ぎをコピーしました",
   "Run cleared — every worker ended": "実行をクリアしました · すべてのワーカーを終了しました",
   "{0} cleared — its slot is free": "{0}をクリアしました · 枠が空きました",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "アップロード中…",
+  "Uploaded": "アップロード済み",
+  "Upload failed": "アップロードできませんでした",
+  "NEURAFLOK community links": "NEURAFLOK コミュニティリンク",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

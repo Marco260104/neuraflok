@@ -4,6 +4,7 @@ import { WEB_PROVIDERS, providerForConversationId } from '../../../contracts/web
 import { messageReaction } from '../../../contracts/chat/reaction-content.js';
 import { stripWebChatTools } from '../../../contracts/chat-protocol.js';
 import { userPromptText } from '../../../contracts/messaging/provider-message-envelope.js';
+import { recoveryMessage } from '../../../contracts/recovery.js';
 import { $, compactNumber, el, icon, run, setIcon, toast } from '../../shared/dom.js';
 import { ui, t } from '../../shared/i18n.js';
 import { imageStorageButton } from './image-storage-control.js';
@@ -38,6 +39,8 @@ export interface ChatEventRendererRuntime {
   readonly events: readonly SessionEvent[];
   readonly startingInputs: ReadonlyMap<string, InputEntry>;
   readonly pendingComposerInputs: readonly InputEntry[];
+  loadDetail(): void | Promise<unknown>;
+  refreshInputQueue(): void | Promise<void>;
   openTools: Set<string>;
 }
 
@@ -46,16 +49,84 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
   const openTools = runtime.openTools;
     const agentPanel = { open: runtime.openWorkerChat };
   const toolCalls = createToolCallRenderer(runtime);
-  function attachmentCard(file: InputAttachment, inComposer = false): HTMLElement {
+
+  function interruptedRequest(history: readonly SessionEvent[], stopped: Extract<SessionEvent, { kind: 'turn_end' }>): string {
+    const beforeEnd = history.filter(row => row.seq <= stopped.seq);
+    const startIndex = stopped.turnId
+      ? beforeEnd.findLastIndex(row => row.kind === 'turn_start' && row.turnId === stopped.turnId)
+      : -1;
+    const candidates = (startIndex >= 0 ? beforeEnd.slice(0, startIndex) : beforeEnd).toReversed();
+    const question = candidates.find((row): row is Extract<SessionEvent, { kind: 'user_message' }> => row.kind === 'user_message');
+    return question ? (userPromptText(question.message.text) ?? question.message.text).trim() : '';
+  }
+
+  async function continueStoppedTurn(stopped: Extract<SessionEvent, { kind: 'turn_end' }>, context: ChatEventContext,
+    button: HTMLButtonElement): Promise<void> {
+    if (button.disabled || !context.current() || runtime.selectedId !== context.id) return;
+    const session = runtime.sessions.find(row => row.id === context.id);
+    const question = interruptedRequest(context.history, stopped);
+    if (!session?.projectId || !question) return;
+    button.disabled = true;
+    const result = await run(api.sendInput({
+      id: crypto.randomUUID(),
+      sessionId: session.id,
+      projectId: session.projectId,
+      text: recoveryMessage(question),
+      authoredSource: 'text',
+      mode: 'auto',
+      dueAt: Date.now(),
+      model: null,
+      reasoningEffort: null
+    }));
+    if (!result) {
+      button.disabled = false;
+      return;
+    }
+    await runtime.refreshInputQueue();
+    await runtime.loadDetail();
+  }
+
+  function attachmentUploadStatus(status?: 'uploading' | 'ready' | 'failed'): HTMLElement | null {
+    if (!status) return null;
+    const label = status === 'uploading' ? t('Uploading…') : status === 'ready' ? t('Uploaded') : t('Upload failed');
+    const badge = el('span', `attachment-upload-status is-${status}`);
+    badge.dataset.status = status;
+    badge.setAttribute('aria-live', 'polite');
+    const statusIcon = status === 'uploading'
+      ? el('span', 'attachment-loading-spinner is-small')
+      : el('i', `ico ph ${status === 'ready' ? 'ph-check-circle' : 'ph-warning-circle'}`);
+    statusIcon.setAttribute('aria-hidden', 'true');
+    badge.append(statusIcon, el('span', status === 'uploading' ? 'attachment-loading-label' : '', label));
+    return badge;
+  }
+  function attachmentCard(file: InputAttachment, inComposer = false, uploadStatus?: 'uploading' | 'ready' | 'failed'): HTMLElement {
     if (file.preview) {
       const image = document.createElement('img'); image.src = file.preview; image.alt = file.name; image.title = file.name;
-      if (!inComposer) return image;
-      const tile = el('div', 'composer-image'); tile.append(image); return tile;
+      if (!inComposer) {
+        const tile = el('div', 'attachment-image-card');
+        tile.append(image);
+        const status = attachmentUploadStatus(uploadStatus);
+        if (status) tile.append(status);
+        return tile;
+      }
+      const tile = el('div', 'composer-image');
+      tile.append(image);
+      const status = attachmentUploadStatus(uploadStatus);
+      if (status) tile.append(status);
+      return tile;
     }
     const tile = el('div', 'attachment-card'); tile.title = file.name;
-    const glyph = el('span', 'attachment-icon'); glyph.append(icon('i-file-text'));
+    const glyph = el('span', `attachment-icon${uploadStatus === 'uploading' ? ' is-loading' : ''}`);
+    const fileGlyph = uploadStatus === 'uploading' ? el('span', 'attachment-loading-spinner') : icon('i-file-text');
+    fileGlyph.setAttribute('aria-hidden', 'true');
+    glyph.append(fileGlyph);
     const details = el('div', 'attachment-details');
-    details.append(el('div', 'attachment-name', file.name), el('div', 'attachment-kind', () => file.mimeType.startsWith('image/') ? t("Image") : t("File")));
+    const kind = el('div', 'attachment-kind');
+    if (uploadStatus === 'uploading') kind.append(el('span', 'attachment-loading-label', t('Uploading…')));
+    else kind.textContent = file.mimeType.startsWith('image/') ? t("Image") : t("File");
+    details.append(el('div', 'attachment-name', file.name), kind);
+    const status = uploadStatus === 'uploading' ? null : attachmentUploadStatus(uploadStatus);
+    if (status) details.append(status);
     tile.append(glyph, details); return tile;
   }
   // The exact outbox input retains preview bytes until optional history storage succeeds.
@@ -95,7 +166,7 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
         box.classList.add('has-reaction-slot');
         box.append(el('b', '', () => t("You")));
         const attachments = el('div', 'message-attachments');
-        if (event.attachments?.length) attachments.append(...event.attachments.map(file => attachmentCard(file)));
+        if (event.attachments?.length) attachments.append(...event.attachments.map(file => attachmentCard(file, false, event.attachmentUpload)));
         const assets = event.assets?.filter(asset => asset.mimeType === 'image/webp').slice(0, MAX_INPUT_IMAGES) ?? [];
         const retained = retainedInputImages(event, context?.id ?? runtime.selectedId);
         const preview = (data: string, retainedOnly = false, slot?: HTMLElement) => {
@@ -211,6 +282,17 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
         if (stoppedTurnEnd(event, context?.history ?? runtime.events)) {
           const line = el('p', 'meta is-progress thinking-line turn-stopped');
           line.append(icon('i-check-circle', 'ico thinking-ico'), el('span', '', () => t('Stopped. The provider page no longer shows this turn running.')));
+          const history = context?.history ?? runtime.events;
+          const session = context ? runtime.sessions.find(row => row.id === context.id) : undefined;
+          const hasPendingInput = runtime.pendingComposerInputs.some(row => row.sessionId === context?.id &&
+            ['queued', 'browser', 'tool'].includes(row.state));
+          const question = interruptedRequest(history, event);
+          if (context && context.id === runtime.selectedId && session?.projectId && question && !hasPendingInput) {
+            const resume = el('button', 'turn-stopped-continue', () => t('Continue')) as HTMLButtonElement;
+            resume.type = 'button';
+            resume.onclick = () => { void continueStoppedTurn(event, context, resume); };
+            line.append(resume);
+          }
           return line;
         }
         const line = el(

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { sessionsRoot } from '../../history/store.js';
 import type { InputAttachment } from '../../../../../contracts/input.js';
-import { MAX_ATTACHMENT_BYTES, attachmentSchema } from './contracts.js';
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, attachmentSchema } from './contracts.js';
 
 let operations: Promise<unknown> = Promise.resolve();
 
@@ -42,8 +42,8 @@ export async function readAttachmentImage(attachment: InputAttachment): Promise<
 }
 
 export async function validateStoredAttachments(attachments: InputAttachment[]): Promise<void> {
-  if (attachments.length > 20 || attachments.reduce((sum, file) => sum + file.size, 0) > MAX_ATTACHMENT_BYTES) {
-    throw new Error('Attach up to 20 files and 512 MB per message');
+  if (attachments.length > MAX_ATTACHMENTS || attachments.some(file => file.size > MAX_ATTACHMENT_BYTES)) {
+    throw new Error('Attach up to 50 supported files, each up to 100 MB');
   }
 
   for (const attachment of attachments) {

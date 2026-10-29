@@ -66,9 +66,9 @@
 .work-dock-quick kbd { color: var(--faint); font: inherit; font-size: calc(10px * var(--text-scale, 1)); }
 .header-dock-controls { display: flex; align-items: center; gap: 4px; }
 /* In the title bar: at its right end, clickable inside the drag region. Beside the system's caption buttons, a short divider and a gap set the app's toggles apart from minimize, maximize and close. */
-.app-topbar > .header-dock-controls { margin-left: auto; height: 100%; -webkit-app-region: no-drag; }
-.app-topbar > .header-dock-controls.is-beside-caption { padding-right: 12px; margin-right: 4px; position: relative; }
-.app-topbar > .header-dock-controls.is-beside-caption::after { content: ''; position: absolute; right: 0; top: 50%; width: 1px; height: 16px; transform: translateY(-50%); background: var(--line); }
+.app-topbar-trailing > .header-dock-controls { height: 100%; -webkit-app-region: no-drag; }
+.app-topbar-trailing > .header-dock-controls.is-beside-caption { padding-right: 12px; margin-right: 4px; position: relative; }
+.app-topbar-trailing > .header-dock-controls.is-beside-caption::after { content: ''; position: absolute; right: 0; top: 50%; width: 1px; height: 16px; transform: translateY(-50%); background: var(--line); }
 .header-dock-controls > .btn { display: grid; place-items: center; width: 28px; height: 28px; padding: 5px; border-radius: 7px; color: var(--soft); }
 /* The shared 17px glyph in a 15px box sat at x.5 and blurred, worst on rotated glyphs. The dock controls draw upright glyphs at 18px in an 18px box on whole pixels; the filled half-squares keep solid edges even at 125% scaling, where one-pixel strokes cannot land on the grid. */
 .header-dock-controls > .btn .ico { --ico: 18px; --glyph: 18px; }

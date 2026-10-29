@@ -257,6 +257,8 @@ export type SessionEvent =
       /** Native badge on this exact user message. Missing means unobserved; null means absent. */
       reaction?: string | null;
       attachments?: import('../input.js').InputAttachment[];
+      /** Local attachment handoff for this exact message; never describes assistant generation. */
+      attachmentUpload?: 'uploading' | 'ready' | 'failed';
       assets?: AssetRef[];
       /** Image assets explicitly removed from local recording storage; same-message replay cannot restore them. */
       retiredImageAssetIds?: string[];

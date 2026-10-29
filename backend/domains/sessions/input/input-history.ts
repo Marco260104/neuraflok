@@ -13,6 +13,8 @@ export interface LocalExecutorDelivery {
   model?: string;
   /** Normalized images that were sent with this local executor turn. */
   images?: InputEntry['images'];
+  /** Show attachment preparation in the authored message until the executor confirms delivery. */
+  attachmentUpload?: boolean;
 }
 
 /** Project a tool handout or proven delivery into history, never the enqueue intent. */
@@ -46,6 +48,7 @@ export async function recordDeliveredInput(
     ...(localExecutor ? { turnId: localExecutor.turnId } :
       messageId.startsWith('input:') && entry.toolTurnId ? { turnId: entry.toolTurnId } : {}),
     ...(entry.attachments?.length && entry.transportIntent !== 'tool' ? { attachments: entry.attachments } : {}),
+    ...(entry.attachments?.length && localExecutor?.attachmentUpload ? { attachmentUpload: 'uploading' as const } : {}),
     // Injection does not change the running model. Only the native send path verifies picker selection before delivery; a later sparse browser echo keeps this evidence.
     ...(!messageId.startsWith('input:') && selection.model
       ? { model: selection.model, ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}) }
@@ -67,6 +70,22 @@ export async function recordDeliveredInput(
     notifyChanged(sessionId);
   }
   return true;
+}
+
+/** Update the status on the same authored message as the provider accepts its files. */
+export async function updateDeliveredInputAttachmentStatus(
+  entry: Readonly<InputEntry>,
+  status: 'uploading' | 'ready' | 'failed'
+): Promise<boolean> {
+  const sessionId = entry.sessionId ?? entry.deliveredSessionId;
+  if (!sessionId || !entry.messageId || !entry.attachments?.length) return false;
+  const events = await readEvents(sessionId, { kinds: ['user_message'] });
+  const existing = events.find(event => event.kind === 'user_message' && event.inputId === entry.id && event.messageId === entry.messageId);
+  if (!existing || existing.kind !== 'user_message') return false;
+  if (existing.attachmentUpload === status) return true;
+  const updated = await upsertMessageEvent(sessionId, { ...existing, attachmentUpload: status });
+  if (updated.changed) notifyChanged(sessionId);
+  return updated.changed;
 }
 
 /** Recorded membership, not a supplied filename, grants the renderer image access. */

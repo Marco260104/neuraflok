@@ -180,8 +180,15 @@ it('keeps API project Plan read-only until approval, then executes the approved 
   const replies = [
     toolCall('plan_read', 'read', { paths: ['/workspace/plan-target.txt'] }),
     { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'Plan: Update the one-line value and verify the file.' } }] },
-    toolCall('blocked_patch', 'apply_patch', { patch }),
-    { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'I revised the plan to include the requested alternate idea.' } }] },
+    { choices: [{ finish_reason: 'tool_calls', message: {
+      role: 'assistant', content: null, tool_calls: [
+        { id: 'blocked_patch', type: 'function', function: { name: 'apply_patch', arguments: JSON.stringify({ patch }) } },
+        { id: 'unapproved_signal', type: 'function', function: { name: 'approve_project_plan', arguments: '{}' } }
+      ]
+    } }] },
+    toolCall('revise_plan', 'revise_project_plan', { plan: 'Read the file, include the alternate idea, update the one-line value, then verify it.' }),
+    { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'The revised plan now includes the alternate idea.' } }] },
+    toolCall('plan_approval', 'approve_project_plan', {}),
     toolCall('approved_patch', 'apply_patch', { patch }),
     { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'Updated the value and verified the file.' } }] }
   ];
@@ -202,7 +209,8 @@ it('keeps API project Plan read-only until approval, then executes the approved 
     (tool as { function?: { name?: string } }).function?.name);
   expect(planningToolNames).toContain('read');
   expect(planningToolNames).not.toContain('apply_patch');
-  expect(JSON.stringify(bodies[0]?.messages[0]?.content)).toContain('read-only planning phase');
+  expect(JSON.stringify(bodies[0]?.messages[0]?.content)).toContain('temporary Plan approval phase');
+  expect(JSON.stringify(bodies[0]?.messages[0]?.content)).toContain('do not say that the app is globally in read-only mode');
   expect(bodies[1]?.messages.some(message => message.role === 'tool' && String(message.content).includes('before'))).toBe(true);
   expect(await readProjectPlanState(draft.id)).toMatchObject({ request: draft.text, plan: expect.stringContaining('Update the one-line value') });
 
@@ -216,12 +224,27 @@ it('keeps API project Plan read-only until approval, then executes the approved 
   const reviewToolNames = (bodies[2]?.tools ?? []).map(tool =>
     (tool as { function?: { name?: string } }).function?.name);
   expect(reviewToolNames).not.toContain('apply_patch');
-  expect(JSON.stringify(bodies[3]?.messages)).toContain('non-read-only tool request was blocked');
+  expect(reviewToolNames).toContain('approve_project_plan');
+  expect(reviewToolNames).toContain('cancel_project_plan');
+  expect(reviewToolNames).toContain('revise_project_plan');
+  expect(String(bodies[2]?.messages[0]?.content)).toContain('Judge only the latest user-authored message by its meaning');
+  expect(JSON.stringify(bodies[3]?.messages)).toContain('No decision or project action was applied');
 
   const approved = await enqueueInput({
-    id: randomUUID(), sessionId: draft.id, text: 'Aprobar', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+    id: randomUUID(), sessionId: draft.id, text: 'Hecho', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
   });
   await runApiProviderInput(approved);
+  const revisedPlanToolNames = (bodies[4]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(revisedPlanToolNames).not.toContain('approve_project_plan');
+  const decisionToolNames = (bodies[5]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(decisionToolNames).toContain('approve_project_plan');
+  expect(decisionToolNames).not.toContain('apply_patch');
+  const workToolNames = (bodies[6]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(workToolNames).toContain('apply_patch');
+  expect(workToolNames).not.toContain('approve_project_plan');
   expect(await fs.readFile(target, 'utf8')).toBe('after\n');
   expect(await readProjectPlanState(draft.id)).toBeNull();
   await flushRecorder();

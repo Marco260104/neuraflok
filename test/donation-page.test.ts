@@ -142,9 +142,10 @@ it('uses the hand-heart support icon and compact title and spacing tokens', () =
   expect(sidebar).toContain('id="supportProject"');
   expect(sidebar).toContain('ico ph ph-hand-heart');
   expect(html).toContain('ico ph ph-hand-heart');
+  expect(html).not.toContain('donation-social-links');
   expect(icons).toContain(".ph.ph-hand-heart::before { content: '\\e810'; }");
   expect(supportStyles).toContain('font-size: calc(19px * var(--text-scale, 1))');
-  expect(foundationStyles).toContain('--text-scale: 1.1;');
+  expect(foundationStyles).toContain('--text-scale: 1.15;');
   expect(supportStyles).toContain('.composer textarea:focus-visible { border: 0;');
   expect(supportStyles).toContain('.composer:focus-within { box-shadow: 0 0 0 1px var(--accent-edge)');
   expect(supportStyles).toContain('.donation-qr-frame');

@@ -13,8 +13,16 @@ import { APP_VERSION } from '../settings/version.js';
 import { isNewer, type UpdateStatus } from '../../../contracts/types.js';
 import { packagedRuntime } from './runtime-packaging.js';
 
-const repositoryValue = (process.env.NEURAFLOK_RELEASE_REPOSITORY ?? '').trim();
-const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(repositoryValue) ? repositoryValue : null;
+const DEFAULT_RELEASE_REPOSITORY = 'Marco260104/neuraflok';
+const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+
+/** Installed builds use the canonical public repository unless a maintainer explicitly selects a test repository. */
+export function releaseRepository(value: string | undefined): string | null {
+  const repository = value === undefined || value.trim() === '' ? DEFAULT_RELEASE_REPOSITORY : value.trim();
+  return REPOSITORY_PATTERN.test(repository) ? repository : null;
+}
+
+const REPO = releaseRepository(process.env.NEURAFLOK_RELEASE_REPOSITORY);
 const LATEST_RELEASE_API = REPO ? `https://api.github.com/repos/${REPO}/releases/latest` : null;
 
 const CHECK_TIMEOUT_MS = 15_000;
@@ -128,9 +136,16 @@ export function checkForUpdates(): Promise<void> {
 
 async function runPass(): Promise<void> {
   set({ stage: 'checking', error: null });
-  const release = { version: await latestVersion() };
+  const version = await latestVersion();
   // GitHub answered. From here the UI can tell "current" from "not asked yet", whatever the rest of this pass does with the answer.
   set({ checkedAt: Date.now() });
+  if (!version) {
+    staged = null;
+    set({ latest: null, stage: 'idle' });
+    logInfo('update: no stable release has been published yet');
+    return;
+  }
+  const release = { version };
   // A newly published selection retires the previous executable authority before any file replacement.
   if (staged?.version !== release.version || !isNewer(release.version, APP_VERSION)) staged = null;
   if (!isNewer(release.version, APP_VERSION)) {
@@ -192,11 +207,12 @@ async function adopt(version: string, name: string, expected: string): Promise<s
 }
 
 /** The one fact the release API is asked for: which version is newest. */
-async function latestVersion(): Promise<string> {
+async function latestVersion(): Promise<string | null> {
   if (!LATEST_RELEASE_API) throw new Error('NEURAFLOK release repository is not configured');
   const response = await get(LATEST_RELEASE_API, CHECK_TIMEOUT_MS, {
     accept: 'application/vnd.github+json'
-  });
+  }, true);
+  if (!response) return null;
   const body = (await response.json()) as { tag_name?: unknown };
   const version = releaseVersion(body.tag_name);
   if (!version) throw new Error('the latest release has no usable version tag');
@@ -221,12 +237,20 @@ function assetUrl(version: string, name: string): string {
   return `https://github.com/${REPO}/releases/download/v${encodeURIComponent(version)}/${name}`;
 }
 
-async function get(url: string, timeout: number, headers: Record<string, string> = {}): Promise<Response> {
+function get(url: string, timeout: number, headers?: Record<string, string>): Promise<Response>;
+function get(url: string, timeout: number, headers: Record<string, string>, allowNotFound: true): Promise<Response | null>;
+async function get(
+  url: string,
+  timeout: number,
+  headers: Record<string, string> = {},
+  allowNotFound = false
+): Promise<Response | null> {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(timeout),
     redirect: 'follow',
-    headers: { 'user-ageet': `eeural-jam/${APP_VERSION}`, ...headers }
+    headers: { 'user-agent': `NEURAFLOK/${APP_VERSION}`, ...headers }
   });
+  if (allowNotFound && response.status === 404) return null;
   if (!response.ok) throw new Error(`${new URL(url).pathname.split('/').pop()} answered ${response.status}`);
   return response;
 }
