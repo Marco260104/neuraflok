@@ -3,7 +3,7 @@ import { UI_LANGUAGES } from '../../../../contracts/ui-language.js';
 import { REASONING_EFFORTS } from '../../../../contracts/session.js';
 import { appearanceSettingsSchema } from '../../../../contracts/appearance-validation.js';
 import { browserBridgePortSchema } from '../../../../contracts/browser/bridge.js';
-import { WEB_PROVIDER_IDS } from '../../../../contracts/web-providers.js';
+import { WEB_PROVIDER_IDS, selectableWebProviderOrDefault } from '../../../../contracts/web-providers.js';
 import { CHAT_EXECUTORS } from '../../../../contracts/chat-protocol.js';
 import { browserPreferencesSchema } from '../../../../contracts/browser/preferences.js';
 import {
@@ -104,7 +104,7 @@ export const configSchema = z.object({
     // Legacy executor values migrate to the configured API route.
     chatExecutor: z.preprocess(value => value === 'chatgpt' ? 'api' : value === 'deepseek' || value === undefined ? 'web' : value,
       z.enum(CHAT_EXECUTORS).default('web')).catch('web'),
-    webProvider: z.enum(WEB_PROVIDER_IDS).optional().default('deepseek'),
+    webProvider: z.enum(WEB_PROVIDER_IDS).optional().transform(selectableWebProviderOrDefault),
     chatBrowser: z.preprocess(value => value === 'chrome' || value === 'edge' || value === 'brave' ? 'integrated' : value,
       z.enum(CHAT_BROWSERS).optional().catch('integrated').default('integrated')),
     developerMode: z.boolean().optional(),

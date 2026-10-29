@@ -15,10 +15,14 @@ it('keeps the composer usable and shows preparation outside its input surface', 
   const html = await readFile(new URL('../frontend/shell/views/chat.html', import.meta.url), 'utf8');
   const controls = await readFile(new URL('../frontend/features/chat/chat-delivery-controls.ts', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../frontend/styles/chat/shell-and-composer.css', import.meta.url), 'utf8');
+  const workspaceStyles = await readFile(new URL('../frontend/styles/neuraflok/workspace-skin.css', import.meta.url), 'utf8');
 
   expect(html).not.toContain('composerReadyGate');
+  expect(html).toContain('placeholder="Ask anything…"');
   expect(styles).not.toContain('composer-ready-gate');
   expect(controls).toContain('send.disabled = planDisabled;');
+  expect(workspaceStyles).toMatch(/\.workspace-empty-title\s*\{\s*font-size:\s*calc\(15px \* var\(--text-scale, 1\)\);/);
+  expect(workspaceStyles).toContain('font-size: calc(14px * var(--text-scale, 1));');
 });
 
 it('waits for a new chat session to be adopted before delivering a second message', async () => {

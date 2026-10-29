@@ -1,6 +1,8 @@
 import type { InputAttachment } from '../../../../contracts/input.js';
+import path from 'node:path';
+import { isProviderOfficeDocument, isSupportedProviderImage } from '../../../../contracts/attachments.js';
 import { readProviderTextAttachment } from './attachments/index.js';
-import { prepareProviderSessionPrompt, prepareProviderSkillFollowup } from './prompt.js';
+import { prepareProviderSessionPrompt } from './prompt.js';
 import type { InputEntry } from './input.js';
 
 /** Leave room for the web adapter's transport guide inside its own message ceiling. */
@@ -51,15 +53,28 @@ export async function prepareWebProviderBootstrap(entry: InputEntry, sessionId: 
   return `${setup}\n\n${guide}\n\n${WEB_BOOTSTRAP_REQUEST}`;
 }
 
-async function attachedText(attachments: readonly InputAttachment[] | undefined, allowImages: boolean): Promise<string> {
+async function attachedText(attachments: readonly InputAttachment[] | undefined, allowImages: boolean, allowPdfs: boolean, allowOfficeDocuments: boolean): Promise<string> {
   if (!attachments?.length) return '';
   const sections: string[] = [];
   let bytes = 0;
   for (const attachment of attachments) {
-    if (attachment.mimeType.startsWith('image/')) {
+    if (isSupportedProviderImage(attachment.mimeType)) {
       if (!allowImages) throw new Error(`“${attachment.name}” is an image. Image attachments are supported by the API executor; use a project file with a web session.`);
       sections.push(`[Image attachment: ${attachment.name}. Image data is sent separately.]`);
       continue;
+    }
+    const isPdf = attachment.mimeType === 'application/pdf' || path.extname(attachment.name).toLowerCase() === '.pdf';
+    if (isPdf && allowPdfs) {
+      sections.push(`[PDF attachment: ${attachment.name}. The original PDF is uploaded with this message, including its page images.]`);
+      continue;
+    }
+    if (isProviderOfficeDocument(attachment.name)) {
+      if (!allowOfficeDocuments) throw new Error(`“${attachment.name}” must be attached to a DeepSeek Web chat or added to a project folder.`);
+      sections.push(`[Office document attachment: ${attachment.name}. The original file is uploaded with this message.]`);
+      continue;
+    }
+    if (attachment.mimeType.startsWith('image/')) {
+      throw new Error(`“${attachment.name}” uses an image format that DeepSeek does not accept.`);
     }
     const remaining = MAX_INLINE_ATTACHMENT_BYTES - bytes;
     if (remaining < 1) throw new Error('Attached text files exceed the 500 KB inline context limit. Add their folder as a project instead.');
@@ -73,13 +88,26 @@ async function attachedText(attachments: readonly InputAttachment[] | undefined,
 
 /** Prepare the exact text that a local executor sends. Opening turns use the provider tool guide plus the selected project's AGENTS.md and frozen Skills; later turns keep language and project directory and add only explicitly selected Skills. File bytes are read from the validated attachment store and bounded first. */
 export async function prepareLocalProviderPrompt(
-  entry: InputEntry, sessionId: string, opening: boolean, options: { allowImageAttachments?: boolean } = {}
+  entry: InputEntry, sessionId: string, options: {
+    allowImageAttachments?: boolean;
+    allowPdfAttachments?: boolean;
+    allowOfficeAttachments?: boolean;
+    historySummary?: string;
+    projectPlanPhase?: 'draft';
+    projectPlanContext?: string;
+  } = {}
 ): Promise<string> {
-  const scope = { sessionId, projectId: entry.projectId, autoSkills: entry.autoSkills };
-  const base = opening
-    ? await prepareProviderSessionPrompt(entry.text, scope, LOCAL_PROVIDER_PROMPT_LIMITS, entry.text)
-    : await prepareProviderSkillFollowup(entry.text, entry.text, LOCAL_PROVIDER_PROMPT_LIMITS, scope);
-  const files = await attachedText(entry.attachments, options.allowImageAttachments === true);
+  const scope = {
+    sessionId,
+    projectId: entry.projectId,
+    autoSkills: entry.autoSkills,
+    historySummary: options.historySummary,
+    projectPlanPhase: options.projectPlanPhase ?? entry.projectPlanPhase,
+    projectPlanContext: options.projectPlanContext
+  };
+  const base = await prepareProviderSessionPrompt(entry.text, scope, LOCAL_PROVIDER_PROMPT_LIMITS, entry.text);
+  const files = await attachedText(entry.attachments, options.allowImageAttachments === true,
+    options.allowPdfAttachments === true, options.allowOfficeAttachments === true);
   const prepared = `${base}${files}`;
   if (prepared.length > LOCAL_PROVIDER_PROMPT_LIMITS.maxChars || Buffer.byteLength(prepared, 'utf8') > LOCAL_PROVIDER_PROMPT_LIMITS.maxBytes) {
     throw new Error('The message and attached files exceed the local provider context limit. Shorten the message or add the folder as a project.');

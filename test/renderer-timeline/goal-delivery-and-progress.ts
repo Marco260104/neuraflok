@@ -356,7 +356,7 @@ it('does not turn an empty or repeated form submission into a Stop request', asy
 });
 
 it('keeps actual-turn Stop through two authored sends and stops only the captured active turn', async () => {
-  const { w, live } = await boot([]);
+  const { w, live, append } = await boot([]);
   const api = (w as any).api;
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   api.stopSessionTurn = stop;
@@ -365,6 +365,11 @@ it('keeps actual-turn Stop through two authored sends and stops only the capture
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   const send = w.document.getElementById('chatSend') as HTMLButtonElement;
   const form = w.document.getElementById('composer')!;
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   for (const text of ['First new direction', 'Second new direction']) {
     expect(send.dataset.action).toBe('stop');
     input.value = text; input.dispatchEvent(new w.Event('input'));
@@ -384,14 +389,19 @@ it('keeps actual-turn Stop through two authored sends and stops only the capture
   expect(input.value).toBe('');
 });
 
-it('does not retarget an awaiting Stop after leaving and reselecting the same chat', async () => {
-  const { w } = await boot([]);
+it('keeps a reselected chat on Send when a stale controls read resolves', async () => {
+  const { w, append } = await boot([]);
   const api = (w as any).api;
   const baseControls = api.getSessionControls;
   const original = async (id: string) => ({ ok: true, data: { ...(await baseControls(id)).data,
     plan: { updatedAt: 2, plan: [{ step: 'Current plan', status: 'in_progress', details: 'Current selection' }] } } });
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   api.stopSessionTurn = stop;
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'app', kind: 'user_message', messageId: 'current-question', turnId: 'held-turn', message: text('Current question') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   let resolve!: (value: any) => void;
   api.getSessionControls = () => new Promise(done => { resolve = done; });
   w.document.getElementById('chatSend')!.click();
@@ -404,7 +414,8 @@ it('does not retarget an awaiting Stop after leaving and reselecting the same ch
     plan: { updatedAt: 1, plan: [{ step: 'Stale plan', status: 'pending' }] } } });
   await settle();
   expect(stop).not.toHaveBeenCalled();
-  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('stop');
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
   expect(w.document.getElementById('agentPlan')!.textContent).toContain('Current plan');
   expect(w.document.getElementById('agentPlan')!.textContent).not.toContain('Stale plan');
 });

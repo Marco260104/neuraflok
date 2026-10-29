@@ -13,6 +13,9 @@ export function createProviderPageExecutor(dependencies) {
     },
     busy() {
       return deepseek.busy() || web.busy();
+    },
+    reportAttachmentUploaded(message, sender) {
+      return deepseek.reportAttachmentUploaded(message, sender);
     }
   };
 }

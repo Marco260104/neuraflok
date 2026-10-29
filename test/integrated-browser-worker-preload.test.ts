@@ -118,6 +118,18 @@ it('delivers app events to the extension\'s listeners, including the browser sta
   expect((chrome.runtime.onStartup as { native?: boolean }).native).toBeUndefined();
 });
 
+it('delivers an exact-conversation reveal command and returns its result to this browser profile', async () => {
+  const { chrome, event } = await workerWorld();
+  const reveal = vi.fn();
+  (chrome.runtime.onNeuraflokReveal as { addListener(fn: (...args: unknown[]) => void): void }).addListener(reveal);
+  event('neuraflok.reveal-provider-conversation', ['request-1', 'ds-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee']);
+  expect(reveal).toHaveBeenCalledWith('request-1', 'ds-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+
+  electron.invoke.mockResolvedValue({ ok: true, value: undefined });
+  await (chrome.runtime.neuraflokRevealResult as (requestId: string, shown: boolean) => Promise<void>)('request-1', true);
+  expect(electron.invoke).toHaveBeenCalledWith('integrated-browser:api', 'neuraflok.reveal-result', ['request-1', true]);
+});
+
 it('grants exactly the permissions the manifest declares', async () => {
   const { chrome } = await workerWorld();
   const contains = chrome.permissions!.contains as (request: object) => Promise<boolean>;

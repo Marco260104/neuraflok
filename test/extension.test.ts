@@ -304,6 +304,40 @@ describe('NEURAFLOK browser companion', () => {
     expect(chrome.windows.update).toHaveBeenCalledWith(4, { focused: true });
   });
 
+  it('reopens the saved DeepSeek conversation when the app restart removed its tab', async () => {
+    const conversationId = 'ds-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const conversationUrl = 'https://chat.deepseek.com/a/chat/s/remote-session-a';
+    const local = memoryStorage({ webProviderTabs: {
+      [conversationId]: { provider: 'deepseek', tab: 99, url: conversationUrl, at: 1 }
+    } });
+    const chrome = chromeFixture(local);
+    const homeTab = { id: 7, windowId: 2, url: 'https://chat.deepseek.com/', status: 'complete' };
+    const restoredTab = { id: 8, windowId: 5, url: conversationUrl, status: 'complete' };
+    chrome.tabs.query.mockImplementation(async () => [homeTab] as never);
+    chrome.tabs.create.mockResolvedValue(restoredTab as never);
+    chrome.tabs.get = vi.fn(async (id: number) => id === restoredTab.id ? restoredTab : homeTab) as typeof chrome.tabs.get;
+    const tabReply = vi.fn(async (tabId: number, message: { type: string }) =>
+      tabId === restoredTab.id && message.type === 'neuraflok-deepseek-snapshot'
+        ? { signedIn: true, hasConversation: true, conversationId: null }
+        : null);
+    const runtime = createProviderRuntime({
+      chrome,
+      activeTabs: null,
+      call: vi.fn(async () => ({ ok: true })),
+      tabReply,
+      maintain: vi.fn(async () => undefined)
+    });
+
+    await expect(runtime.revealConversations([conversationId])).resolves.toEqual([true]);
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: conversationUrl, active: true });
+    expect(tabReply).toHaveBeenCalledWith(restoredTab.id, { type: 'neuraflok-deepseek-snapshot' });
+    expect(local.data.webProviderTabs).toMatchObject({
+      [conversationId]: { provider: 'deepseek', tab: restoredTab.id, url: conversationUrl }
+    });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(restoredTab.id, { active: true });
+    expect(chrome.windows.update).toHaveBeenCalledWith(restoredTab.windowId, { focused: true });
+  });
+
   it('stores the DeepSeek conversation address after a fresh chat is created', async () => {
     const conversationId = 'ds-00000000-0000-4000-8000-000000000031';
     const conversationUrl = 'https://chat.deepseek.com/a/chat/s/remote-session-31';
@@ -323,7 +357,7 @@ describe('NEURAFLOK browser companion', () => {
     })));
 
     expect(h.local.data.webProviderTabs).toMatchObject({
-      [conversationId]: { provider: 'deepseek', tab: 8, url: conversationUrl }
+      [conversationId]: { provider: 'deepseek', tab: 7, url: conversationUrl }
     });
   });
 
@@ -346,7 +380,7 @@ describe('NEURAFLOK browser companion', () => {
     expect(h.createBrowserTab).toHaveBeenCalledWith(conversationUrl, false);
     expect(h.tabReply).toHaveBeenCalledWith(8, expect.objectContaining({
       type: 'neuraflok-deepseek-complete', text: 'Continue yesterday’s task', fresh: false
-    }), undefined, 100_000);
+    }), undefined, 360_000);
     expect(h.local.data.webProviderTabs).toMatchObject({
       [conversationId]: { provider: 'deepseek', tab: 8, url: conversationUrl }
     });

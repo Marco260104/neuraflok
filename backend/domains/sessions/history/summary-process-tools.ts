@@ -8,7 +8,10 @@ export function summarizeProcessTool(input: SummaryInput, args: Record<string, u
   switch (input.tool) {
     case 'exec_command': {
       const commands = Array.isArray(args['cmds']) ? args['cmds'].filter((item): item is string => typeof item === 'string') : [];
-      const activity = commandActivityTitle(commands.length ? commands.join('\n') : str(args['cmd']));
+      const commandTitle = commandActivityTitle(commands.length ? commands.join('\n') : str(args['cmd']));
+      const activity = commands.length > 1
+        ? `${commands.length} commands: ${commandTitle.replace(/^(Read|Edited|Deleted|Created|Copied|Moved|Listed|Searched|Checked|Ran)\s+/, '')}`
+        : commandTitle;
       const rest = activity.replace(/^(Read|Edited|Deleted|Created|Copied|Moved|Listed|Searched|Checked|Ran)\s+/, '');
       const failed = evidence.timedOut || (!evidence.benignExit && evidence.exitCode !== null && evidence.exitCode !== 0);
       const running = evidence.running === true ||

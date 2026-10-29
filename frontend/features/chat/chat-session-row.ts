@@ -22,6 +22,7 @@ export interface ChatSessionRowRuntime {
   renaming: { id: string; original: string; value: string; start: number; end: number } | null;
   state: () => AppState | null;
   sessionWorking: (summary: SessionSummary) => boolean;
+  suppressWarmupActivity: (summary: SessionSummary) => boolean;
   isUnseen: (summary: SessionSummary) => boolean;
   pinnable: (summary: SessionSummary) => boolean;
   pinnedChat: (summary: SessionSummary) => boolean;
@@ -124,10 +125,10 @@ export function createChatSessionRow(runtime: Runtime) {
     // The swarm no longer shows this worker — its run parked when it and its siblings stopped — but its own session records that its last call was the finish report. That is a worker between jobs, and "sleeping" is the word that says its chat can be woken.
     else if (!agent && workerReportedFinish(summary))
       badges.push(AGENT_BADGE.sleeping);
-    else if (runtime.sessionWorking(summary)) badges.push(AGENT_BADGE.active);
+    else if (!runtime.suppressWarmupActivity(summary) && runtime.sessionWorking(summary)) badges.push(AGENT_BADGE.active);
     else if (agent && agent.role !== 'prime')
       badges.push(AGENT_BADGE[agent.state]);
-    if (!runtime.sessionWorking(summary) && runtime.isUnseen(summary))
+    if (!runtime.suppressWarmupActivity(summary) && !runtime.sessionWorking(summary) && runtime.isUnseen(summary))
       badges.push({ text: 'New response', tone: 'is-unseen' });
     return badges;
   }
@@ -260,9 +261,10 @@ export function createChatSessionRow(runtime: Runtime) {
         items.push({
           action: 'open',
           icon: 'i-out',
-          label: () => t('Open provider'),
-          title: () => t('Open this provider in your browser'),
-          run: () => void run(api.openWebProvider(provider)),
+          label: () => t('Open this chat'),
+          title: () => t('Open this chat in its provider'),
+          // Open the provider page linked to this saved session. A generic provider home page loses the conversation history needed to diagnose and continue a chat.
+          run: () => void run(api.openSessionChat(summary.id)),
         });
       // Blocking removes this chat's local tool access; the provider controls model generation. A resumed row can release a policy inherited from its committed predecessors.
       const blocked = effectivePolicy === 'blocked';

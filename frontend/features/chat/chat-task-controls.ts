@@ -1,6 +1,7 @@
 import { supportsFinishAutomation } from '../../../contracts/automation/completion-policy.js';
 import type { InputAutomation } from '../../../contracts/input.js';
 import type { AppState } from '../../../contracts/types.js';
+import type { SessionSummary } from '../../../contracts/session.js';
 import type { TaskPlanDraft } from './chat-task-plan.js';
 import { observedComposerModel } from './chat-models.js';
 import { $, el, icon } from '../../shared/dom.js';
@@ -9,12 +10,19 @@ import { t, ui } from '../../shared/i18n.js';
 export interface ChatTaskControlsRuntime {
   draftKey(): string;
   selectedId: string | null;
+  selectedProjectId: string | null;
+  sessions: SessionSummary[];
   selectionGeneration: number;
   controlledSessionId: string | null;
   controlledSelection: number;
   goalDraftStage(): string | undefined;
   hasFinishGoalDraft(): boolean;
-  taskPlans: { getPlan(key: string): TaskPlanDraft | null };
+  taskPlans: {
+    getPlan(key: string): TaskPlanDraft | null;
+    projectPlanMode(key?: string): boolean;
+    toggleProjectPlanMode(key?: string): void;
+    clearProjectPlanMode(key?: string): void;
+  };
   state(): AppState | null;
   cancelGoalRequest(): void;
   advanceGoalIntent(): void;
@@ -22,9 +30,66 @@ export interface ChatTaskControlsRuntime {
   paintDeliveryControls(): void;
 }
 
+export function projectComposerControlVisibility(isProjectChat: boolean): { accessPicker: boolean; planButton: boolean } {
+  return { accessPicker: isProjectChat, planButton: isProjectChat };
+}
+
 // Owns task and automation presentation for the chat composer.
 export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
   let objectiveEditMode: 'goal' | 'loop' | null = null;
+
+  function isProjectChat(): boolean {
+    return runtime.selectedId
+      ? Boolean(runtime.sessions.find(row => row.id === runtime.selectedId)?.projectId)
+      : Boolean(runtime.selectedProjectId);
+  }
+
+  function projectPlanMode(): boolean {
+    return runtime.taskPlans.projectPlanMode(runtime.draftKey());
+  }
+
+  function paintProjectPlanButton(): void {
+    const button = document.getElementById('composerPlanBtn');
+    if (!button) return;
+    const active = projectPlanMode();
+    button.hidden = !projectComposerControlVisibility(isProjectChat()).planButton;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+    const glyph = button.querySelector<HTMLElement>('.ico');
+    if (glyph) glyph.className = `ico ph ${active ? 'ph-check-circle' : 'ph-list-checks'}`;
+    const label = button.querySelector('span');
+    if (label) ui(label, 'textContent', () => t(active ? 'Plan active' : 'Plan'));
+    ui(button, 'aria-label', () => t(active ? 'Plan active' : 'Plan'));
+    ui(button, 'title', () => active
+      ? t('Plan mode is on. The assistant will read project files and ask before making changes.')
+      : t('Read relevant project files and propose a plan before making changes.'));
+  }
+
+  function toggleProjectPlanMode(): void {
+    const button = document.getElementById('composerPlanBtn');
+    if (!button || button.hidden) return;
+    try {
+      runtime.taskPlans.toggleProjectPlanMode(runtime.draftKey());
+    } finally {
+      // Keep the toggle feedback synchronous with the user's click, even if another
+      // composer repaint is deferred while a restored project chat is settling.
+      paintProjectPlanButton();
+    }
+  }
+
+  // The composer can be restored while switching chats. Delegate from document so
+  // replacing its button does not leave the visible Plan control without a handler.
+  document.addEventListener('click', event => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>('#composerPlanBtn');
+    if (!target) return;
+    event.preventDefault();
+    toggleProjectPlanMode();
+  });
+
+  function clearProjectPlanMode(key = runtime.draftKey()): void {
+    runtime.taskPlans.clearProjectPlanMode(key);
+    if (runtime.draftKey() === key) paintProjectPlanButton();
+  }
 
   function goalReachedShown(): boolean {
     return runtime.controlledSessionId === runtime.selectedId && runtime.controlledSelection === runtime.selectionGeneration &&
@@ -93,6 +158,7 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     ui(button.querySelector('span')!, 'textContent', () => t('Plan'));
     ui(button, 'aria-label', () => planMode ? t('Cancel plan') : t('Create plan'));
     ui(button, 'title', () => planMode ? t('Return to a normal message; keep your draft') : t('Split your message into editable stages'));
+    paintProjectPlanButton();
   }
 
   function paintLoopDelivery(): void {
@@ -125,12 +191,11 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     const loop = editMode === 'loop';
     ui(document.querySelector('label[for="sessionObjective"]')!, 'textContent', () => loop ? t('Loop instructions') : t('Goal'));
     ui($<HTMLTextAreaElement>('sessionObjective'), 'placeholder', () => loop ? t('What should each continuation focus on?') : t('Optional. Leave empty to work toward what you asked in this chat.'));
-    const goalBtn = document.getElementById('composerGoalBtn');
-    if (goalBtn) {
-      const isGoal = mode === 'goal';
-      goalBtn.classList.toggle('is-active', isGoal);
-      goalBtn.setAttribute('aria-pressed', String(isGoal));
-    }
+    const accessPicker = $<HTMLDetailsElement>('composerAccess');
+    const projectControls = projectComposerControlVisibility(isProjectChat());
+    accessPicker.hidden = !projectControls.accessPicker;
+    if (accessPicker.hidden) accessPicker.open = false;
+    paintProjectPlanButton();
     paintTaskActions();
   }
 
@@ -156,6 +221,10 @@ export function createChatTaskControls(runtime: ChatTaskControlsRuntime) {
     paintTaskActions,
     paintLoopDelivery,
     openingLoopDelivery,
-    paintAutomationSwitch
+    paintAutomationSwitch,
+    isProjectChat,
+    projectPlanMode,
+    toggleProjectPlanMode,
+    clearProjectPlanMode
   };
 }

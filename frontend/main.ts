@@ -24,7 +24,7 @@ import type { AppearanceSettings } from '../contracts/appearance-settings.js';
 import type { AppApi } from '../backend/preload/index.js';
 import { requiresApprovedFilesystemRoot } from '../contracts/capabilities.js';
 import { usesApiProvider } from '../contracts/chat-protocol.js';
-import { WEB_PROVIDERS, isWebProviderId } from '../contracts/web-providers.js';
+import { WEB_PROVIDERS, selectableWebProviderOrDefault } from '../contracts/web-providers.js';
 import type { AppState, Capability } from '../contracts/types.js';
 import {
   DESKTOP_CAPABILITIES
@@ -42,6 +42,8 @@ import { initWebProviderActions } from './application/web-provider-actions.js';
 import { initDiagnosticsActions } from './application/diagnostics-actions.js';
 import { initFolderDropActions } from './application/folder-drop-actions.js';
 import { initActivityLogHydration } from './features/activity/activity-log-hydration.js';
+import { initDonationPage } from './features/donation/donation-page.js';
+import { bindTopbarSocialLinks } from './features/workspace/social-links.js';
 
 declare global {
   interface Window {
@@ -60,6 +62,7 @@ mountBrandAssets();
 // First: main announces a Keychain read before it starts and may not get through again until it ends.
 initKeychainNotice(api);
 initLanguage();
+initDonationPage();
 initLegalSettings();
 publishStopNoticeTexts(texts => api.setStopNoticeTexts(texts));
 // The tray menu and desktop notices come from the main process, which has no catalogs.
@@ -191,7 +194,25 @@ const providerStatusView = createProviderStatusView({
   apiProviderWorkspaceLabel,
   toolsOn
 });
-const connectionCapsule = createConnectionCapsule(() => providerStatusView.paintClock());
+
+function paintConnectionCapsule(next: AppState): void {
+  const apiExecutor = usesApiProvider(next.config.ui.chatExecutor);
+  const apiConfigured = apiProviderConfigured(next);
+  const selectedProvider = selectableWebProviderOrDefault(next.config.ui.webProvider);
+  const selectedSession = providerStatusView.providerPresence(next.bridge, selectedProvider);
+  const workspaceConnected = apiExecutor ? apiConfigured : next.bridge.present && selectedSession?.signedIn === true;
+  const workspaceLabel = apiExecutor ? apiProviderWorkspaceLabel(next) : providerStatusView.webProviderWorkspaceLabel(next);
+  const connectionTone = apiExecutor ? apiConfigured ? 'is-configured' : '' : workspaceConnected ? 'is-connected' : next.bridge.present ? '' : 'is-error';
+  connectionCapsule.paint({ connected: workspaceConnected, tone: connectionTone, label: workspaceLabel });
+}
+
+function refreshConnectionStatus(): void {
+  if (!state) return;
+  paintConnectionCapsule(state);
+  providerStatusView.paintClock();
+}
+
+const connectionCapsule = createConnectionCapsule(refreshConnectionStatus);
 
 function apply(next: AppState): void {
   const previousState = state;
@@ -199,7 +220,6 @@ function apply(next: AppState): void {
   applying = true;
   const { config } = next;
   const apiExecutor = usesApiProvider(config.ui.chatExecutor);
-  const apiConfigured = apiProviderConfigured(next);
   const missing = missingStep(next);
 
   // Theme section.
@@ -207,12 +227,8 @@ function apply(next: AppState): void {
   appearance.apply(appearanceUi);
 
   // Provider status capsule section.
-  const selectedProvider = isWebProviderId(config.ui.webProvider) ? config.ui.webProvider : 'deepseek';
-  const selectedSession = providerStatusView.providerPresence(next.bridge, selectedProvider);
-  const workspaceConnected = apiExecutor ? apiConfigured : next.bridge.present && selectedSession?.signedIn === true;
-  const workspaceLabel = apiExecutor ? apiProviderWorkspaceLabel(next) : providerStatusView.webProviderWorkspaceLabel(next);
-  const connectionTone = apiExecutor ? apiConfigured ? 'is-configured' : '' : workspaceConnected ? 'is-connected' : next.bridge.present ? '' : 'is-error';
-  connectionCapsule.paint({ connected: workspaceConnected, tone: connectionTone, label: workspaceLabel });
+  const selectedProvider = selectableWebProviderOrDefault(config.ui.webProvider);
+  paintConnectionCapsule(next);
   webModelLoading.paint(next);
   ui($('headerSub'), 'textContent', () => apiExecutor
       ? `${config.providers.api.kind === 'custom' ? 'Custom endpoint' : config.providers.api.kind === 'openai' ? 'OpenAI' : 'OpenRouter'} · ${config.goal.model}`
@@ -284,7 +300,7 @@ function apply(next: AppState): void {
   applying = false;
 }
 
-window.setInterval(providerStatusView.paintClock, 1000);
+window.setInterval(refreshConnectionStatus, 1000);
 
 permissionSettings.bindAccessChoiceControls();
 
@@ -354,9 +370,19 @@ for (const id of [
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   const external = target.closest<HTMLElement>('[data-link-external]');
-  if (external?.dataset.linkExternal) void run(api.openLink(external.dataset.linkExternal, { external: true }));
+  if (external?.dataset.linkExternal) {
+    event.preventDefault();
+    void run(api.openLink(external.dataset.linkExternal, { external: true }));
+    return;
+  }
   const link = target.closest<HTMLElement>('[data-link]');
-  if (link?.dataset.link) void run(api.openLink(link.dataset.link));
+  if (link?.dataset.link) {
+    if (link instanceof HTMLAnchorElement) event.preventDefault();
+    void run(api.openLink(link.dataset.link));
+  }
+});
+bindTopbarSocialLinks(document, url => {
+  void run(api.openLink(url, { external: true }));
 });
 $('updateExtension')?.addEventListener('click', () => {
   const stepBrowser = setupWizard.step('browser');

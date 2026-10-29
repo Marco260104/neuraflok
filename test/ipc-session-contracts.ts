@@ -562,6 +562,19 @@ describe('session IPC contracts', () => {
     expect(revealProviderConversation).toHaveBeenCalledWith('kimi', conversationId);
     expect(openInPreferredBrowser).not.toHaveBeenCalled();
 
+    const revealExtensionSession = vi.spyOn(
+      await import('../backend/domains/browser/bridge.js'), 'revealChatInBrowser'
+    ).mockResolvedValue(true);
+    vi.mocked(loadIntegratedBrowser).mockResolvedValue({
+      revealProviderConversation: vi.fn(async () => false)
+    } as never);
+    const recovered = await createSession({ title: 'recover exact chat', conversationId });
+    const recoveredReply = await handlers.get('sessions:openChat')!(null, { id: recovered.id }) as any;
+    expect(recoveredReply.ok).toBe(false);
+    expect(recoveredReply.error).toMatch(/exact kimi conversation page/i);
+    expect(revealExtensionSession).not.toHaveBeenCalled();
+    revealExtensionSession.mockRestore();
+
     const unattributed = await createSession({ title: 'no conversation', conversationId: null });
     const refused = await handlers.get('sessions:openChat')!(null, { id: unattributed.id }) as any;
     expect(refused.ok).toBe(false);

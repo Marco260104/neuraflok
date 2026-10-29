@@ -47,11 +47,6 @@ export function bindChatMainActions(runtime: ChatMainActionsRuntime): void {
       finally { button.disabled = false; if (runtime.selectedId === id) void runtime.refreshSessionControls(); }
     });
   }
-  $('composerGoalBtn').addEventListener('click', () => {
-    const select = $<HTMLSelectElement>('chatAutomation');
-    select.value = select.value === 'goal' ? 'off' : 'goal';
-    select.dispatchEvent(new Event('change'));
-  });
   $('composerProjectPill').addEventListener('click', () => $('addProject').click());
   $('generateFinishGoal').addEventListener('click', async () => {
     const button = $<HTMLButtonElement>('generateFinishGoal');
@@ -86,7 +81,15 @@ export function bindChatMainActions(runtime: ChatMainActionsRuntime): void {
       if (generation === runtime.selectionGeneration) runtime.selectNewChat(project.id); else runtime.paintSessions();
     } finally { button.disabled = false; }
   });
-  $('chatRefresh').addEventListener('click', event => { event.preventDefault(); void runtime.refreshAll(); });
+  $('workspaceRefresh').addEventListener('click', async event => {
+    event.preventDefault();
+    const button = $<HTMLButtonElement>('workspaceRefresh');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    try { await runtime.refreshAll(); }
+    finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+  });
   $('copyHandoff').addEventListener('click', async () => {
     if (!runtime.handoff) return;
     const copied = await runtime.run(runtime.api.writeClipboard(runtime.handoff.text));

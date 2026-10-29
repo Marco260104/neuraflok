@@ -133,6 +133,7 @@
     </div>
     <div class="web-model-loading" id="webModelLoading" role="status" aria-live="polite">
       <div class="web-model-loading-card">
+        <button class="web-model-loading-close" id="webModelLoadingClose" type="button" title="Close" aria-label="Close"><i class="ico ph ph-x" aria-hidden="true"></i></button>
         <div class="web-model-loading-spinner" aria-hidden="true"></div>
         <h2 id="webModelLoadingTitle">Loading web models</h2>
         <p id="webModelLoadingDetail">Opening the private browser and connecting to the selected provider.</p>
@@ -154,29 +155,36 @@
 
     <div class="app" data-screen="chat">
       <div class="app-topbar">
-        <button class="btn" id="sidebarToggle" type="button" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="true" title="Toggle sidebar"><i class="ico ph ph-sidebar-simple" aria-hidden="true"></i></button>
-        <button class="btn" id="viewMenu" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="View" title="View"><i class="ico ph ph-list" aria-hidden="true"></i></button>
-        <div class="app-topbar-identity" aria-label="NEURAFLOK workspace" hidden>
-          <span class="app-topbar-product">NEURAFLOK</span>
-          <span class="app-topbar-divider" aria-hidden="true">/</span>
-          <span class="app-topbar-page" id="appPageTitle">Workspace</span>
+        <div class="app-topbar-leading">
+          <button class="btn" id="sidebarToggle" type="button" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="true" title="Toggle sidebar"><i class="ico ph ph-sidebar-simple" aria-hidden="true"></i></button>
+          <button class="btn" id="viewMenu" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="View" title="View"><i class="ico ph ph-list" aria-hidden="true"></i></button>
+          <div class="app-topbar-identity" aria-label="NEURAFLOK workspace">
+            <span class="app-topbar-product">NEURAFLOK</span>
+            <span class="app-topbar-divider" aria-hidden="true">/</span>
+            <span class="app-topbar-page" id="appPageTitle">Workspace</span>
+          </div>
         </div>
-        <div class="connection-anchor app-topbar-connection">
-          <button
-            class="sidebar-connection"
-            id="sidebarConnection"
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded="false"
-            aria-controls="connectionPopover"
-            aria-label="Not connected"
-            title="Not connected"
-          >
-            <span class="sidebar-connection-dot" aria-hidden="true"></span>
-            <span class="sidebar-connection-label" aria-hidden="true"><span id="sidebarConnectionLabel">Connect</span></span>
-          </button>
-          <span class="sr-only" id="connectionAnnounce" role="status" aria-live="polite"></span>
-          <section class="connection-popover scroll" id="connectionPopover" role="dialog" aria-label="Connection" hidden>
+        <nav class="app-topbar-social-links" aria-label="NEURAFLOK community links">
+          <button class="app-topbar-social-link app-topbar-social-link-github" type="button" data-url="https://google.com" aria-label="GitHub" title="GitHub"><img src="./assets/brand/github.svg" alt="" aria-hidden="true"></button>
+          <button class="app-topbar-social-link app-topbar-social-link-telegram" type="button" data-url="https://google.com" aria-label="Telegram" title="Telegram"><img src="./assets/brand/telegram.svg" alt="" aria-hidden="true"></button>
+        </nav>
+        <div class="app-topbar-trailing">
+          <div class="connection-anchor app-topbar-connection">
+            <button
+              class="sidebar-connection"
+              id="sidebarConnection"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="connectionPopover"
+              aria-label="Not connected"
+              title="Not connected"
+            >
+              <span class="sidebar-connection-dot" aria-hidden="true"></span>
+              <span class="sidebar-connection-label" aria-hidden="true"><span id="sidebarConnectionLabel">Connect</span></span>
+            </button>
+            <span class="sr-only" id="connectionAnnounce" role="status" aria-live="polite"></span>
+            <section class="connection-popover scroll" id="connectionPopover" role="dialog" aria-label="Connection" hidden>
             <div class="connection-popover-head">
               <strong id="connectionPopoverTitle">Not connected</strong>
               <span class="connection-popover-status-dot" aria-hidden="true"></span>
@@ -189,17 +197,17 @@
               </div>
               <div class="connection-popover-row">
                 <span class="provider-label"><span data-provider-logo="kimi"></span>Kimi</span>
-                <span id="connectionPopoverKimiStatus" class="sr-only">Not connected</span>
+                <span id="connectionPopoverKimiStatus" class="sr-only">Coming soon</span>
                 <i aria-hidden="true"></i>
               </div>
               <div class="connection-popover-row">
                 <span class="provider-label"><span data-provider-logo="qwen"></span>Qwen</span>
-                <span id="connectionPopoverQwenStatus" class="sr-only">Not connected</span>
+                <span id="connectionPopoverQwenStatus" class="sr-only">Coming soon</span>
                 <i aria-hidden="true"></i>
               </div>
               <div class="connection-popover-row">
                 <span class="provider-label"><span data-provider-logo="glm"></span>Z AI</span>
-                <span id="connectionPopoverGlmStatus" class="sr-only">Not connected</span>
+                <span id="connectionPopoverGlmStatus" class="sr-only">Coming soon</span>
                 <i aria-hidden="true"></i>
               </div>
               <div class="connection-popover-row">
@@ -211,7 +219,8 @@
             <div class="connection-popover-actions">
               <button class="btn btn-solid" id="connectionPopoverDeepseek" type="button"><i class="ico ph ph-sign-in" aria-hidden="true"></i><span id="connectionPopoverProviderAction">Open DeepSeek</span></button>
             </div>
-          </section>
+            </section>
+          </div>
         </div>
       </div>
       <!-- @include: shell/layout/sidebar.html -->
@@ -220,6 +229,7 @@
       <main>
 
         <!-- @include: shell/views/preferences.html -->
+        <!-- @include: shell/views/donation.html -->
         <!-- @include: shell/views/setup.html -->
         <!-- @include: shell/views/chat.html -->
         <!-- @include: shell/views/activity.html -->

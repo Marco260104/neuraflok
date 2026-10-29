@@ -36,7 +36,7 @@ import {
   setGoalSwitchNow
 } from '../automation/goal.js';
 import { apiChatFlightTurnId } from '../providers/api-chat.js';
-import { webProviderFlightTurnId } from '../providers/browser-chat.js';
+import { webProviderAuthoredFlightTurnId } from '../providers/browser-chat.js';
 import { wakeBrowserWork } from './browser-wake.js';
 import { wakeBrowserUrl } from './browser-startup.js';
 import { chatIsWorking } from './bridge-chat-activity.js';
@@ -123,7 +123,7 @@ export function createBridgeSessionControlsRuntime(dependencies: {
     get supportsFinishAutomation() { return supportsFinishAutomation; },
     get wakeBrowserUrl() { return wakeBrowserUrl; },
     get wakeBrowserWork() { return wakeBrowserWork; },
-    get webProviderFlightTurnId() { return webProviderFlightTurnId; },
+    get webProviderAuthoredFlightTurnId() { return webProviderAuthoredFlightTurnId; },
     get changed() { return changed; }
   };
 }

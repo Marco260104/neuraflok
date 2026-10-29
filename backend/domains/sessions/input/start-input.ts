@@ -1,10 +1,12 @@
 /** Local provider sends go through the durable outbox and the signed-in app browser. */
-import { startBridge, webProvidersStatus } from '../../browser/bridge.js';
+import { browserWakeConnected, startBridge, webProvidersStatus } from '../../browser/bridge.js';
 import { resetBrowserStartupForTests } from '../../browser/browser-startup.js';
+import { wakeBrowserWork } from '../../browser/browser-wake.js';
 import { getConfig } from '../../../infrastructure/settings/config.js';
 import { WEB_PROVIDERS, isWebProviderId, providerForConversationId } from '../../../../contracts/web-providers.js';
 import type { WebProviderId } from '../../../../contracts/web-providers.js';
 import { isApiConversationId, usesApiProvider } from '../../../../contracts/chat-protocol.js';
+import { isDeepseekSupportedAttachment, isSupportedProviderText } from '../../../../contracts/attachments.js';
 import { enqueueInput, cancelInput, listInputs, noteInputStartupError, failLocalExecutorInput, nextAfterTurnLocalInput, type InputArgs, type InputEntry } from './input.js';
 import { isProviderTextAttachment } from './attachments/index.js';
 import { getSession } from '../history/store.js';
@@ -16,6 +18,40 @@ const localRuns = new Map<string, string>();
 let providerTurnQueue = Promise.resolve();
 let stopped = false;
 const localTurnSettledListeners = new Set<(result: { entry: Readonly<InputEntry>; conversationId: string | null; turnId: string | null; aborted: boolean; error: Error | null }) => void | Promise<void>>();
+
+const PROVIDER_AUTH_REFRESH_MS = 8_000;
+const PROVIDER_AUTH_POLL_MS = 100;
+
+function unsupportedWebAttachment(name: string, mimeType: string, provider: WebProviderId): boolean {
+  if (provider === 'deepseek') return !isDeepseekSupportedAttachment(name, mimeType);
+  return mimeType.startsWith('image/') || !(mimeType === 'application/pdf' || /\.pdf$/i.test(name) || isSupportedProviderText(name, mimeType));
+}
+
+function waitForProviderPresence(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function assertWebProviderReady(provider: WebProviderId): Promise<void> {
+  const label = WEB_PROVIDERS[provider].label;
+  if (!browserWakeConnected()) {
+    throw new Error(`NeuraFlok's browser connection to ${label} is not active. The provider sign-in state was not changed and no message was sent. Reconnect the browser companion and retry.`);
+  }
+
+  const before = webProvidersStatus()[provider]?.lastSeenAt ?? 0;
+  // Refresh authentication from the provider page immediately before the
+  // message is accepted. A connected browser alone is not proof of sign-in.
+  wakeBrowserWork();
+  const deadline = Date.now() + PROVIDER_AUTH_REFRESH_MS;
+  while (Date.now() < deadline) {
+    const presence = webProvidersStatus()[provider];
+    if ((presence?.lastSeenAt ?? 0) > before) {
+      if (presence?.signedIn === true) return;
+      throw new Error(`NeuraFlok could not verify the ${label} session through its browser companion. No sign-in state was changed and no message was sent. Refresh the provider page and retry; if ${label} itself shows a sign-in page, sign in there.`);
+    }
+    await waitForProviderPresence(PROVIDER_AUTH_POLL_MS);
+  }
+  throw new Error(`NeuraFlok could not confirm the ${label} session through its browser companion. No sign-in state was changed and no message was sent. Reopen or refresh the provider page and retry.`);
+}
 
 export function onLocalExecutorTurnSettled(
   listener: (result: { entry: Readonly<InputEntry>; conversationId: string | null; turnId: string | null; aborted: boolean; error: Error | null }) => void | Promise<void>
@@ -117,12 +153,11 @@ async function dispatchLocalAfterTurn(sessionId: string, conversationId: string,
         throw new Error('The API executor accepts text, source files, and images. Add other file types through a project folder.');
     } else {
       const selected = provider!;
-      const status = webProvidersStatus()[selected];
-      const isReady = status?.signedIn === true || (status?.open === true && status?.signedIn !== false);
-      if (!isReady) throw new Error(`Connect ${WEB_PROVIDERS[selected].label} in NEURAFLOK's browser before sending.`);
-      if ((entry.images?.length ?? 0) > 0 || entry.attachments?.some(file =>
-        !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
+      await assertWebProviderReady(selected);
+      if ((entry.images?.length ?? 0) > 0)
         throw new Error(`${WEB_PROVIDERS[selected].label} web sessions accept text and source files. Use the API executor for image attachments.`);
+      if (entry.attachments?.some(file => unsupportedWebAttachment(file.name, file.mimeType, selected)))
+        throw new Error(`${WEB_PROVIDERS[selected].label} does not support one of these attachments. For DeepSeek, use PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, common images, text, or code files.`);
     }
   } catch (error) {
     await failLocalExecutorInput(entry.id, (error as Error).message);
@@ -180,14 +215,12 @@ export async function sendDesktopInput(input: InputArgs): Promise<InputEntry> {
       : localExecutor && input.mode === 'after-turn' ? { afterTurn: true } : {})
   };
   if (!apiExecutor) {
-    const status = webProvidersStatus()[provider];
-    const isReady = status?.signedIn === true || (status?.open === true && status?.signedIn !== false);
-    if (!isReady) {
-      throw new Error(`Connect ${WEB_PROVIDERS[provider].label} in NEURAFLOK's browser before sending.`);
-    }
-    if ((input.images?.length ?? 0) > 0 || input.attachments?.some(file =>
-      !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file))) {
+    await assertWebProviderReady(provider);
+    if ((input.images?.length ?? 0) > 0) {
       throw new Error(`${WEB_PROVIDERS[provider].label} web sessions accept text and source files. Use the API executor for image attachments.`);
+    }
+    if (input.attachments?.some(file => unsupportedWebAttachment(file.name, file.mimeType, provider))) {
+      throw new Error(`${WEB_PROVIDERS[provider].label} does not support one of these attachments. For DeepSeek, use PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, common images, text, or code files.`);
     }
   } else {
     await (await import('../../providers/api-chat.js')).assertApiChatReady(input.sessionId ?? undefined);
@@ -246,12 +279,11 @@ export async function retryQueuedInputBrowser(id: string): Promise<InputEntry | 
       if (entry.attachments?.some(file => !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
         throw new Error('The API executor accepts text, source files, and images. Add other file types through a project folder.');
     } else {
-      const status = webProvidersStatus()[provider];
-      const isReady = status?.signedIn === true || (status?.open === true && status?.signedIn !== false);
-      if (!isReady) throw new Error(`Connect ${WEB_PROVIDERS[provider].label} in NEURAFLOK's browser before sending.`);
-      if ((entry.images?.length ?? 0) > 0 || entry.attachments?.some(file =>
-        !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
+      await assertWebProviderReady(provider);
+      if ((entry.images?.length ?? 0) > 0)
         throw new Error(`${WEB_PROVIDERS[provider].label} web sessions accept text and source files. Use the API executor for image attachments.`);
+      if (entry.attachments?.some(file => unsupportedWebAttachment(file.name, file.mimeType, provider)))
+        throw new Error(`${WEB_PROVIDERS[provider].label} does not support one of these attachments. For DeepSeek, use PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, common images, text, or code files.`);
     }
     const repaired = await noteInputStartupError(id, null);
     if (!repaired || repaired.state !== 'queued') return repaired ?? null;

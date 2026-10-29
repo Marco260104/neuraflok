@@ -14,7 +14,7 @@ vi.mock('electron', () => ({ safeStorage: {
 import { defaultConfig, initConfigPath, saveConfig } from '../backend/infrastructure/settings/config.js';
 import { initSecretsPath, setSecret } from '../backend/infrastructure/settings/secrets.js';
 import { initDurableStore, flushDurable, resetDurableForTests } from '../backend/persistence/durable.js';
-import { initSessionStore, getSession, readEvents, sessionApiThreadPath, resetSessionStoreForTests } from '../backend/domains/sessions/history/store.js';
+import { initSessionStore, getSession, readEvents, readProjectPlanState, sessionApiThreadPath, resetSessionStoreForTests } from '../backend/domains/sessions/history/store.js';
 import { recordedInputImage } from '../backend/domains/sessions/input/input-history.js';
 import { enqueueInput, listInputs, resetInputForTests } from '../backend/domains/sessions/input/input.js';
 import { stageInputAttachment } from '../backend/domains/sessions/input/attachments/index.js';
@@ -24,9 +24,12 @@ import { isApiConversationId } from '../contracts/chat-protocol.js';
 import { trimApiThread } from '../backend/domains/providers/api-chat-thread-store.js';
 import type { ApiMessage } from '../backend/domains/providers/api-chat-protocol.js';
 import { abortApiChatSession, apiChatFlightTurnId, resetApiChatForTests, runApiProviderInput } from '../backend/domains/providers/api-chat.js';
+import { addProject } from '../backend/domains/workspace/projects.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 
 let directory: string;
+let workspace: string;
+let projectId: string;
 
 it('keeps the active API request and complete recent tool rounds when long runs need thread compaction', () => {
   const messages: ApiMessage[] = [
@@ -55,19 +58,24 @@ it('keeps the active API request and complete recent tool rounds when long runs 
 
 beforeAll(async () => {
   directory = await makeTempDir('neuraflok-api-chat-');
-  initConfigPath(directory);
-  initSecretsPath(directory);
-  initDurableStore(directory);
-  initSessionStore(directory);
+  workspace = path.join(directory, 'workspace');
+  const appData = path.join(directory, 'data');
+  await fs.mkdir(workspace, { recursive: true });
+  await fs.mkdir(appData, { recursive: true });
+  initConfigPath(appData);
+  initSecretsPath(appData);
+  initDurableStore(appData);
+  initSessionStore(appData);
   resetInputForTests();
   const config = defaultConfig();
   await saveConfig({
     ...config,
-    roots: [{ name: 'workspace', path: directory }],
+    roots: [{ name: 'workspace', path: workspace }],
     ui: { ...config.ui, chatExecutor: 'api' },
     providers: { api: { kind: 'custom', baseUrl: 'http://localhost:1234/v1' } },
     goal: { ...config.goal, model: 'mock-model' }
   });
+  projectId = (await addProject(workspace)).id;
 });
 
 afterEach(async () => {
@@ -89,7 +97,7 @@ afterAll(async () => {
 });
 
 it('uses structured API tool calls, carries project files as bounded text context, and records a local session', async () => {
-  await fs.writeFile(path.join(directory, 'hello.txt'), 'hello from the workspace\n', 'utf8');
+  await fs.writeFile(path.join(workspace, 'hello.txt'), 'hello from the workspace\n', 'utf8');
   const attachment = await stageInputAttachment({ name: 'notes.md', bytes: Buffer.from('Treat the sample as UTF-8 text.') }, new Set());
   const bodies: Array<{ model: string; messages: Array<{ role: string; content?: string | null | Array<unknown> }>; tools?: unknown[] }> = [];
   const replies = [
@@ -103,7 +111,7 @@ it('uses structured API tool calls, carries project files as bounded text contex
     return new Response(JSON.stringify(replies.shift()), { status: 200, headers: { 'content-type': 'application/json' } });
   }));
   const input = await enqueueInput({
-    id: randomUUID(), sessionId: null, text: 'Read the greeting and summarize it.', mode: 'auto', dueAt: 0,
+    id: randomUUID(), sessionId: null, projectId, text: 'Read the greeting and summarize it.', mode: 'auto', dueAt: 0,
     model: null, reasoningEffort: null, attachments: [attachment]
   });
 
@@ -123,6 +131,156 @@ it('uses structured API tool calls, carries project files as bounded text contex
   expect(events.some(event => event.kind === 'tool_call' && event.call.tool === 'read')).toBe(true);
   expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('The file says hello'))).toBe(true);
   expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(true);
+});
+
+it('continues an older API chat from the recorded history summary when its provider thread is unavailable', async () => {
+  const bodies: Array<{ messages: Array<{ role: string; content?: string | null | Array<unknown> }> }> = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as typeof bodies[number]);
+    const content = bodies.length === 1
+      ? 'I recorded the project marker NF_API_HISTORY_42.'
+      : 'I continued from the recorded marker.';
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content } }] });
+  }));
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Remember marker NF_API_HISTORY_42 for the next step.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(first);
+  await flushRecorder();
+  await fs.rm(sessionApiThreadPath(first.id), { force: true });
+
+  const followup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, text: 'Continue using the earlier marker.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(followup);
+
+  const current = String(bodies[1]?.messages.at(-1)?.content ?? '');
+  expect(current).toContain('RECENT CONVERSATION SUMMARY');
+  expect(current).toContain('NF_API_HISTORY_42');
+  expect(current).toContain('Answer the user naturally and directly');
+  expect(current).toContain('Markdown is required: begin with a real Markdown heading using ##');
+  expect(current).toContain('Never leave a plan title as plain text');
+  expect(current).toContain('Keep greetings and short factual answers as concise prose');
+  expect(current).toContain('Do not inspect files, mention paths, run commands');
+  expect(current).not.toContain('Available local tools');
+  expect(current).not.toContain('PROJECT FILE TREE');
+  expect(bodies[1]?.messages.some(message => String(message.content ?? '').includes('Remember marker NF_API_HISTORY_42'))).toBe(true);
+});
+
+it('keeps API project Plan read-only until approval, then executes the approved change', async () => {
+  const target = path.join(workspace, 'plan-target.txt');
+  await fs.writeFile(target, 'before\n', 'utf8');
+  const bodies: Array<{ messages: Array<{ role: string; content?: string | null }>; tools?: unknown[] }> = [];
+  const patch = '*** Begin Patch\n*** Update File: /workspace/plan-target.txt\n@@\n-before\n+after\n*** End Patch';
+  const toolCall = (id: string, name: string, args: unknown) => ({ choices: [{ finish_reason: 'tool_calls', message: {
+    role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }]
+  } }] });
+  const replies = [
+    toolCall('plan_read', 'read', { paths: ['/workspace/plan-target.txt'] }),
+    { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'Plan: Update the one-line value and verify the file.' } }] },
+    { choices: [{ finish_reason: 'tool_calls', message: {
+      role: 'assistant', content: null, tool_calls: [
+        { id: 'blocked_patch', type: 'function', function: { name: 'apply_patch', arguments: JSON.stringify({ patch }) } },
+        { id: 'unapproved_signal', type: 'function', function: { name: 'approve_project_plan', arguments: '{}' } }
+      ]
+    } }] },
+    toolCall('revise_plan', 'revise_project_plan', { plan: 'Read the file, include the alternate idea, update the one-line value, then verify it.' }),
+    { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'The revised plan now includes the alternate idea.' } }] },
+    toolCall('plan_approval', 'approve_project_plan', {}),
+    toolCall('approved_patch', 'apply_patch', { patch }),
+    { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'Updated the value and verified the file.' } }] }
+  ];
+  vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as typeof bodies[number]);
+    const reply = replies.shift();
+    if (!reply) throw new Error('The plan workflow requested an unexpected provider response.');
+    return Response.json(reply);
+  }));
+
+  const draft = await enqueueInput({
+    id: randomUUID(), sessionId: null, projectId, projectPlanPhase: 'draft',
+    text: 'Change the value after reviewing the file.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(draft);
+
+  const planningToolNames = (bodies[0]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(planningToolNames).toContain('read');
+  expect(planningToolNames).not.toContain('apply_patch');
+  expect(JSON.stringify(bodies[0]?.messages[0]?.content)).toContain('temporary Plan approval phase');
+  expect(JSON.stringify(bodies[0]?.messages[0]?.content)).toContain('do not say that the app is globally in read-only mode');
+  expect(bodies[1]?.messages.some(message => message.role === 'tool' && String(message.content).includes('before'))).toBe(true);
+  expect(await readProjectPlanState(draft.id)).toMatchObject({ request: draft.text, plan: expect.stringContaining('Update the one-line value') });
+
+  const unapproved = await enqueueInput({
+    id: randomUUID(), sessionId: draft.id, text: 'Please include the alternate idea in your plan.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(unapproved);
+  expect(await fs.readFile(target, 'utf8')).toBe('before\n');
+  expect(await readProjectPlanState(draft.id)).toMatchObject({ plan: expect.stringContaining('alternate idea') });
+  const reviewToolNames = (bodies[2]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(reviewToolNames).not.toContain('apply_patch');
+  expect(reviewToolNames).toContain('approve_project_plan');
+  expect(reviewToolNames).toContain('cancel_project_plan');
+  expect(reviewToolNames).toContain('revise_project_plan');
+  expect(String(bodies[2]?.messages[0]?.content)).toContain('Judge only the latest user-authored message by its meaning');
+  expect(JSON.stringify(bodies[3]?.messages)).toContain('No decision or project action was applied');
+
+  const approved = await enqueueInput({
+    id: randomUUID(), sessionId: draft.id, text: 'Hecho', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(approved);
+  const revisedPlanToolNames = (bodies[4]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(revisedPlanToolNames).not.toContain('approve_project_plan');
+  const decisionToolNames = (bodies[5]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(decisionToolNames).toContain('approve_project_plan');
+  expect(decisionToolNames).not.toContain('apply_patch');
+  const workToolNames = (bodies[6]?.tools ?? []).map(tool =>
+    (tool as { function?: { name?: string } }).function?.name);
+  expect(workToolNames).toContain('apply_patch');
+  expect(workToolNames).not.toContain('approve_project_plan');
+  expect(await fs.readFile(target, 'utf8')).toBe('after\n');
+  expect(await readProjectPlanState(draft.id)).toBeNull();
+  await flushRecorder();
+  const events = await readEvents(draft.id);
+  expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'apply_patch')).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'Updated the value and verified the file.')).toBe(true);
+});
+
+it('keeps a normal API chat plain even when a provider tries to call a file tool', async () => {
+  const bodies: Array<{ messages: Array<{ role: string; content?: string | null }>; tools?: unknown[] }> = [];
+  const replies = [
+    { choices: [{ finish_reason: 'tool_calls', message: { role: 'assistant', content: null, tool_calls: [{
+      id: 'normal_read', type: 'function', function: { name: 'read', arguments: JSON.stringify({ paths: ['/workspace/hello.txt'] }) }
+    }] } }] },
+    { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'The short answer is ready.' } }] }
+  ];
+  vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as typeof bodies[number]);
+    const reply = replies.shift();
+    if (!reply) throw new Error('The normal-chat retry requested an unexpected response.');
+    return Response.json(reply);
+  }));
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Answer one short question.',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runApiProviderInput(input);
+
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0]?.tools).toBeUndefined();
+  expect(JSON.stringify(bodies[0]?.messages)).not.toMatch(/\/workspace|Available local tools|PROJECT FILE TREE/);
+  expect(bodies[1]?.messages.at(-1)?.content).toContain('normal chat with no file or command tools');
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'tool_call')).toHaveLength(0);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'The short answer is ready.')).toBe(true);
 });
 
 it('stops the exact API generation through its request signal', async () => {

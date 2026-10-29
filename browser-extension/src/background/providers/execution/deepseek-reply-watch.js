@@ -12,8 +12,48 @@ export function looksLikeDeepseekThink(text) {
 
 function quietNeed(text) {
   if (isDeepseekAck(text)) return 1;
-  if (String(text || '').trim().length < 80) return 6;
+  // Code answers can pause between blocks while DeepSeek mounts its Continue
+  // control. Give that UI transition time to settle before recording a partial
+  // code sample as the final answer.
+  const value = String(text || '');
+  if (/```/.test(value)) {
+    const fences = value.match(/^[ \t]{0,3}(?:`{3,}|~{3,})[^\n]*$/gm) || [];
+    return fences.length % 2 === 1 ? 12 : 7;
+  }
+  if (value.trim().length < 80) return 6;
   return 3;
+}
+
+function normalizedAnswer(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function isTransientProviderFailure(text) {
+  return /(?:server|service|servidor|servicio).{0,40}(?:temporarily unavailable|temporarily busy|unavailable temporarily|no disponible temporalmente|temporalmente no disponible|busy)|(?:temporarily unavailable|unavailable temporarily|no disponible temporalmente|temporalmente no disponible)/i.test(normalizedAnswer(text));
+}
+
+function identityProvesNewAnswer(beforeIdentity, answerIdentity) {
+  if (!beforeIdentity || !answerIdentity || beforeIdentity === answerIdentity) return false;
+  const beforePage = /^node:([^:]+):/.exec(beforeIdentity)?.[1] || '';
+  const answerPage = /^node:([^:]+):/.exec(answerIdentity)?.[1] || '';
+  if (beforePage || answerPage) return Boolean(beforePage && answerPage && beforePage === answerPage);
+  return true;
+}
+
+function isFreshAnswer(answer, before, beforeIdentity, answerIdentity, sent = '') {
+  const candidate = normalizedAnswer(answer);
+  if (!candidate) return false;
+  if (isDeepseekAck(candidate) && normalizedAnswer(before)) return false;
+  const changedMessage = identityProvesNewAnswer(beforeIdentity, answerIdentity);
+  const matchesPriorText = candidate === normalizedAnswer(before);
+  const matchesSentText = candidate === normalizedAnswer(sent);
+  return (!matchesPriorText && !matchesSentText) || changedMessage;
+}
+
+function freshPublicAnswer(answer, before, beforeIdentity, answerIdentity, sent = '') {
+  if (!isFreshAnswer(answer, before, beforeIdentity, answerIdentity, sent)) return '';
+  if (looksLikeDeepseekThink(answer) && !hasDeepseekToolCall(answer)) return '';
+  return answer;
 }
 
 export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabReply, postDeepseekPage, timings = {} }) {
@@ -26,7 +66,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
   const DEEPSEEK_STALLED_GENERATION_MS = timings.stalledGenerationMs ?? 4 * 60_000;
   const DEEPSEEK_STOP_CONFIRM_MS = timings.stopConfirmMs ?? 12_000;
 
-  return async function watchDeepseekReply(tabId, offer, before, beforeThink, initial) {
+  return async function watchDeepseekReply(tabId, offer, before, beforeThink, initial, beforeIdentity = '') {
     // The immediate reply can contain DeepSeek's private reasoning. Re-read the
     // page and only ever publish the explicitly public answer field below.
     void initial;
@@ -45,7 +85,6 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
     let continuationText = '';
     let continuationIdle = 0;
     let continuationAttempts = 0;
-    let turnActivitySeen = false;
     let lastObservableActivity = '';
     let lastObservableProgressAt = Date.now();
     let completeText = isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '';
@@ -62,7 +101,8 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         snap = await tabReply(tabId, {
           type: 'neuraflok-deepseek-read',
           before,
-          beforeThink
+          beforeThink,
+          beforeIdentity
         }, undefined, DEEPSEEK_READ_MS);
         consecutiveReadFailures = 0;
       } catch {
@@ -73,10 +113,12 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           const fallback = await tabReply(tabId, { type: 'neuraflok-deepseek-snapshot' }, undefined, 4_000).catch(() => null);
           if (fallback) {
             const answer = typeof fallback.before === 'string' ? fallback.before : '';
-            const freshAnswer = answer !== before && !(isDeepseekAck(answer) && isDeepseekAck(before)) ? answer : '';
+            const answerIdentity = typeof fallback.beforeIdentity === 'string' ? fallback.beforeIdentity : '';
+            const freshAnswer = freshPublicAnswer(answer, before, beforeIdentity, answerIdentity, offer.text);
             snap = {
               ...fallback,
               answer: freshAnswer,
+              answerIdentity,
               think: typeof fallback.beforeThink === 'string' ? fallback.beforeThink : '',
               text: freshAnswer
             };
@@ -95,14 +137,22 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
       const thinkChanged = hasReasoningActivity && think !== reportedThink;
       if (thinkChanged) reportedThink = think;
       lastGenerationActive = snap?.generating === true;
-      let publicAnswer = snap && typeof snap.answer === 'string' ? snap.answer : '';
-      if (isDeepseekAck(publicAnswer) && String(before || '').trim()) publicAnswer = '';
+      const detectedAnswer = freshPublicAnswer(
+        snap && typeof snap.answer === 'string' ? snap.answer : '',
+        before,
+        beforeIdentity,
+        snap?.answerIdentity,
+        offer.text
+      );
+      const transientFailureWithContinue = snap?.continueAvailable === true && isTransientProviderFailure(detectedAnswer);
+      // DeepSeek renders temporary server failures as assistant bubbles and
+      // leaves its own Continue button underneath. That bubble is not the
+      // answer to the user; keep the turn open so the explicit control can be
+      // pressed and the same request can finish.
+      let publicAnswer = transientFailureWithContinue ? '' : detectedAnswer;
       if (looksLikeDeepseekThink(publicAnswer) && !hasDeepseekToolCall(publicAnswer)) publicAnswer = '';
-      if (think && publicAnswer && publicAnswer.replace(/\s+/g, ' ').trim() === think.replace(/\s+/g, ' ').trim()) publicAnswer = '';
+      if (think && publicAnswer && normalizedAnswer(publicAnswer) === normalizedAnswer(think)) publicAnswer = '';
       if (think && publicAnswer && publicAnswer.includes(think.trim()) && publicAnswer.length <= think.trim().length + 40) publicAnswer = '';
-      const answerChanged = Boolean(publicAnswer.trim()) && publicAnswer.replace(/\s+/g, ' ').trim() !== String(before || '').replace(/\s+/g, ' ').trim();
-      const reasoningChanged = hasReasoningActivity && think.replace(/\s+/g, ' ').trim() !== String(beforeThink || '').replace(/\s+/g, ' ').trim();
-      if (snap?.generating === true || answerChanged || reasoningChanged) turnActivitySeen = true;
       if (publicAnswer) lastText = publicAnswer;
       completeText = publicAnswer || (isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '');
 
@@ -133,7 +183,8 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
             const afterStop = await tabReply(tabId, {
               type: 'neuraflok-deepseek-read',
               before,
-              beforeThink
+              beforeThink,
+              beforeIdentity
             }, undefined, DEEPSEEK_READ_MS).catch(() => null);
             if (afterStop?.generating === false) {
               stopConfirmed = true;
@@ -151,8 +202,11 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         return;
       }
 
+      // A visible Continue control is itself evidence that the current request
+      // is waiting on DeepSeek. Some older project chats expose the control
+      // without a server-error bubble, public answer, or readable reasoning.
       const continueIsStable = snap && snap.generating !== true && snap.continueAvailable === true &&
-        turnActivitySeen && continuationAttempts < DEEPSEEK_MAX_AUTOMATIC_CONTINUES;
+        continuationAttempts < DEEPSEEK_MAX_AUTOMATIC_CONTINUES;
       if (continueIsStable) {
         const activity = `${publicAnswer}\n${think}`;
         if (activity === continuationText) continuationIdle++;
@@ -160,7 +214,8 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           continuationText = activity;
           continuationIdle = 1;
         }
-        if (continuationIdle >= quietNeed(publicAnswer || think)) {
+        const stableContinuationReads = transientFailureWithContinue ? 2 : 3;
+        if (continuationIdle >= stableContinuationReads) {
           continuationAttempts++;
           const continued = await tabReply(tabId, {
             type: 'neuraflok-deepseek-continue',
@@ -208,7 +263,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           lastProgressAt = Date.now();
           void call('/provider/page/progress', {
             method: 'POST',
-            body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true })
+            body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true, attachmentsUploaded: snap?.attachmentsUploaded === true })
           }).catch(() => undefined);
         }
         stableText = completeText;
@@ -231,22 +286,29 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         if (Date.now() - emptySince >= DEEPSEEK_EMPTY_IDLE_MS) {
           const fallback = await tabReply(tabId, { type: 'neuraflok-deepseek-snapshot' }, undefined, 4_000).catch(() => null);
           const answer = fallback && typeof fallback.before === 'string' ? fallback.before : '';
-          if (answer && answer !== before && !(isDeepseekAck(answer) && isDeepseekAck(before))) {
-            lastText = answer;
+          const answerIdentity = typeof fallback?.beforeIdentity === 'string' ? fallback.beforeIdentity : '';
+          const freshAnswer = freshPublicAnswer(answer, before, beforeIdentity, answerIdentity, offer.text);
+          if (freshAnswer) {
+            lastText = freshAnswer;
             if (await postDeepseekPage(offer, { text: lastText }, tabId)) return;
           }
           // Confirm the provider is still idle immediately before marking the
           // request safe for same-chat continuation. A fresh answer wins over
           // timeout recovery, and an uncertain read never permits a resend.
           const confirm = await tabReply(tabId, {
-            type: 'neuraflok-deepseek-read', before, beforeThink
+            type: 'neuraflok-deepseek-read', before, beforeThink, beforeIdentity
           }, undefined, DEEPSEEK_READ_MS).catch(() => null);
-          const confirmedAnswer = typeof confirm?.answer === 'string' ? confirm.answer : '';
-          if (confirm?.generating === false && confirmedAnswer.trim() &&
-              confirmedAnswer !== before && !(isDeepseekAck(confirmedAnswer) && isDeepseekAck(before))) {
+          const confirmedAnswer = freshPublicAnswer(
+            typeof confirm?.answer === 'string' ? confirm.answer : '',
+            before,
+            beforeIdentity,
+            confirm?.answerIdentity,
+            offer.text
+          );
+          if (confirm?.generating === false && confirmedAnswer) {
             if (await postDeepseekPage(offer, { text: confirmedAnswer }, tabId)) return;
           }
-          if (confirm?.generating === false && !confirmedAnswer.trim()) {
+          if (confirm?.generating === false && !confirmedAnswer) {
             await postDeepseekPage(offer, {
               error: 'DeepSeek stopped without returning a reply. The existing chat was kept; NeuraFlok will continue the unfinished request.',
               providerIdle: true

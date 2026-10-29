@@ -148,6 +148,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// In the integrated browser this event is routed only to its own extension
+// worker. Reply through the embedded API bridge so another browser companion
+// cannot claim that it opened this conversation.
+chrome.runtime.onNeuraflokReveal?.addListener((requestId, conversationId) => {
+  void Promise.resolve(providerRuntime.revealConversation(conversationId))
+    .catch(() => false)
+    .then(shown => chrome.runtime.neuraflokRevealResult(requestId, shown))
+    .catch(() => undefined);
+});
+
 registerProviderTabLifecycle(chrome, { activeTabs, providerRuntime });
 
 function restoreProviderPages() {

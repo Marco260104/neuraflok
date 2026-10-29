@@ -46,6 +46,14 @@ describe('browser bridge port config', () => {
 });
 
 describe('settings migration', () => {
+  it.each(['kimi', 'qwen', 'glm'] as const)('moves the saved %s default web provider to DeepSeek', async webProvider => {
+    const legacy = defaultConfig();
+    legacy.ui.webProvider = webProvider;
+    await fs.writeFile(path.join(dir, 'config.json'), JSON.stringify(legacy), 'utf8');
+
+    expect((await loadConfig()).ui.webProvider).toBe('deepseek');
+  });
+
   it('moves legacy connector guidance into provider tool settings and rewrites the saved file', async () => {
     const legacy = { ...defaultConfig(), mcp: { instructions: 'Use the approved project only.' } } as any;
     delete legacy.providerTools;

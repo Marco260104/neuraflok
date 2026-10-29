@@ -27,6 +27,14 @@ describe('web provider presence', () => {
     expect(readWebProviderPresence(true, 27_000).deepseek).toMatchObject({ open: false, signedIn: null, tabId: null });
   });
 
+  it('clears authentication immediately when the extension explicitly reports that the provider tab closed', () => {
+    recordWebProviderPresence({ deepseek: { open: true, signedIn: true, tabId: 4 } }, 1_000);
+    recordWebProviderPresence({ deepseek: { open: false, signedIn: null, tabId: null } }, 1_100);
+    expect(readWebProviderPresence(true, 1_100).deepseek).toMatchObject({
+      open: false, signedIn: null, tabId: null, lastSeenAt: 1_100
+    });
+  });
+
   it('expires stale provider state after the bridge presence window', () => {
     recordWebProviderPresence({ qwen: { open: true, signedIn: true, tabId: 12 } }, 1_000);
 

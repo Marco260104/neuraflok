@@ -22,6 +22,13 @@ afterAll(() => {
 });
 
 describe('provider Markdown rendering', () => {
+  it('renders a short greeting as a clean, complete paragraph', () => {
+    const rendered = renderedMarkdown('Hola.');
+    expect(rendered.classList.contains('rich')).toBe(true);
+    expect(rendered.querySelectorAll(':scope > p')).toHaveLength(1);
+    expect(rendered.querySelector(':scope > p')?.textContent).toBe('Hola.');
+  });
+
   it('preserves ordinary Markdown structure and surrounding prose', () => {
     const answer = '## Examples from sample data\n\n' +
       '✅ **Strong matching candidate**\n\nCSV: `Sample product 20mg 30 tablets`\n\n' +
@@ -83,6 +90,155 @@ describe('provider Markdown rendering', () => {
     expect(rendered.querySelector('pre code')?.textContent).toContain('const rain = true;');
     expect(rendered.textContent).toContain('NEURAFLOK-0606-FINAL-A');
     expect(rendered.querySelector('script')).toBeNull();
+  });
+
+  it('keeps every example in a long code answer and decodes Markdown entities', () => {
+    const snippets = [
+      '#include <vector>\nint main() { std::vector<int> values{3, 1}; }',
+      '#include <map>\nint main() { std::map<int, int> values; }',
+      '#include <set>\nint main() { std::set<int> values; }',
+      '#include <algorithm>\nint main() { std::sort(values.begin(), values.end()); }',
+      '#include <numeric>\nint main() { std::accumulate(values.begin(), values.end(), 0); }',
+      '#include <numeric>\nint main() {\n  std::cout << "complete";\n  return 0;\n}'
+    ];
+    const answer = '**1.&#x20;** `std::vector` examples\n\n' + snippets.map(code => `\`\`\`cpp\n${code}\n\`\`\``).join('\n\n');
+    const rendered = renderedMarkdown(answer);
+
+    expect(rendered.querySelectorAll('.markdown-code')).toHaveLength(6);
+    expect(rendered.querySelector('strong')?.textContent).toBe('1. ');
+    expect(rendered.textContent).not.toContain('&#x20;');
+    expect(rendered.querySelectorAll('.markdown-code pre code').item(5)?.textContent?.trimEnd()).toBe(snippets.at(-1));
+  });
+
+  it('keeps a long plan readable as complete Markdown sections, a table, and code', () => {
+    const plan = [
+      '# Plan de trabajo',
+      '',
+      '## Objetivo',
+      '',
+      'Mejorar la pantalla sin alterar el comportamiento existente.',
+      '',
+      '## Cambios',
+      '',
+      '| Etapa | Trabajo | Resultado |',
+      '| --- | --- | --- |',
+      '| 1 | Revisar componentes y estilos actuales | Alcance confirmado |',
+      '| 2 | Añadir el módulo de inventario y validaciones | Flujo completo |',
+      '| 3 | Ejecutar pruebas y corregir regresiones | Cambio verificado |',
+      '',
+      '### Verificación',
+      '',
+      '- Probar la navegación en escritorio y móvil.',
+      '- Confirmar que los datos anteriores se conservan.',
+      '- Ejecutar las pruebas relevantes antes de entregar.',
+      '',
+      '```ts',
+      'export function inventoryCount(items: readonly { quantity: number }[]): number {',
+      '  return items.reduce((total, item) => total + item.quantity, 0);',
+      '}',
+      '```',
+      '',
+      'El resultado debe conservar todos los apartados y terminar con esta conclusión.'
+    ].join('\n');
+    const rendered = renderedMarkdown(plan);
+
+    expect(rendered.querySelector('h1')?.textContent).toBe('Plan de trabajo');
+    expect(rendered.querySelector('h2')?.textContent).toBe('Objetivo');
+    expect(rendered.querySelector('h3')?.textContent).toBe('Verificación');
+    expect(rendered.querySelectorAll('table tbody tr')).toHaveLength(3);
+    expect(rendered.querySelectorAll('li')).toHaveLength(3);
+    expect(rendered.querySelector('.markdown-code pre code')?.textContent).toContain('inventoryCount');
+    expect(rendered.textContent).toContain('terminar con esta conclusión.');
+  });
+
+  it('formats a C++ study path whose title and phase details arrived as plain paragraphs', () => {
+    const rendered = renderedMarkdown([
+      'Ruta para aprender C++',
+      '',
+      '1. Fundamentos del lenguaje (2–4 semanas)',
+      '',
+      'Aprende variables, tipos, operadores y funciones.',
+      '',
+      'Practica con ejercicios cortos de entrada y salida.',
+      '',
+      '2. Estructuras de datos básicas (3–4 semanas)',
+      '',
+      'Estudia `std::vector`, `std::string`, `std::map` y `std::set`.',
+      '',
+      '3. Programación orientada a objetos (3–4 semanas)',
+      '',
+      'Practica clases, encapsulación y polimorfismo.'
+    ].join('\n'));
+
+    expect(rendered.querySelector('h2')?.textContent).toBe('Ruta para aprender C++');
+    expect(rendered.querySelectorAll('h3')).toHaveLength(3);
+    expect(rendered.querySelectorAll('h3 + ul > li')).toHaveLength(4);
+  });
+
+  it('does not promote a sentence before a list into a heading', () => {
+    const rendered = renderedMarkdown('Here are a few options:\n\n- First option\n- Second option');
+
+    expect(rendered.querySelector('h2')).toBeNull();
+    expect(rendered.querySelector('p')?.textContent).toBe('Here are a few options:');
+  });
+
+  it('formats a project overview feature label and paragraphs as a Markdown section and list', () => {
+    const rendered = renderedMarkdown([
+      'El proyecto es una aplicación web para gestionar una librería pequeña.',
+      '',
+      'Cubre el flujo completo de una librería pequeña:',
+      '',
+      'Panel con títulos, unidades y alertas de stock bajo.',
+      '',
+      'Catálogo CRUD con validación de ISBN y existencias.',
+      '',
+      'Búsqueda por ISBN, título, autora, categoría y stock.',
+      '',
+      'Carrito con control de stock y confirmación de venta.',
+      '',
+      'Además incluye verificación de la lógica y pruebas manuales.'
+    ].join('\n'));
+
+    expect(rendered.querySelector('p')?.textContent).toContain('aplicación web');
+    expect(rendered.querySelector('h3')?.textContent).toBe('Cubre el flujo completo de una librería pequeña');
+    expect(rendered.querySelectorAll('h3 + ul > li')).toHaveLength(4);
+    expect(rendered.lastElementChild?.textContent).toContain('Además incluye verificación');
+  });
+
+  it('formats the plain section labels and summary from the project-components answer', () => {
+    const rendered = renderedMarkdown([
+      'El proyecto nf17_ui_module_trial es un panel de gastos en JavaScript vanilla, sin framework, así que no tiene componentes en archivos separados: cada sección se genera como HTML dentro de src/app.js.',
+      '',
+      'Secciones de la interfaz',
+      '',
+      'Encabezado: título, subtítulo y presupuesto mensual.',
+      '',
+      'Tarjetas KPI: movimientos, total registrado, presupuesto restante y número de categorías.',
+      '',
+      'Presupuesto del mes: barra de progreso con estado ok, warning u over.',
+      '',
+      'Gasto por categoría: lista con importe, porcentaje, barra proporcional y conteo.',
+      '',
+      'Tendencia mensual: gráfico SVG con línea, puntos y etiquetas de mes.',
+      '',
+      'Actividad reciente: tabla de movimientos del más reciente al más antiguo.',
+      '',
+      'Módulos de lógica y datos',
+      '',
+      'expense-insights.js: summarizeByCategory, remainingBudget, monthlyTrend y la fachada buildInsights.',
+      '',
+      'seed-data.js: ocho transacciones de ejemplo y presupuesto mensual de 850.',
+      '',
+      'styles.css: estilos de todas las secciones.',
+      '',
+      'En resumen: seis secciones visuales y un módulo de cálculo, sin componentes reutilizables.'
+    ].join('\n'));
+
+    expect([...rendered.querySelectorAll('h2')].map(heading => heading.textContent)).toEqual([
+      'Secciones de la interfaz', 'Módulos de lógica y datos'
+    ]);
+    expect(rendered.querySelectorAll('h2 + ul > li')).toHaveLength(9);
+    expect(rendered.lastElementChild?.querySelector('strong')?.textContent).toBe('En resumen:');
   });
 
   it('keeps semantic formatting while removing executable attributes and unsafe links', () => {

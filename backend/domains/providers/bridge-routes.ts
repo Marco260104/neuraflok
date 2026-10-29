@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { reportProviderPageProgress, settleProviderPage } from './provider-page.js';
+import { readProviderPageAttachmentChunk, reportProviderPageProgress, settleProviderPage } from './provider-page.js';
 
 type ReadBody = (req: http.IncomingMessage) => Promise<unknown>;
 type SendJson = (res: http.ServerResponse, status: number, body: unknown, origin: string | null) => void;
@@ -19,7 +19,7 @@ export async function handleProviderPageRoute(
   integratedHost: boolean,
   support: ProviderPageRouteSupport
 ): Promise<boolean> {
-  if (req.method !== 'POST' || (route !== '/provider/page' && route !== '/provider/page/progress')) return false;
+  if (req.method !== 'POST' || !['/provider/page', '/provider/page/progress', '/provider/page/attachment'].includes(route)) return false;
   if (!integratedHost) {
     support.json(res, 200, { ok: false }, origin);
     return true;
@@ -34,6 +34,12 @@ export async function handleProviderPageRoute(
   }
   if (!body || typeof body !== 'object' || typeof (body as { id?: unknown }).id !== 'string') {
     support.json(res, 400, { error: 'invalid_provider_page' }, origin);
+    return true;
+  }
+
+  if (route === '/provider/page/attachment') {
+    const chunk = readProviderPageAttachmentChunk(body as Record<string, unknown>);
+    support.json(res, chunk === null ? 409 : 200, chunk === null ? { error: 'attachment_not_owned' } : { chunk }, origin);
     return true;
   }
 

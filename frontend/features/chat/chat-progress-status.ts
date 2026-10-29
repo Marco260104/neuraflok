@@ -1,6 +1,8 @@
 import type { AgentState } from '../../../contracts/session.js';
 import { t } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
+import { chatSelectionStartedAt, hasRecentTurnActivity, internalWarmupTurnIds, isInternalWarmupQuestionText } from './chat-turn-state.js';
+import { WEB_CHAT_WARMUP_TEXT } from './chat-web-warmup.js';
 
 export interface ProgressStatus {
   text: string;
@@ -25,6 +27,58 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
   // An open provider turn is not proof of progress. Stop displaying a growing
   // elapsed clock when the chat has produced no visible output or tool activity.
   const PROVIDER_SILENCE_MS = 90_000;
+  // Restored provider controls can carry a stale turn from before this chat
+  // was reopened. Confirm that work belongs to this selection before showing
+  // a live caption, then retain that confirmation during quiet reasoning.
+  let confirmedSelectionTurn: string | null = null;
+  const RECENT_AUTHORED_TURN_MS = 15_000;
+
+  function turnConfirmedForSelection(turnId: string): boolean {
+    const sessionId = runtime.selectedId;
+    if (!sessionId) return false;
+    const key = `${sessionId}:${runtime.selectionGeneration}:${turnId}`;
+    const internalInputIds = new Set(
+      [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs]
+        .filter(entry => entry.warmup &&
+          (entry.sessionId ?? entry.deliveredSessionId) === sessionId)
+        .map(entry => entry.id),
+    );
+    const warmupTurns = internalWarmupTurnIds(runtime.events, internalInputIds, WEB_CHAT_WARMUP_TEXT);
+    if (warmupTurns.has(turnId)) {
+      if (confirmedSelectionTurn === key) confirmedSelectionTurn = null;
+      return false;
+    }
+    if (confirmedSelectionTurn === key) return true;
+    const selectedAt = chatSelectionStartedAt(sessionId, runtime.selectionGeneration);
+    const now = Date.now();
+    // Initial restoration may not have recorded a navigation boundary yet.
+    // In that case only accept evidence from the last few seconds, and still
+    // reject replayed MCP progress for a question from an older selection.
+    const activityBoundary = selectedAt ?? now - 10_000;
+    const latestQuestion = [...runtime.events].reverse().find(event => event.kind === 'user_message' &&
+      event.internalWarmup !== true &&
+      !warmupTurns.has(event.turnId ?? '') &&
+      !(event.inputId && internalInputIds.has(event.inputId)) &&
+      !isInternalWarmupQuestionText(event.message.text, WEB_CHAT_WARMUP_TEXT));
+    const recentAuthoredQuestion = latestQuestion?.kind === 'user_message' &&
+      now - latestQuestion.time >= -1_000 &&
+      now - latestQuestion.time < RECENT_AUTHORED_TURN_MS &&
+      (!latestQuestion.turnId || latestQuestion.turnId === turnId);
+    // A restored `turn_start` can be replayed after navigation even when its
+    // authored question and answer belong to the previous visit. A start by
+    // itself is not evidence of a new turn; require a fresh question or the
+    // activity gate that also ties a start to one.
+    if (!recentAuthoredQuestion && !hasRecentTurnActivity(
+      runtime.events,
+      turnId,
+      activityBoundary,
+      now,
+      internalInputIds,
+      WEB_CHAT_WARMUP_TEXT,
+    )) return false;
+    confirmedSelectionTurn = key;
+    return true;
+  }
 
   function stateLine(): ProgressStatus {
     if (!runtime.state()?.config.ui.developerMode) {
@@ -33,16 +87,55 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       );
       if (!summary || runtime.detailFor !== runtime.selectedId)
         return { text: '', tone: '' };
-      const active =
-        runtime.controlledSessionId === runtime.selectedId &&
-        runtime.controlledSelection === runtime.selectionGeneration
-          ? runtime.controlledTurnId
-          : null;
       const lastBoundary = [...runtime.events]
         .reverse()
         .find(
           (event) => event.kind === 'turn_start' || event.kind === 'turn_end',
         );
+      let latestRequestAt = Number.NEGATIVE_INFINITY;
+      for (const event of runtime.events)
+        if (event.kind === 'user_message' || event.kind === 'turn_start')
+          latestRequestAt = Math.max(latestRequestAt, event.time);
+      const latestExplicitCompletion = Math.max(
+        ...runtime.events.flatMap(event =>
+          (event.kind === 'turn_end' && event.outcome !== 'unknown') || event.kind === 'chat_error'
+            ? [event.time]
+            : []),
+        summary.lastTurnEndAt ?? Number.NEGATIVE_INFINITY,
+      );
+      const completedLatestTurn = latestExplicitCompletion > latestRequestAt;
+      const controlledTurn =
+        runtime.controlledSessionId === runtime.selectedId &&
+        runtime.controlledSelection === runtime.selectionGeneration
+          ? runtime.controlledTurnId
+          : null;
+      const turnHasEnded = (turnId: string | null | undefined): boolean => {
+        if (!turnId) return false;
+        if (runtime.events.some(event => (event.kind === 'turn_end' && event.turnId === turnId && event.outcome !== 'unknown') ||
+          (event.kind === 'chat_error' && event.turnId === turnId))) return true;
+        const latestFinalMessageAt = Math.max(...runtime.events.flatMap(event =>
+          event.kind === 'assistant_message' && event.turnId === turnId && (event.final === true || event.state === 'final')
+            ? [event.time]
+            : []), Number.NEGATIVE_INFINITY);
+        if (!Number.isFinite(latestFinalMessageAt) || Date.now() - latestFinalMessageAt < PROVIDER_SILENCE_MS) return false;
+        const laterActivity = runtime.events.some(event => event.turnId === turnId && event.time > latestFinalMessageAt &&
+          (event.kind === 'assistant_message' || event.kind === 'tool_call' || event.kind === 'page_tool' || event.kind === 'progress'));
+        return !laterActivity && !(summary.lastToolCallAt !== null && summary.lastToolCallAt > latestFinalMessageAt);
+      };
+      // A stale active-turn control must not keep the UI spinning after that
+      // turn has an explicit end, error, or an old final message with no later work.
+      const controlledTurnEnded = turnHasEnded(controlledTurn);
+      const summaryTurnEnded = turnHasEnded(summary.activeTurnId);
+      // Assistant messages can be finalized between steps of one provider turn.
+      // An explicit turn end or error closes the active control; a final message
+      // alone does not when the selected session still reports that same turn.
+      const candidateActive = controlledTurnEnded || completedLatestTurn ? null : controlledTurn;
+      const active = candidateActive && turnConfirmedForSelection(candidateActive) ? candidateActive : null;
+      if (!candidateActive || controlledTurnEnded || completedLatestTurn) confirmedSelectionTurn = null;
+      if (!active && lastBoundary?.kind === 'turn_end' &&
+          lastBoundary.outcome !== 'completed' && lastBoundary.outcome !== 'unknown') {
+        return { text: '', tone: '' };
+      }
       // Use recent attributed tool activity when the provider has not reported a turn boundary.
       const reportedEnd = Math.max(
         lastBoundary?.kind === 'turn_end' ? lastBoundary.time : 0,
@@ -51,6 +144,7 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
       );
       const blind =
         !active &&
+        !summaryTurnEnded &&
         summary.lastToolCallAt !== null &&
         Date.now() - summary.lastToolCallAt < BLIND_CAPTION_MS &&
         summary.lastToolCallAt > reportedEnd

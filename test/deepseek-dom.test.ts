@@ -14,19 +14,33 @@ interface DeepseekDomApi {
   continueButton(): FakeNode | null;
   generating(): boolean;
   lastAnswer(): string;
+  lastAnswerIdentity(): string;
   lastThink(): string;
   setValue(textarea: FakeNode, text: string): void;
+  attachFiles(files: Array<{ id?: string; name: string; mimeType: string; size?: number; chunks: string[] }>, conversationId?: string): boolean;
+  attachmentsPresent(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  attachmentUploadReady(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  prepareImageAttachmentUpload(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  removeAttachmentFiles(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  providerAttachmentsPresent(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>): boolean;
+  attachmentsRemoved(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  attachmentsConfirmed(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  confirmAttachmentsUploaded(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  clearAttachmentReceipt(conversationId?: string): boolean;
   signedIn(): boolean;
   newChat(): FakeNode | null;
   hasConversation(): boolean;
+  pageIdentity(): string;
 }
 
 interface FakeNode {
   id?: string;
   name?: string;
+  disabled?: boolean;
   className: string;
   hidden: boolean;
   value: string;
+  _valueTracker?: { setValue(value: string): void; getValue(): string };
   textContent: string;
   innerText: string;
   parent: FakeNode | null;
@@ -35,9 +49,12 @@ interface FakeNode {
   d?: string;
   key?: string;
   tagName: string;
+  shadowRoot?: FakeNode | null;
+  files?: FakeFile[];
   getAttribute(name: string): string | null;
   querySelector(selector: string): FakeNode | null;
   querySelectorAll(selector: string): FakeNode[];
+  matches(selector: string): boolean;
   closest(selector: string): FakeNode | null;
   getClientRects(): Array<{ width: number; height: number }>;
   click(): void;
@@ -46,11 +63,29 @@ interface FakeNode {
   appendChild(child: FakeNode): FakeNode;
 }
 
+interface FakeFile { name: string; type: string; parts: Uint8Array[]; }
+
+class FakeFileTransfer {
+  private readonly selected: FakeFile[] = [];
+  readonly items = { add: (file: FakeFile) => this.selected.push(file) };
+  get files(): FakeFile[] { return this.selected; }
+}
+
+class FakeFileValue implements FakeFile {
+  readonly name: string;
+  readonly type: string;
+  readonly parts: Uint8Array[];
+  constructor(parts: Uint8Array[], name: string, options: { type: string }) {
+    this.parts = parts; this.name = name; this.type = options.type;
+  }
+}
+
 function node(tag: string, attrs: Record<string, string> = {}, children: FakeNode[] = []): FakeNode {
   const created: FakeNode = {
     tagName: tag.toUpperCase(),
     id: attrs.id,
     name: attrs.name,
+    disabled: attrs.disabled === 'true',
     className: attrs.class ?? '',
     hidden: false,
     value: '',
@@ -61,6 +96,7 @@ function node(tag: string, attrs: Record<string, string> = {}, children: FakeNod
     events: [],
     d: attrs.d,
     key: attrs.key,
+    shadowRoot: null,
     getAttribute(name) {
       if (name === 'd') return this.d ?? null;
       if (name === 'id') return this.id ?? null;
@@ -73,6 +109,9 @@ function node(tag: string, attrs: Record<string, string> = {}, children: FakeNod
     },
     querySelectorAll(selector) {
       return collect(this).filter(candidate => matches(candidate, selector));
+    },
+    matches(selector) {
+      return matchOne(this, selector);
     },
     closest(selector) {
       let current: FakeNode | null = this;
@@ -124,9 +163,14 @@ function hasClass(candidate: FakeNode, name: string): boolean {
 }
 
 function matchSimple(candidate: FakeNode, selector: string): boolean {
+  if (selector === '*') return true;
   if (selector === '[role="button"]') return candidate.getAttribute('role') === 'button';
+  if (selector === '[role="textbox"]') return candidate.getAttribute('role') === 'textbox';
+  if (selector === '[contenteditable="true"]') return candidate.getAttribute('contenteditable') === 'true';
+  if (selector === '[contenteditable]') return candidate.getAttribute('contenteditable') !== null;
   if (selector === 'textarea#chat-input') return candidate.tagName === 'TEXTAREA' && candidate.id === 'chat-input';
   if (selector === 'textarea[name="search"]') return candidate.tagName === 'TEXTAREA' && candidate.name === 'search';
+  if (selector === 'input[type="file"]') return candidate.tagName === 'INPUT' && candidate.getAttribute('type') === 'file';
   if (selector === '#chat-input') return candidate.id === 'chat-input';
   if (selector === 'a[href]') return candidate.tagName === 'A' && Boolean(candidate.getAttribute('href'));
   if (selector === '[data-virtual-list-item-key]') return Boolean(candidate.key);
@@ -156,22 +200,38 @@ Object.defineProperty(HTMLTextAreaElement.prototype, 'value', {
   set(value: string) { nativeValues.set(this, String(value)); }
 });
 
-function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolean; title?: string } = {}): {
+function load(body: FakeNode[], options: { composer?: boolean; composerId?: boolean; composerPlaceholder?: string; hiddenSearch?: boolean | 'aria-hidden' | 'visible'; sendRole?: boolean; title?: string; href?: string; fileInput?: boolean } = {}): {
   api: DeepseekDomApi;
   composer: FakeNode | null;
   send: FakeNode;
   attach: FakeNode;
+  fileInput: FakeNode | null;
   stop: FakeNode;
-  document: { getElementById(id: string): FakeNode | null };
+  document: { getElementById(id: string): FakeNode | null; body: FakeNode; visibilityState?: string; hidden?: boolean };
   sessionStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void };
   listeners: Array<(message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown>;
+  presenceObservers: Array<{ notify(): void }>;
+  presenceMessages: Array<{ signedIn?: boolean; type?: string }>;
+  location: { href: string };
   context: vm.Context;
 } {
-  const composer = options.composer === false ? null : node('textarea', { id: 'chat-input', name: 'search' });
+  const composer = options.composer === false ? null : node('textarea', {
+    ...(options.composerId === false ? {} : { id: 'chat-input' }),
+    ...(options.composerPlaceholder ? { placeholder: options.composerPlaceholder } : {}),
+    name: 'search'
+  });
   if (composer) {
     Object.setPrototypeOf(composer, HTMLTextAreaElement.prototype);
     Reflect.deleteProperty(composer, 'value');
   }
+  const hiddenSearch = options.hiddenSearch ? node('textarea', {
+    name: 'search',
+    ...(options.hiddenSearch === 'aria-hidden' ? { 'aria-hidden': 'true' } : {})
+  }) : null;
+  if (hiddenSearch && options.hiddenSearch === true) hiddenSearch.hidden = true;
+  const composerRoot = composer && options.composerId === false
+    ? node('div', { class: 'ds-input' }, [composer])
+    : composer;
   const sendPath = node('path', { d: 'M8.3125 0.98abc' });
   const attachPath = node('path', { d: 'M5.5498 attach' });
   const stopPath = node('path', { d: 'M2 4.88stop' });
@@ -179,18 +239,20 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
     ? node('div', { role: 'button' }, [node('svg', {}, [sendPath])])
     : node('button', {}, [node('svg', {}, [sendPath])]);
   const attach = node('button', {}, [node('svg', {}, [attachPath])]);
+  const fileInput = options.fileInput ? node('input', { type: 'file', accept: '.pdf,image/*' }) : null;
   const stop = node('button', {}, [node('svg', {}, [stopPath])]);
   stop.hidden = true;
-  const roots = [...(composer ? [composer] : []), send, attach, stop, ...body];
+  const documentBody = node('body');
+  const roots = [...(hiddenSearch ? [hiddenSearch] : []), ...(composerRoot ? [composerRoot] : []), ...(fileInput ? [fileInput] : []), send, attach, stop, ...body];
   const extras: FakeNode[] = [];
   const documentElement = node('html');
   const document = {
     title: options.title ?? '',
     querySelector(selector: string) {
-      return roots.flatMap(collect).find(candidate => matches(candidate, selector)) ?? null;
+      return [...roots.flatMap(collect), ...collect(documentBody)].find(candidate => matches(candidate, selector)) ?? null;
     },
     querySelectorAll(selector: string) {
-      return roots.flatMap(collect).filter(candidate => matches(candidate, selector));
+      return [...roots.flatMap(collect), ...collect(documentBody)].filter(candidate => matches(candidate, selector));
     },
     getElementById(id: string) {
       return extras.find(candidate => candidate.id === id) ?? null;
@@ -200,26 +262,45 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
       extras.push(created);
       return created;
     },
+    addEventListener() {},
     documentElement,
-    body: node('body')
+    body: documentBody
   };
   const listeners: Array<(message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown> = [];
+  const presenceObservers: Array<{ notify(): void }> = [];
+  const presenceMessages: Array<{ signedIn?: boolean; type?: string }> = [];
+  class FakeMutationObserver {
+    constructor(private readonly callback: () => void) {}
+    observe() { presenceObservers.push({ notify: () => this.callback() }); }
+  }
   const sessionRows = new Map<string, string>();
   const sessionStorage = {
     getItem(key: string) { return sessionRows.get(key) ?? null; },
     setItem(key: string, value: string) { sessionRows.set(key, value); },
     removeItem(key: string) { sessionRows.delete(key); }
   };
+  const location = { href: options.href ?? 'https://chat.deepseek.com/' };
   const context = vm.createContext({
     document,
-    window: { HTMLTextAreaElement, Event },
+    window: { HTMLTextAreaElement, Event, addEventListener() {} },
     Event,
+    MutationObserver: FakeMutationObserver,
+    addEventListener() {},
     Date,
     URL,
-    location: { href: 'https://chat.deepseek.com/' },
+    DataTransfer: FakeFileTransfer,
+    File: FakeFileValue,
+    atob: (value: string) => Buffer.from(value, 'base64').toString('binary'),
+    location,
     sessionStorage,
     setTimeout,
-    chrome: { runtime: { onMessage: { addListener(fn: (typeof listeners)[number]) { listeners.push(fn); } } } },
+    chrome: { runtime: {
+      onMessage: { addListener(fn: (typeof listeners)[number]) { listeners.push(fn); } },
+      sendMessage(message: { signedIn?: boolean; type?: string }, callback?: (reply: unknown) => void) {
+        presenceMessages.push(message);
+        if (message.type === 'neuraflok-deepseek-attachment-uploaded') callback?.({ ok: true });
+      }
+    } },
     globalThis: undefined as unknown
   });
   context.globalThis = context;
@@ -231,10 +312,14 @@ function load(body: FakeNode[], options: { composer?: boolean; sendRole?: boolea
     composer,
     send,
     attach,
+    fileInput,
     stop,
     document,
     sessionStorage,
     listeners,
+    presenceObservers,
+    presenceMessages,
+    location,
     context
   };
 }
@@ -253,6 +338,286 @@ it('finds the composer, send, attach exclusion and last visible markdown answer'
   expect(api.lastAnswer()).toBe('visible answer');
 });
 
+it('waits for a settled DeepSeek file chip and deduplicates a retry after upload confirmation', async () => {
+  vi.useFakeTimers();
+  try {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  expect(fileInput).not.toBeNull();
+  const first = { id: 'attachment-1', name: 'first.pdf', mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([first], SESSION_ID)).toBe(true);
+  expect(fileInput?.files).toMatchObject([{ name: 'first.pdf', type: 'application/pdf' }]);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  expect(api.attachmentsPresent([first], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([first], SESSION_ID)).toBe(false);
+
+  composer!.parent!.textContent = composer!.parent!.innerText = 'first.pdf';
+  const progress = node('div', { class: 'ds-upload-progress', text: 'Uploading' });
+  composer!.parent!.appendChild(progress);
+  expect(api.attachmentUploadReady([first], SESSION_ID)).toBe(false);
+  composer!.parent!.children = composer!.parent!.children.filter(child => child !== progress);
+  composer!.parent!.appendChild(node('div', {
+    class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': '100', 'aria-valuemax': '100'
+  }));
+  expect(api.attachmentUploadReady([first], SESSION_ID)).toBe(true);
+
+  expect(api.confirmAttachmentsUploaded([first], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  expect(api.attachFiles([first], SESSION_ID)).toBe(true);
+  expect(api.attachmentsConfirmed([first], SESSION_ID)).toBe(true);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('attaches and confirms an image through DeepSeek’s native file input', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-image', name: 'diagram.png', size: 42,
+    mimeType: 'image/png', chunks: ['iVBORw=='] };
+
+  expect(api.attachFiles([image], SESSION_ID)).toBe(true);
+  expect(fileInput?.files).toMatchObject([{ name: 'diagram.png', type: 'image/png' }]);
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(true);
+
+  composer!.parent!.appendChild(node('div', { class: 'ds-file-card', text: 'diagram.png PNG 42 B' }));
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(true);
+  expect(api.confirmAttachmentsUploaded([image], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  expect(api.attachmentsConfirmed([image], SESSION_ID)).toBe(true);
+});
+
+it('records a thumbnail baseline before a main-world image attachment is staged', () => {
+  const { api, composer, fileInput, listeners } = load([], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-main-world-image', name: 'photo.png', size: 42, mimeType: 'image/png' };
+  let state: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-attachment-state', conversationId: SESSION_ID, attachments: [image]
+  }, {}, value => { state = value; });
+
+  expect(state).toEqual({ presentIds: [] });
+  expect(api.prepareImageAttachmentUpload([image], SESSION_ID)).toBe(true);
+  fileInput!.files = [{ name: image.name, type: image.mimeType, size: image.size, parts: [] } as unknown as FakeFile];
+  const preview = node('div', { class: 'ds-image-preview' }, [node('img', { src: 'blob:deepseek-image-preview', alt: 'Preview' })]);
+  const progress = node('div', { class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': '35', 'aria-valuemax': '100' });
+  composer!.parent!.appendChild(preview);
+  composer!.parent!.appendChild(progress);
+  fileInput!.files = [];
+
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  progress.hidden = true;
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(true);
+});
+
+it('uses an image staged in DeepSeek’s main world without re-injecting it from the isolated content script', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, composer, fileInput, listeners, send } = load([answer], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-main-world-send', name: 'photo.png', size: 42, mimeType: 'image/png' };
+  fileInput!.files = [{ name: image.name, type: image.mimeType, size: image.size, parts: [] } as unknown as FakeFile];
+  const attachFiles = vi.fn(() => false);
+  api.attachFiles = attachFiles;
+  const sendClick = vi.fn(() => { answer.textContent = answer.innerText = 'The image is ready.'; });
+  send.click = sendClick;
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000030',
+    conversationId: SESSION_ID, fresh: false, preStagedAttachments: true,
+    text: 'Describe this image.', attachments: [image]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'The image is ready.' }), { timeout: 2_000 });
+  expect(attachFiles).not.toHaveBeenCalled();
+  expect(composer?.value).toBe('Describe this image.');
+  expect(sendClick).toHaveBeenCalledTimes(1);
+});
+
+it('confirms a DeepSeek image thumbnail without filename text only after upload progress settles', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-image-thumbnail', name: 'photo.png', size: 42,
+    mimeType: 'image/png', chunks: ['iVBORw=='] };
+  expect(api.attachFiles([image], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(false);
+  const preview = node('div', { class: 'ds-image-preview' }, [node('img', { src: 'blob:deepseek-image-preview', alt: 'Preview' })]);
+  const remove = node('button', { 'aria-label': 'Remove image' });
+  remove.click = () => { composer!.parent!.children = composer!.parent!.children.filter(child => child !== preview); };
+  preview.appendChild(remove);
+  const progress = node('div', { class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': '35', 'aria-valuemax': '100' });
+  composer!.parent!.appendChild(preview);
+  composer!.parent!.appendChild(progress);
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(true);
+
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  progress.hidden = true;
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(true);
+  expect(api.confirmAttachmentsUploaded([image], SESSION_ID)).toBe(true);
+  expect(api.removeAttachmentFiles([image], SESSION_ID)).toBe(true);
+  expect(api.attachmentsRemoved([image], SESSION_ID)).toBe(true);
+  expect(api.attachmentsConfirmed([image], SESSION_ID)).toBe(false);
+  expect(fileInput?.files).toEqual([]);
+});
+
+it('releases a completed upload as soon as the truncated DeepSeek PDF card has no active progress', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-truncated', name: 'quarterly-report-final.pdf', size: 12_800_000,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  const card = node('div', { class: 'ds-file-card', text: 'quarterly-report… PDF 12.8MB' });
+  composer!.parent!.appendChild(card);
+  const progress = node('div', { class: 'ds-upload-progress', text: 'Uploading' });
+  composer!.parent!.appendChild(progress);
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(false);
+
+  progress.hidden = true;
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+});
+
+it('recognizes DeepSeek’s truncated PDF card by its visible PDF size when the file input is cleared', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-card', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  composer!.parent!.appendChild(node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' }));
+
+  expect(api.attachmentsPresent([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+});
+
+it('finds the live upload card when DeepSeek renders it beside the composer wrapper', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-outside-input', name: 'INFORMACION CLASE SISTEMAS.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+
+  // Current DeepSeek places the card next to its `.ds-input` wrapper, not
+  // inside it. The wrapper remains in the active composer subtree.
+  const wrapper = composer!.parent!;
+  const composerArea = node('div', { class: 'ds-composer-area' }, [wrapper]);
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  const close = node('button', { 'aria-label': 'Remove file' }, [node('span', { text: '×' })]);
+  close.click = () => { close.events.push('click'); composerArea.children = composerArea.children.filter(child => child !== card); };
+  card.appendChild(close);
+  composerArea.appendChild(card);
+
+  expect(api.attachmentsPresent([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+  expect(api.removeAttachmentFiles([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentsRemoved([file], SESSION_ID)).toBe(true);
+  expect(close.events).toContain('click');
+});
+
+it('does not report a provider file as removed when its card is missing', () => {
+  const { api } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-not-found', name: 'not-present.pdf', size: 1_024,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.removeAttachmentFiles([file], SESSION_ID)).toBe(false);
+});
+
+it('treats a matching completed PDF card as uploaded when DeepSeek leaves an indeterminate progress marker', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-progress', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  card.appendChild(node('div', { class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': 'NaN' }));
+  composer!.parent!.appendChild(card);
+
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+});
+
+it('removes only the matching DeepSeek file card and clears its upload receipt after the card disappears', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-remove', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  fileInput!.files = [];
+  expect(api.confirmAttachmentsUploaded([file], SESSION_ID)).toBe(true);
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  const close = node('button', { 'aria-label': 'Remove file' }, [node('span', { text: '×' })]);
+  close.click = () => {
+    close.events.push('click');
+    card.parent!.children = card.parent!.children.filter(child => child !== card);
+  };
+  card.appendChild(close);
+  composer!.parent!.appendChild(card);
+
+  expect(api.providerAttachmentsPresent([file])).toBe(true);
+  expect(api.removeAttachmentFiles([file], SESSION_ID)).toBe(true);
+  expect(close.events).toContain('click');
+  expect(api.attachmentsRemoved([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(false);
+});
+
+it('acknowledges a remove-only provider request after the matching DeepSeek card disappears', async () => {
+  const { api, composer, listeners, send, sessionStorage } = load([], { fileInput: true, composerId: false });
+  const file = { id: '00000000-0000-4000-8000-000000000043', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.confirmAttachmentsUploaded([file], SESSION_ID)).toBe(true);
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  const close = node('button', { 'aria-label': 'Remove file' }, [node('span', { text: '×' })]);
+  close.click = () => {
+    close.events.push('click');
+    card.parent!.children = card.parent!.children.filter(child => child !== card);
+  };
+  card.appendChild(close);
+  composer!.parent!.appendChild(card);
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000044',
+    conversationId: SESSION_ID, text: '', removeOnly: true, attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ removed: true }), { timeout: 2_000 });
+  expect(close.events).toContain('click');
+  expect(send.events).not.toContain('click');
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(false);
+});
+
+it('waits for DeepSeek to enable Send before confirming that an attached PDF finished uploading', async () => {
+  vi.useFakeTimers();
+  try {
+    const answer = node('div', { class: 'ds-markdown', text: '' });
+    const message = node('div', { key: 'pdf-answer' }, [answer]);
+    const { listeners, sessionStorage, send, presenceMessages } = load([message], { fileInput: true });
+    send.disabled = true;
+    send.click = function click() {
+      this.events.push('click');
+      answer.textContent = answer.innerText = 'DeepSeek received the synthetic PDF.';
+    };
+    sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+    setTimeout(() => { send.disabled = false; }, 30_000);
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000019',
+      conversationId: SESSION_ID, text: 'Summarize the synthetic PDF.',
+      attachments: [{ id: '00000000-0000-4000-8000-000000000001', name: 'scan.pdf', mimeType: 'application/pdf', chunks: ['JVBERi0='] }]
+    }, {}, value => { reply = value; });
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(send.events).not.toContain('click');
+    expect(presenceMessages.some(row => row.type === 'neuraflok-deepseek-attachment-uploaded')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(send.events).toContain('click');
+    expect(presenceMessages.some(row => row.type === 'neuraflok-deepseek-attachment-uploaded')).toBe(true);
+    expect(reply).toMatchObject({ text: 'DeepSeek received the synthetic PDF.' });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('sets the native textarea value and reports Stop while generating', () => {
   const { api, composer, send, stop } = load([]);
   const events: string[] = [];
@@ -264,6 +629,81 @@ it('sets the native textarea value and reports Stop while generating', () => {
   send.hidden = true;
   expect(api.stopButton()).toBe(stop);
   expect(api.generating()).toBe(true);
+});
+
+it('leaves React able to observe the native textarea value change', () => {
+  const { api, composer } = load([]);
+  let trackedValue = '';
+  let observedValue = '';
+  composer!._valueTracker = {
+    setValue(value) { trackedValue = value; },
+    getValue() { return trackedValue; }
+  };
+  composer!.addEventListener('input', () => {
+    if (composer!.value !== composer!._valueTracker!.getValue()) {
+      observedValue = composer!.value;
+      composer!._valueTracker!.setValue(composer!.value);
+    }
+  });
+
+  api.setValue(composer!, 'React must receive this message');
+
+  expect(observedValue).toBe('React must receive this message');
+});
+
+it('ignores a hidden DeepSeek search textarea when locating the chat composer', () => {
+  const { api, composer } = load([], { composerId: false, hiddenSearch: true });
+
+  expect(api.composer()).toBe(composer);
+});
+
+it('does not mistake an aria-hidden search textarea with layout bounds for the chat composer', () => {
+  const { api, composer } = load([], { composerId: false, hiddenSearch: 'aria-hidden' });
+
+  expect(api.composer()).toBe(composer);
+});
+
+it('does not use a visible standalone search textarea as the chat composer', () => {
+  const { api } = load([], { composer: false, hiddenSearch: 'visible' });
+
+  expect(api.composer()).toBeNull();
+});
+
+it('finds and fills a contenteditable DeepSeek composer', () => {
+  const edit = node('div', { class: 'ds-input__textarea', contenteditable: 'true', role: 'textbox' });
+  const root = node('div', { class: 'ds-input' }, [edit]);
+  const { api } = load([root], { composer: false });
+
+  expect(api.composer()).toBe(edit);
+  api.setValue(edit, 'Synthetic contenteditable message');
+  expect(edit.textContent).toBe('Synthetic contenteditable message');
+  expect(edit.innerText).toBe('Synthetic contenteditable message');
+  expect(edit.events).toContain('input');
+});
+
+it('updates DeepSeek presence after the composer mounts after initial injection', async () => {
+  const { api, document, presenceMessages, presenceObservers } = load([], { composer: false });
+  expect(presenceMessages.at(-1)?.signedIn).toBe(false);
+
+  const edit = node('div', { class: 'ds-input__textarea', contenteditable: 'plaintext-only', role: 'textbox' });
+  document.body.appendChild(node('div', { class: 'ds-input' }, [edit]));
+  presenceObservers[0]!.notify();
+
+  expect(api.composer()).toBe(edit);
+  await vi.waitFor(() => expect(presenceMessages.at(-1)?.signedIn).toBe(true));
+});
+
+it('refreshes an existing page adapter in place after DeepSeek SPA reinjection', () => {
+  const { api, composer, context } = load([]);
+  const previousSetter = vi.fn();
+  (api as unknown as { setValue: typeof previousSetter }).setValue = previousSetter;
+
+  vm.runInContext(domSource, context, { filename: 'deepseek-dom-reinjected.js' });
+
+  expect((context as unknown as { NEURAFLOK_DEEPSEEK: DeepseekDomApi }).NEURAFLOK_DEEPSEEK).toBe(api);
+  expect(api.setValue).not.toBe(previousSetter);
+  api.setValue(composer!, 'fresh adapter after route change');
+  expect(composer!.value).toBe('fresh adapter after route change');
 });
 
 it('waits for a long DeepSeek generation to finish before sending the next tool round', async () => {
@@ -309,8 +749,196 @@ it('detects the provider Continue control used after a response reaches its outp
   expect(api.continueButton()).toBe(continueButton);
 });
 
+it('detects DeepSeek Continue rendered as ds-button__content inside a clickable wrapper', () => {
+  const content = node('span', { class: 'ds-button__content', text: 'Continue' });
+  const control = node('div', { class: 'ds-button' }, [content]);
+  const { api } = load([control]);
+  expect(api.continueButton()).toBe(control);
+});
+
+it('returns a temporary server failure with a Continue control as pending work', async () => {
+  const { listeners, sessionStorage, send, document } = load([]);
+  const error = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Servidor no disponible temporalmente.' });
+  const continueButton = node('button', { text: 'Continuar' });
+  send.click = () => {
+    send.events.push('click');
+    document.body.appendChild(error);
+    document.body.appendChild(continueButton);
+  };
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  let reply: unknown;
+  const requestId = '00000000-0000-4000-8000-000000000012';
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: requestId, conversationId: SESSION_ID,
+    text: 'Synthetic recovery check', fresh: false, before: '', beforeThink: '', beforeIdentity: ''
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({
+    pending: true, text: 'Servidor no disponible temporalmente.', continueAvailable: true, generating: false
+  }), { timeout: 2_000 });
+  expect(reply).not.toHaveProperty('error');
+  expect(continueButton.events).not.toContain('click');
+});
+
+it('returns a Continue-only DeepSeek response promptly without waiting for answer text', async () => {
+  vi.useFakeTimers();
+  try {
+    const { listeners, sessionStorage, send, document } = load([]);
+    const content = node('span', { class: 'ds-button__content', text: 'Continue' });
+    const control = node('div', { class: 'ds-button' }, [content]);
+    send.click = () => {
+      send.events.push('click');
+      document.body.appendChild(control);
+    };
+    sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete',
+      id: '00000000-0000-4000-8000-000000000014',
+      conversationId: SESSION_ID,
+      text: 'Continue the existing project task',
+      fresh: false,
+      before: '',
+      beforeThink: '',
+      beforeIdentity: ''
+    }, {}, value => { reply = value; });
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(reply).toMatchObject({ pending: true, generating: false, continueAvailable: true });
+    expect(reply).not.toHaveProperty('error');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('does not open a second DeepSeek chat when the background already prepared a blank page', async () => {
+  const oldConversation = 'ds-00000000-0000-0000-0000-000000000099';
+  const oldMessage = node('div', { class: 'ds-message' }, [node('div', { class: 'ds-markdown', text: 'Saved older project answer' })]);
+  const newChat = node('button', { text: 'New chat' });
+  const { listeners, sessionStorage, send, document } = load([]);
+  document.body.appendChild(oldMessage);
+  document.body.appendChild(newChat);
+  newChat.click = () => {
+    newChat.events.push('click');
+    document.body.children = document.body.children.filter(child => child !== oldMessage);
+  };
+  send.click = () => {
+    send.events.push('click');
+    document.body.appendChild(node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Fresh chat is ready.' }));
+  };
+  sessionStorage.setItem('neuraflok.providerSession', oldConversation);
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000013',
+    conversationId: SESSION_ID, text: 'Synthetic fresh chat check', fresh: true,
+    rebindSavedConversation: true, freshPagePrepared: true, before: '', beforeThink: '', beforeIdentity: ''
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Fresh chat is ready.' }), { timeout: 2_000 });
+  expect(newChat.events).not.toContain('click');
+  expect(sessionStorage.getItem('neuraflok.providerSession')).toBe(SESSION_ID);
+});
+
+it('sends only after the MCP confirms a fresh DeepSeek route while old messages remain mounted', async () => {
+  const oldConversation = node('div', { class: 'ds-message' }, [
+    node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Previous conversation still mounted' })
+  ]);
+  const newChat = node('button', { text: 'New chat' });
+  const freshAnswer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { listeners, location, send, api } = load([oldConversation, newChat, freshAnswer], {
+    href: 'https://chat.deepseek.com/a/chat/s/previous'
+  });
+  expect(api.hasConversation()).toBe(true);
+  expect(api.pageIdentity()).toBe('https://chat.deepseek.com/a/chat/s/previous');
+  // The background already changed the SPA route; the provider page must not
+  // click its own New chat control or wait on stale virtual-list elements.
+  location.href = 'https://chat.deepseek.com/a/chat/s/fresh';
+  send.click = function click() {
+    this.events.push('click');
+    freshAnswer.textContent = 'Reply from the fresh conversation';
+    freshAnswer.innerText = freshAnswer.textContent;
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000006',
+    conversationId: SESSION_ID,
+    text: 'Synthetic route transition check',
+    fresh: true,
+    freshPagePrepared: true
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Reply from the fresh conversation' }));
+  expect(newChat.events).not.toContain('click');
+  expect(send.events).toContain('click');
+  expect(api.hasConversation()).toBe(true);
+});
+
+it('uses DeepSeek\'s explicit New chat control when the browser shortcut did not verify a fresh page', async () => {
+  const previousAnswer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Previous conversation' });
+  const oldConversation = node('div', { class: 'ds-message' }, [previousAnswer]);
+  const newChatLabel = node('span', { class: 'ds-button__content', text: 'Nuevo chat' });
+  const newChat = node('div', { class: 'ds-button' }, [newChatLabel]);
+  const freshAnswer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { listeners, send, location, sessionStorage, api } = load([oldConversation, newChat, freshAnswer], {
+    href: 'https://chat.deepseek.com/a/chat/s/previous'
+  });
+  expect(api.newChat()).toBe(newChat);
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  newChat.click = function click() {
+    this.events.push('click');
+    oldConversation.textContent = '';
+    oldConversation.innerText = '';
+    previousAnswer.textContent = '';
+    previousAnswer.innerText = '';
+    location.href = 'https://chat.deepseek.com/a/chat/s/restored';
+  };
+  send.click = function click() {
+    this.events.push('click');
+    freshAnswer.textContent = 'NEURAFLOK_READY';
+    freshAnswer.innerText = 'NEURAFLOK_READY';
+  };
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000007',
+    conversationId: SESSION_ID,
+    text: 'Synthetic fail-closed check',
+    fresh: true
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'NEURAFLOK_READY' }));
+  expect(newChat.events).toEqual(['click']);
+  expect(send.events).toEqual(['click']);
+  expect(location.href).toContain('/restored');
+});
+
+it('does not send a fresh DeepSeek setup when no explicit New chat control is available', async () => {
+  const oldConversation = node('div', { class: 'ds-message' }, [
+    node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Previous conversation' })
+  ]);
+  const { listeners, send, sessionStorage } = load([oldConversation], {
+    href: 'https://chat.deepseek.com/a/chat/s/previous'
+  });
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000007',
+    conversationId: SESSION_ID,
+    text: 'Synthetic fail-closed check',
+    fresh: true
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ error: expect.stringMatching(/new-chat control/i) }));
+  expect(send.events).not.toContain('click');
+});
+
 it('only clicks Continue for the currently bound session and send claim', () => {
-  const continueButton = node('button', { text: 'Continue' });
+  const content = node('span', { class: 'ds-button__content', text: 'Continue' });
+  const continueButton = node('div', { class: 'ds-button' }, [content]);
   const { listeners, sessionStorage } = load([continueButton]);
   const requestId = '00000000-0000-4000-8000-000000000009';
   sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
@@ -353,6 +981,129 @@ it('treats a missing composer as signed out so the driver can ask for sign-in', 
   const { api } = load([], { composer: false });
   expect(api.composer()).toBeNull();
   expect(api.signedIn()).toBe(false);
+});
+
+it('finds the mounted composer while Electron restores its client layout', () => {
+  const historyLink = node('a', { href: '/a/chat/s/00000000-0000-0000-0000-000000000001' });
+  const { api, composer } = load([historyLink]);
+  if (composer) composer.getClientRects = () => [];
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('recognizes an authenticated workspace with DeepSeek\'s newer composer markup while layout is restoring', () => {
+  const historyLink = node('a', { href: '/a/chat/s/00000000-0000-0000-0000-000000000001' });
+  const { api, composer } = load([historyLink], { composerId: false });
+  if (composer) composer.getClientRects = () => [];
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('does not discard DeepSeek\'s message composer when its textarea is named search', () => {
+  const { api, composer } = load([], { composerId: false, composerPlaceholder: 'Mensaje a DeepSeek' });
+
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('recognizes the authenticated DeepSeek landing page before history links mount', () => {
+  const composer = node('textarea');
+  composer.getClientRects = () => [];
+  const { api } = load([composer], { composer: false });
+
+  expect(api.composer()).toBe(composer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('does not treat DeepSeek email and password fields as a connected chat', () => {
+  const email = node('input', { type: 'email', name: 'email' });
+  const password = node('input', { type: 'password', name: 'password' });
+  const { api } = load([email, password], { composer: false });
+
+  expect(api.composer()).toBeNull();
+  expect(api.signedIn()).toBe(false);
+});
+
+it('recognizes a signed-in workspace from conversation history even when new chat is not a button', () => {
+  const newChat = node('div', { text: 'Nuevo chat' });
+  const historyLink = node('a', { href: '/a/chat/s/00000000-0000-0000-0000-000000000001' });
+  const { api } = load([newChat, historyLink], { composer: false });
+
+  expect(api.composer()).toBeNull();
+  expect(api.signedIn()).toBe(true);
+});
+
+it('finds DeepSeek editable controls inside an open shadow root while layout is restoring', () => {
+  const shadowComposer = node('textarea');
+  shadowComposer.getClientRects = () => [];
+  const host = node('deepseek-composer');
+  host.shadowRoot = node('div', {}, [shadowComposer]);
+  const { api } = load([host], { composer: false });
+
+  expect(api.composer()).toBe(shadowComposer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('searches open shadow roots even when an unrelated top-level input exists', () => {
+  const auxiliaryInput = node('input');
+  auxiliaryInput.hidden = true;
+  const shadowComposer = node('textarea');
+  shadowComposer.getClientRects = () => [];
+  const host = node('deepseek-composer');
+  host.shadowRoot = node('div', {}, [shadowComposer]);
+  const { api } = load([auxiliaryInput, host], { composer: false });
+
+  expect(api.composer()).toBe(shadowComposer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('prefers a visible shadow textarea over an unrelated top-level input', () => {
+  const auxiliaryInput = node('input');
+  const shadowComposer = node('textarea');
+  const host = node('deepseek-composer');
+  host.shadowRoot = node('div', {}, [shadowComposer]);
+  const { api } = load([auxiliaryInput, host], { composer: false });
+
+  expect(api.composer()).toBe(shadowComposer);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('can drive mounted composer and send controls when an inactive browser tab has no client rects', () => {
+  const inactiveComposer = node('textarea', { id: 'chat-input' });
+  inactiveComposer.getClientRects = () => [];
+  const newChat = node('button', { text: 'Nuevo chat' });
+  newChat.getClientRects = () => [];
+  const { api, send, context } = load([inactiveComposer, newChat], { composer: false });
+  send.getClientRects = () => [];
+  context.document.visibilityState = 'hidden';
+
+  expect(api.signedIn()).toBe(true);
+  expect(api.composer()).toBe(inactiveComposer);
+  expect(api.sendButton()).toBe(send);
+  expect(api.newChat()).toBe(newChat);
+});
+
+it('drives layoutless controls when Electron leaves a background document marked visible', () => {
+  const composer = node('textarea', { id: 'chat-input' });
+  composer.getClientRects = () => [];
+  const { api, send, context } = load([composer], { composer: false });
+  send.getClientRects = () => [];
+  context.document.visibilityState = 'visible';
+  context.document.hidden = false;
+
+  expect(api.composer()).toBe(composer);
+  expect(api.sendButton()).toBe(send);
+  expect(api.signedIn()).toBe(true);
+});
+
+it('does not treat CSS-hidden or disabled background controls as visible', () => {
+  const hiddenComposer = node('textarea', { id: 'chat-input', hidden: 'true' });
+  hiddenComposer.hidden = true;
+  hiddenComposer.getClientRects = () => [];
+  const { api, context } = load([hiddenComposer], { composer: false });
+  context.document.visibilityState = 'hidden';
+
+  expect(api.composer()).toBeNull();
 });
 
 it('answers neuraflok-deepseek-status and marks the page so the companion shows on DeepSeek', () => {
@@ -410,6 +1161,205 @@ it('does not treat a leftover Stop-like SVG as generating while Send is visible'
   expect(api.generating()).toBe(false);
 });
 
+it('uses the rendered message key to distinguish a repeated answer in a new turn', () => {
+  const previous = node('div', { key: 'assistant-old' }, [node('div', { class: 'ds-markdown', text: 'The same answer.' })]);
+  const current = node('div', { key: 'assistant-new' }, [node('div', { class: 'ds-markdown', text: 'The same answer.' })]);
+  const first = load([previous]).api.lastAnswerIdentity();
+  const repeated = load([previous]).api.lastAnswerIdentity();
+  const nextTurn = load([current]).api.lastAnswerIdentity();
+
+  expect(first).toBe('message:assistant-old');
+  expect(repeated).toBe(first);
+  expect(nextTurn).toBe('message:assistant-new');
+});
+
+it('rejects the previous answer despite whitespace changes when reading an old chat', () => {
+  const oldAnswer = node('div', { key: 'assistant-old' }, [node('div', { class: 'ds-markdown', text: 'Yesterday\'s answer.' })]);
+  const { listeners } = load([oldAnswer]);
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-read',
+    sent: 'What is new today?',
+    before: 'Yesterday\'s   answer. ',
+    beforeIdentity: 'message:assistant-old'
+  }, {}, value => { reply = value; });
+
+  expect(reply).toMatchObject({ answer: '', text: '' });
+});
+
+it('accepts an identical response text only after a new assistant message appears', () => {
+  const currentAnswer = node('div', { key: 'assistant-current' }, [node('div', { class: 'ds-markdown', text: 'Yes, it is ready.' })]);
+  const { listeners } = load([currentAnswer]);
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-read',
+    sent: 'Please confirm.',
+    before: 'Yes, it is ready.',
+    beforeIdentity: 'message:assistant-previous'
+  }, {}, value => { reply = value; });
+
+  expect(reply).toMatchObject({ answer: 'Yes, it is ready.', answerIdentity: 'message:assistant-current' });
+});
+
+it('pre-uploads a file while preserving text typed during the DeepSeek upload', async () => {
+  const { api, composer, fileInput, listeners, send, sessionStorage } = load([], { fileInput: true, composerId: false });
+  const requestId = '00000000-0000-4000-8000-000000000020';
+  const file = { id: '00000000-0000-4000-8000-000000000041', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  let ready = false;
+  api.sendButton = () => ready ? send : null;
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: requestId, conversationId: SESSION_ID,
+    text: '', uploadOnly: true, fresh: true, freshPagePrepared: true, attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(reply).toBeUndefined();
+  expect(fileInput?.files).toMatchObject([{ name: 'INFORMACION CLASIFICADA.pdf' }]);
+  expect(composer?.value).toBe('');
+  expect(send.events).not.toContain('click');
+
+  composer!.value = 'Summarize this PDF';
+  ready = true;
+  composer!.parent!.appendChild(node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' }));
+  fileInput!.files = [];
+  await vi.waitFor(() => expect(reply).toMatchObject({ uploaded: true }), { timeout: 2_000 });
+  expect(composer?.value).toBe('Summarize this PDF');
+  expect(fileInput?.files).toHaveLength(0);
+  expect(send.events).not.toContain('click');
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(true);
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBe(SESSION_ID);
+});
+
+it('sends the first message into the same empty DeepSeek page after its PDF pre-upload', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { composer, fileInput, listeners, send, sessionStorage } = load([answer], { fileInput: true, composerId: false });
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  const file = { id: '00000000-0000-4000-8000-000000000042', name: 'sample.pdf', mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  let uploadReply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000021', conversationId: SESSION_ID,
+    text: '', uploadOnly: true, fresh: true, freshPagePrepared: true, attachments: [file]
+  }, {}, value => { uploadReply = value; });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  composer!.parent!.textContent = composer!.parent!.innerText = 'sample.pdf';
+  await vi.waitFor(() => expect(uploadReply).toMatchObject({ uploaded: true }), { timeout: 2_000 });
+  expect(fileInput).not.toBeNull();
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  expect(fileInput?.files).toHaveLength(1);
+  expect(send.events).not.toContain('click');
+
+  let retryReply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000023', conversationId: SESSION_ID,
+    text: '', uploadOnly: true, attachments: [file]
+  }, {}, value => { retryReply = value; });
+  await vi.waitFor(() => expect(retryReply).toMatchObject({ uploaded: true }), { timeout: 2_000 });
+  expect(fileInput?.events).toEqual(['input', 'change']);
+
+  send.click = function click() {
+    this.events.push('click');
+    answer.textContent = answer.innerText = 'Synthetic PDF summary.';
+  };
+  let messageReply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000022',
+    conversationId: SESSION_ID, fresh: false, preparedAttachmentPage: true,
+    text: 'Summarize the synthetic PDF.'
+  }, {}, value => { messageReply = value; });
+
+  await vi.waitFor(() => expect(messageReply).toMatchObject({ text: 'Synthetic PDF summary.' }), { timeout: 2_000 });
+  expect(composer?.value).toBe('Summarize the synthetic PDF.');
+  expect(send.events).toContain('click');
+  expect(fileInput?.files).toHaveLength(1);
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+});
+
+it('binds an unclaimed provider page before validating its pre-uploaded attachment receipt', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { composer, listeners, send, sessionStorage } = load([answer], { composerId: false });
+  sessionStorage.setItem('neuraflok.preparedAttachmentPage', SESSION_ID);
+  send.click = function click() {
+    this.events.push('click');
+    answer.textContent = answer.innerText = 'Synthetic attachment received.';
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000024',
+    conversationId: SESSION_ID, fresh: false, preparedAttachmentPage: true, text: 'Describe the synthetic PDF.'
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Synthetic attachment received.' }), { timeout: 2_000 });
+  expect(composer?.value).toBe('Describe the synthetic PDF.');
+  expect(send.events).toContain('click');
+  expect(sessionStorage.getItem('neuraflok.providerSession')).toBe(SESSION_ID);
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+});
+
+it('clears a stale attachment receipt when the prepared chat page no longer matches', async () => {
+  const { composer, listeners, send, sessionStorage } = load([]);
+  const file = { id: '00000000-0000-4000-8000-000000000045', name: 'synthetic-stale.pdf',
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  sessionStorage.setItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`, JSON.stringify([file.id]));
+  sessionStorage.setItem('neuraflok.preparedAttachmentPage', 'ds-00000000-0000-0000-0000-000000000099');
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000026',
+    conversationId: SESSION_ID, fresh: false, preparedAttachmentPage: true,
+    text: 'Read the synthetic PDF.', attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ error: expect.stringContaining('DEEPSEEK_ATTACHMENT_STAGE_UNAVAILABLE:') }));
+  expect(composer?.value).toBe('');
+  expect(send.events).not.toContain('click');
+  expect(sessionStorage.getItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`)).toBeNull();
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+});
+
+it('clears the old provider-page upload receipt before attaching a file to a fresh chat', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, fileInput, listeners, send, sessionStorage } = load([answer], { fileInput: true, composerId: false });
+  const file = { id: '00000000-0000-4000-8000-000000000044', name: 'synthetic-recovery.pdf', size: 8,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  sessionStorage.setItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`, JSON.stringify([file.id]));
+  sessionStorage.setItem('neuraflok.preparedAttachmentPage', SESSION_ID);
+  send.click = function click() {
+    this.events.push('click');
+    answer.textContent = answer.innerText = 'Synthetic PDF contents received.';
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000025',
+    conversationId: SESSION_ID, fresh: true, freshPagePrepared: true,
+    text: 'Summarize the synthetic PDF.', attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Synthetic PDF contents received.' }), { timeout: 2_000 });
+  expect(fileInput?.files).toMatchObject([{ name: file.name, type: file.mimeType }]);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  expect(sessionStorage.getItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`)).toBeNull();
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(false);
+});
+
+it('does not mistake a leftover spinner for active generation when Send is enabled', () => {
+  const staleSpinner = node('div', { class: 'ds-loading' });
+  const answer = node('div', { class: 'ds-assistant-message-main-content' }, [staleSpinner]);
+  const { api } = load([answer]);
+
+  expect(api.sendButton()).not.toBeNull();
+  expect(api.generating()).toBe(false);
+});
+
 it('treats a streaming cursor as generating even when Send is still visible', () => {
   const cursor = node('div', { class: 'ds-cursor' });
   const { api, send } = load([cursor]);
@@ -430,6 +1380,78 @@ it('complete skips a user markdown echo of the sent prompt', async () => {
   const kept = listeners[0]!({ type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000001', conversationId: SESSION_ID, fresh: true, text: 'hello from NEURAFLOK' }, {}, (value) => { reply = value; });
   expect(kept).toBe(true);
   await vi.waitFor(() => expect(reply).toMatchObject({ text: 'reply from DeepSeek' }));
+});
+
+it('retries insertion when DeepSeek replaces the composer during a React update', async () => {
+  const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, composer, listeners, send } = load([assistant]);
+  const replacement = node('textarea', { id: 'chat-input' });
+  Object.setPrototypeOf(replacement, HTMLTextAreaElement.prototype);
+  Reflect.deleteProperty(replacement, 'value');
+
+  let liveComposer = composer;
+  let insertions = 0;
+  const setValue = api.setValue;
+  api.composer = () => liveComposer;
+  api.setValue = (target, text) => {
+    insertions += 1;
+    if (insertions === 1) {
+      // Simulate DeepSeek replacing its controlled textarea after the first
+      // input event, before the new node adopts React's state.
+      liveComposer = replacement;
+      return;
+    }
+    setValue(target, text);
+  };
+  send.click = function click() {
+    this.events.push('click');
+    assistant.textContent = 'Recovered reply';
+    assistant.innerText = assistant.textContent;
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000010',
+    conversationId: SESSION_ID,
+    text: 'Synthetic follow-up'
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Recovered reply' }));
+  expect(insertions).toBeGreaterThan(1);
+  expect(replacement.value).toBe('Synthetic follow-up');
+  expect(send.events).toContain('click');
+});
+
+it('accepts a multiline contenteditable when DeepSeek normalizes paragraph whitespace', async () => {
+  const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, listeners, send } = load([assistant]);
+  const editable = node('div', { contenteditable: 'plaintext-only', role: 'textbox' });
+  Reflect.deleteProperty(editable, 'value');
+  const originalSetValue = api.setValue;
+  api.composer = () => editable;
+  api.setValue = (target, text) => {
+    originalSetValue(target, text);
+    // DeepSeek's editable can paint a pasted blank paragraph as one line break.
+    target.innerText = target.textContent.replace(/\n{2,}/g, '\n');
+  };
+  send.click = function click() {
+    this.events.push('click');
+    assistant.textContent = 'Multiline message accepted';
+    assistant.innerText = assistant.textContent;
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000011',
+    conversationId: SESSION_ID,
+    fresh: true,
+    text: 'First line\n\nSecond line'
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Multiline message accepted' }));
+  expect(send.events).toContain('click');
 });
 
 it('reports a missing send control separately from signed-out', async () => {
@@ -456,6 +1478,54 @@ it('rebuilds a DeepSeek code-block banner as a neuraflok-tool fence', () => {
   expect(api.lastAnswer()).toContain('"name":"read"');
 });
 
+it('serializes code blocks from their pre text when assistant and block text differ', () => {
+  const codeText = '#include <iostream>\nint main() {\n  return 0;\n}';
+  const banner = node('div', { class: 'md-code-block-banner', text: 'cpp' });
+  const copy = node('button', { text: 'Copy' });
+  const code = node('pre', { text: codeText });
+  const block = node('div', { class: 'md-code-block' }, [banner, copy, code]);
+  block.innerText = `cpp\nCopy\n${codeText}\nsvgsvg`;
+  block.textContent = block.innerText;
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown' }, [block]);
+  answer.innerText = `An example.\n\ncpp\n${codeText}\nsvgsvg\n\nThat is the complete program.`;
+  answer.textContent = answer.innerText;
+  const { api } = load([answer]);
+
+  const serialized = api.lastAnswer();
+  expect(serialized).toContain('An example.');
+  expect(serialized).toContain(`\`\`\`cpp\n${codeText}\n\`\`\``);
+  expect(serialized).toContain('That is the complete program.');
+  expect(serialized).not.toContain('Copy');
+  expect(serialized).not.toContain('svgsvg');
+  expect(serialized.match(/#include <iostream>/g)).toHaveLength(1);
+});
+
+it('keeps repeated code blocks in order and strips each DeepSeek toolbar', () => {
+  const codeText = '#include <iostream>\nint main() {\n  std::cout << "same";\n}';
+  const makeBlock = () => {
+    const banner = node('div', { class: 'md-code-block-banner', text: 'cpp' });
+    const copy = node('button', { text: 'Copy' });
+    const code = node('pre', { text: codeText });
+    const block = node('div', { class: 'md-code-block' }, [banner, copy, code]);
+    block.innerText = `cpp\nCopy\n${codeText}\nsvgsvg`;
+    block.textContent = block.innerText;
+    return block;
+  };
+  const first = makeBlock();
+  const second = makeBlock();
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown' }, [first, second]);
+  answer.innerText = `First version.\n\ncpp\nCopy\n${codeText}\nsvgsvg\n\nSecond version.\n\ncpp\nCopy\n${codeText}\nsvgsvg`;
+  answer.textContent = answer.innerText;
+  const { api } = load([answer]);
+
+  const serialized = api.lastAnswer();
+  expect(serialized.indexOf('First version.')).toBeLessThan(serialized.indexOf('Second version.'));
+  expect(serialized.match(/```cpp/g)).toHaveLength(2);
+  expect(serialized.match(/#include <iostream>/g)).toHaveLength(2);
+  expect(serialized).not.toContain('Copy');
+  expect(serialized).not.toContain('svgsvg');
+});
+
 it('returns a pending grown lastAnswer when Stop stays up past the fast finish wait', async () => {
   vi.useFakeTimers();
   try {
@@ -471,11 +1541,13 @@ it('returns a pending grown lastAnswer when Stop stays up past the fast finish w
     let reply: unknown;
     listeners[0]!({ type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000003', conversationId: SESSION_ID, fresh: true, text: 'read a.txt' }, {}, (value) => { reply = value; });
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(reply).toEqual({
+    expect(reply).toMatchObject({
       pending: true,
       text: '```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```',
       before: '',
       beforeThink: '',
+      beforeIdentity: '',
+      answerIdentity: expect.stringMatching(/^node:[^:]+:1$/),
       generating: true
     });
   } finally {
@@ -522,9 +1594,9 @@ it('answers neuraflok-deepseek-read with the grown think text', () => {
   const { listeners } = load([previous, think]);
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: 'old public', beforeThink: '' }, {}, (value) => { reply = value; });
-  expect(reply).toEqual({
+  expect(reply).toMatchObject({
     signedIn: true, generating: false, hasConversation: true, conversationId: null,
-    text: 'new think reply', answer: '', think: 'new think reply'
+    text: 'new think reply', answer: '', think: 'new think reply', answerIdentity: expect.stringMatching(/^node:[^:]+:1$/)
   });
 });
 
@@ -602,15 +1674,16 @@ it('exposes the public assistant answer separately from think on read', () => {
   const { listeners } = load([assistant, think]);
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-read', before: '', beforeThink: '' }, {}, (value) => { reply = value; });
-  expect(reply).toEqual({
+  expect(reply).toMatchObject({
     signedIn: true, generating: false, hasConversation: true, conversationId: null,
     text: 'Este proyecto es Commander.js.',
     answer: 'Este proyecto es Commander.js.',
-    think: 'The user asked for a summary.'
+    think: 'The user asked for a summary.',
+    answerIdentity: expect.stringMatching(/^node:[^:]+:1$/)
   });
 });
 
-it('clicks New chat when the complete message asks for a fresh DeepSeek chat', async () => {
+it('keeps an already blank DeepSeek page instead of clicking New chat again', async () => {
   const starter = node('a', { href: 'https://chat.deepseek.com/', text: 'New chat' });
   const assistant = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
   const { listeners, send, api } = load([starter, assistant]);
@@ -623,7 +1696,86 @@ it('clicks New chat when the complete message asks for a fresh DeepSeek chat', a
   let reply: unknown;
   listeners[0]!({ type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000005', conversationId: SESSION_ID, text: 'hi', fresh: true }, {}, (value) => { reply = value; });
   await vi.waitFor(() => expect(reply).toMatchObject({ text: 'fresh reply' }));
-  expect(starter.events).toContain('click');
+  expect(starter.events).not.toContain('click');
+});
+
+it('chooses the labeled New chat control instead of the home link', () => {
+  const home = node('a', { href: '/', text: 'Home' });
+  const starter = node('button', { 'aria-label': 'New chat' });
+  const { api } = load([home, starter]);
+
+  expect(api.newChat()).toBe(starter);
+});
+
+it('finds DeepSeek New chat inside its custom ds-button wrapper', () => {
+  const content = node('span', { class: 'ds-button__content', text: 'Nuevo chat' });
+  const starter = node('div', { class: 'ds-button' }, [content]);
+  const { api } = load([starter]);
+
+  expect(api.newChat()).toBe(starter);
+});
+
+it('finds DeepSeek New chat when its sidebar exposes only an exact group label', () => {
+  const label = node('span', { text: 'Nuevo chat' });
+  const row = node('div', { role: 'group' }, [label]);
+  row.textContent = 'Nuevo chat Ctrl + J';
+  row.innerText = row.textContent;
+  const { api } = load([row]);
+
+  expect(api.newChat()).toBe(label);
+});
+
+it('finds DeepSeek New chat inside an open shadow root', () => {
+  const content = node('span', { class: 'ds-button__content', text: 'Nuevo chat' });
+  const starter = node('div', { class: 'ds-button' }, [content]);
+  const host = node('div');
+  host.shadowRoot = node('shadow-root', {}, [starter]);
+  const { api } = load([host]);
+
+  expect(api.newChat()).toBe(starter);
+});
+
+it('does not mistake assistant prose about a new chat for the sidebar control', () => {
+  const prose = node('div', { class: 'ds-markdown', text: 'We should start a new chat after this task.' });
+  const { api } = load([prose]);
+
+  expect(api.newChat()).toBeNull();
+});
+
+it.each([
+  { label: 'very short', question: 'Hi' },
+  { label: 'very long', question: 'Please inspect the project context and propose a safe edit. '.repeat(400) }
+])('takes the reply baseline after switching to a fresh conversation for a $label question', async ({ question }) => {
+  const oldAnswer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: 'Previous conversation answer' });
+  const starter = node('button', { 'aria-label': 'New chat' });
+  const { listeners, send, api, composer } = load([oldAnswer, starter]);
+  oldAnswer.textContent = '';
+  oldAnswer.innerText = '';
+  let submitted = '';
+  send.click = function click() {
+    this.events.push('click');
+    submitted = composer?.value ?? '';
+    oldAnswer.textContent = 'Fresh conversation answer';
+    oldAnswer.innerText = 'Fresh conversation answer';
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete',
+    id: '00000000-0000-4000-8000-000000000010',
+    conversationId: SESSION_ID,
+    text: question,
+    fresh: true,
+    freshPagePrepared: true,
+    before: '',
+    beforeIdentity: ''
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Fresh conversation answer' }));
+  expect(submitted).toBe(question);
+  expect(starter.events).not.toContain('click');
+  expect(reply).toMatchObject({ before: '', beforeIdentity: '' });
+  expect(api.lastAnswer()).toBe('Fresh conversation answer');
 });
 
 it('never binds a new local session to an existing DeepSeek conversation without a new-chat control', async () => {

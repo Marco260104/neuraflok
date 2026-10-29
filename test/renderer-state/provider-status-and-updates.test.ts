@@ -35,12 +35,20 @@ it('shows each provider’s own sign-in state in Settings and Setup', async () =
   mounted.push(state);
   const doc = mounted.window.document;
   expect(doc.getElementById('providerStatusDeepseek')!.textContent).toBe('Session active');
-  expect(doc.getElementById('providerStatusKimi')!.textContent).toBe('Sign in required');
-  expect(doc.getElementById('providerStatusQwen')!.textContent).toBe('Checking session');
-  expect(doc.getElementById('providerStatusGlm')!.textContent).toBe('Not detected');
+  expect(doc.getElementById('providerStatusKimi')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('providerStatusQwen')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('providerStatusGlm')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('browserProviderStatusKimi')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('browserProviderStatusQwen')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('browserProviderStatusGlm')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('connectionPopoverKimiStatus')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('connectionPopoverQwenStatus')!.textContent).toBe('Coming soon');
+  expect(doc.getElementById('connectionPopoverGlmStatus')!.textContent).toBe('Coming soon');
   expect(doc.querySelector<HTMLButtonElement>('[data-select-provider="deepseek"]')!.disabled).toBe(false);
   for (const id of ['kimi', 'qwen', 'glm']) {
     expect(doc.querySelector<HTMLButtonElement>(`[data-select-provider="${id}"]`)!.disabled).toBe(true);
+    expect(doc.querySelector<HTMLButtonElement>(`[data-setup-open-provider="${id}"]`)!.disabled).toBe(true);
+    expect(doc.querySelector<HTMLOptionElement>(`#browserWebProvider option[value="${id}"]`)!.disabled).toBe(true);
   }
   expect(doc.querySelector('[data-step="browser"]')!.classList.contains('is-done')).toBe(true);
   expect((doc.getElementById('browserLocationStage') as HTMLElement).hidden).toBe(false);

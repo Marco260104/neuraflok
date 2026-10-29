@@ -24,9 +24,18 @@ export function recordWebProviderPresence(value: unknown, now = Date.now()): Web
 
   const rows = value as Record<string, unknown>;
   const next = emptyWebProviderPresence();
+  const explicitlyClosed = new Set<WebProviderId>();
   for (const [rawProvider, raw] of Object.entries(rows)) {
     if (!isWebProviderId(rawProvider) || !raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
     const row = raw as { open?: unknown; signedIn?: unknown; tabId?: unknown };
+    if (row.open === false) {
+      explicitlyClosed.add(rawProvider);
+      // The extension reports the complete provider set on every inspection.
+      // An explicit closed tab is authoritative, so do not retain a stale
+      // signed-in result during the missing-sighting grace period.
+      next[rawProvider] = { open: false, signedIn: null, tabId: null, lastSeenAt: now };
+      continue;
+    }
     if (row.open !== true || !Number.isSafeInteger(row.tabId) || (row.tabId as number) < 0) continue;
     const previous = sightings[rawProvider];
     const reportedSignedIn = typeof row.signedIn === 'boolean' ? row.signedIn : null;
@@ -41,7 +50,7 @@ export function recordWebProviderPresence(value: unknown, now = Date.now()): Web
 
   for (const provider of WEB_PROVIDER_IDS) {
     const previous = sightings[provider];
-    if (!next[provider].open && previous.open && previous.lastSeenAt !== null && now - previous.lastSeenAt < SIGHTING_GRACE_MS) {
+    if (!explicitlyClosed.has(provider) && !next[provider].open && previous.open && previous.lastSeenAt !== null && now - previous.lastSeenAt < SIGHTING_GRACE_MS) {
       next[provider] = { ...previous };
     }
   }

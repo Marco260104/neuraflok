@@ -83,6 +83,7 @@ export function createSessionMessageWrites(runtime: Runtime) {
                   reaction: event.reaction === undefined ? previous.reaction : event.reaction,
                   // App-owned originals/previews retain their outbox identity when the provider later observes different native attachment ids for that send.
                   attachments: previous.inputId ? previous.attachments ?? event.attachments : event.attachments ?? previous.attachments,
+                  attachmentUpload: event.attachmentUpload ?? previous.attachmentUpload,
                   inputDelivery: previous.inputDelivery === 'confirmed' ? 'confirmed' : event.inputDelivery ?? previous.inputDelivery,
                   model: event.model ?? previous.model,
                   reasoningEffort: event.reasoningEffort ?? previous.reasoningEffort,
@@ -118,7 +119,7 @@ export function createSessionMessageWrites(runtime: Runtime) {
               previous.providerMessageId === nextEvent.providerMessageId &&
               previous.resolvedModel === nextEvent.resolvedModel)) &&
           (nextEvent.kind !== 'user_message' || previous.kind !== 'user_message' ||
-            (nextEvent.reaction === previous.reaction && nextEvent.inputId === previous.inputId && nextEvent.authoredText === previous.authoredText && nextEvent.wireTokenEstimate === previous.wireTokenEstimate && nextEvent.inputDelivery === previous.inputDelivery && JSON.stringify(nextEvent.assets) === JSON.stringify(previous.assets) && JSON.stringify(nextEvent.retiredImageAssetIds) === JSON.stringify(previous.retiredImageAssetIds) && JSON.stringify(nextEvent.attachments) === JSON.stringify(previous.attachments))) &&
+            (nextEvent.reaction === previous.reaction && nextEvent.inputId === previous.inputId && nextEvent.authoredText === previous.authoredText && nextEvent.wireTokenEstimate === previous.wireTokenEstimate && nextEvent.inputDelivery === previous.inputDelivery && nextEvent.attachmentUpload === previous.attachmentUpload && JSON.stringify(nextEvent.assets) === JSON.stringify(previous.assets) && JSON.stringify(nextEvent.retiredImageAssetIds) === JSON.stringify(previous.retiredImageAssetIds) && JSON.stringify(nextEvent.attachments) === JSON.stringify(previous.attachments))) &&
           (previous.turnId ?? undefined) === settledTurnId &&
           (nextEvent.agent === undefined || previous.agent === nextEvent.agent) &&
           (!preferTime || previous.time === nextEvent.time)

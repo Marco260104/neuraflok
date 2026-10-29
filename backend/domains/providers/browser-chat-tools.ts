@@ -10,9 +10,12 @@ import { registerCoreTools } from '../../infrastructure/tool-gateway/protocol/to
 import { withManagedSkills } from '../skills/access/managed-roots.js';
 import { getSessionProject } from '../workspace/projects.js';
 import { observeRequestCorrelation } from '../sessions/history/correlation.js';
+import { scopeProjectPlanTool } from './project-plan-tools.js';
 
 const MAX_TOOL_RESULT_CHARS = 40_000;
+const TOOL_RETRY_BACKOFF_MS = 200;
 const ALLOWED_TOOLS = new Set<string>([...WEB_CHAT_CORE_TOOLS, 'agents']);
+const TRANSIENT_TOOL_FAILURE = /\b(?:EBUSY|EAGAIN|ECONNRESET|ETIMEDOUT|EPIPE|EHOSTUNREACH|ERR_CONNECTION_RESET|ERR_TIMED_OUT)\b|temporarily unavailable|temporary (?:connection|channel|transport) (?:failure|error|reset)|connection reset|socket hang up|channel closed|transport closed|timed out|time out|timeout|server disconnected/i;
 
 function liveContext(): ToolContext {
   const config = getConfig();
@@ -75,12 +78,45 @@ function parseArgs(raw: string): { ok: true; value: unknown } | { ok: false; err
   }
 }
 
+function agentRetryWasExplicitlySafe(args: unknown, errorText: string): boolean {
+  if (!args || typeof args !== 'object') return false;
+  const action = (args as { action?: unknown }).action;
+  if (action === 'spawn') {
+    return /worker run could not cross its durable acceptance barrier\. the spawn was rolled back; retry this same request\./i.test(errorText);
+  }
+  if (action === 'message') {
+    return /(?:prime message|agent message) could not cross its durable acceptance barrier\. nothing was queued; retry the same message request\./i.test(errorText);
+  }
+  if (action === 'finish') {
+    return /worker finish could not cross its durable acceptance barrier\. nothing was published; retry the same finish result\./i.test(errorText);
+  }
+  return false;
+}
+
+function shouldRetryTool(name: string, args: unknown, errorText: string): boolean {
+  if (name === 'agents' && agentRetryWasExplicitlySafe(args, errorText)) return true;
+  const readOnlyAction = name === 'read' || name === 'find' ||
+    (name === 'agents' && Boolean(args && typeof args === 'object' && (args as { action?: unknown }).action === 'status'));
+  return readOnlyAction && TRANSIENT_TOOL_FAILURE.test(errorText);
+}
+
+function errorMessage(error: unknown): string {
+  return String(error && typeof error === 'object' && 'message' in error
+    ? (error as { message?: unknown }).message
+    : error || 'tool error');
+}
+
+async function retryDelay(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, TOOL_RETRY_BACKOFF_MS));
+}
+
 export async function invokeBrowserChatTool(
   registrar: ReturnType<typeof createBrowserChatToolRegistrar>,
   call: WebChatToolCall,
   requestId: string,
   conversationId: string,
-  sessionId: string
+  sessionId: string,
+  projectPlanDirectory?: string
 ): Promise<string> {
   const name = call.function.name;
   if (!ALLOWED_TOOLS.has(name) || !registrar.registered().includes(name)) {
@@ -88,6 +124,9 @@ export async function invokeBrowserChatTool(
   }
   const parsed = parseArgs(call.function.arguments);
   if (!parsed.ok) return `INVALID_ARGUMENTS: ${parsed.error}`;
+  const scoped = projectPlanDirectory ? scopeProjectPlanTool(name, parsed.value, projectPlanDirectory) : null;
+  if (scoped && !scoped.ok) return 'PLAN_READ_SCOPE: This plan may read files only inside the selected project. The requested tool was not run.';
+  const toolArgs = scoped?.ok ? scoped.args : parsed.value;
   observeRequestCorrelation({
     requestId,
     conversationId,
@@ -96,6 +135,19 @@ export async function invokeBrowserChatTool(
     tool: name,
     observedAt: Date.now()
   });
-  const result = await registrar.invoke(name, parsed.value, requestId);
+  let result: ToolResult;
+  try {
+    result = await registrar.invoke(name, toolArgs, requestId);
+  } catch (error) {
+    if (!shouldRetryTool(name, toolArgs, errorMessage(error))) throw error;
+    await retryDelay();
+    result = await registrar.invoke(name, toolArgs, requestId);
+    return toolResultText(result);
+  }
+  if (result.isError !== true || !shouldRetryTool(name, toolArgs, toolResultText(result))) {
+    return toolResultText(result);
+  }
+  await retryDelay();
+  result = await registrar.invoke(name, toolArgs, requestId);
   return toolResultText(result);
 }

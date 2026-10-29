@@ -1,0 +1,112 @@
+/* A steady workbench frame with one confident signal for navigation and actions. */
+.app { --sidebar-default: 250px; }
+.app-topbar-identity { display: flex; min-width: 0; align-items: center; gap: 9px; margin-left: 9px; color: var(--soft); font-size: calc(12.5px * var(--text-scale, 1)); font-weight: 550; }
+.app-topbar-product { display: inline; color: var(--ink); font-size: calc(11px * var(--text-scale, 1)); font-weight: 700; letter-spacing: .075em; }
+.app-topbar-divider { display: inline; color: var(--faint); }
+.app-topbar-page { color: var(--soft); font-weight: 500; }
+.sidebar { padding-inline: 12px; }
+.sidebar-brand { padding: 0 6px 8px; }
+.sidebar .sidebar-primary .new-chat { height: 34px; min-height: 34px; padding: 4px 10px; gap: 8px; border-radius: var(--r-sm); font-size: calc(12px * var(--text-scale, 1)); font-weight: 550; }
+.sidebar-session-section { margin-bottom: 8px; }
+.sidebar-session-heading { min-height: 30px; letter-spacing: 0; }
+.sess { min-height: 28px; padding-block: 4px; }
+.sess-top b { font-size: calc(12px * var(--text-scale, 1)); line-height: 18px; }
+.sess.is-sel { box-shadow: inset 2px 0 0 var(--accent); }
+.sidebar-bottom { display: grid; gap: 0; padding-top: 6px; }
+.sidebar-settings { height: 34px; min-height: 34px; font-size: calc(12px * var(--text-scale, 1)); }
+.sidebar-support > .ico { color: var(--accent); }
+.sidebar-support.is-sel { background: var(--accent-wash); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.sidebar-support.is-sel > .ico { color: var(--accent); }
+.app-topbar { border-bottom-color: var(--line); box-shadow: none; }
+.app[data-screen='chat'] .card.is-session { background: var(--page); }
+.chat-head > #chatTitle { letter-spacing: -.01em; }
+.said:not(.is-user) { width: 100%; max-width: 100%; }
+.said.is-user { max-width: 58%; }
+.said.is-user > .user-message-text { max-width: 100%; }
+.composer { box-shadow: 0 0 0 1px var(--line), 0 12px 32px -26px oklch(0 0 0 / .58); }
+.composer { padding: 6px 10px; }
+.composer textarea,
+.composer textarea:focus,
+.composer textarea:focus-visible { border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent; }
+.composer textarea { padding-bottom: 8px; font-size: calc(13px * var(--text-scale, 1)); }
+.composer-workspace-tools { min-height: 32px; padding-block: 2px; }
+.composer:focus-within { box-shadow: 0 0 0 1px var(--accent-edge), 0 0 0 4px var(--ring), 0 12px 32px -26px oklch(0 0 0 / .58); }
+
+.support-section { padding-top: 2px; }
+.support-card { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px 18px !important; }
+.support-contact-mark { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid var(--accent-edge); border-radius: 10px; background: var(--accent-wash); color: var(--accent); }
+.support-contact-mark .ico { --ico: 18px; --glyph: 18px; }
+.support-contact-copy { min-width: 0; }
+.support-contact-copy > b { display: block; color: var(--ink); font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; }
+.support-contact-copy > p { max-width: 66ch; margin: 4px 0 0; color: var(--soft); font-size: calc(12px * var(--text-scale, 1)); line-height: 1.5; }
+.support-coming-soon { flex: none; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--faint); font-size: calc(10.5px * var(--text-scale, 1)); font-weight: 600; letter-spacing: .035em; text-transform: uppercase; }
+
+.donation-panel.is-active { display: block; overflow-y: auto; padding: clamp(22px, 3.5vh, 40px) clamp(24px, 4vw, 52px) 30px; scrollbar-gutter: stable; }
+.donation-page { max-width: 1080px; }
+.donation-page-head { display: grid; justify-items: start; gap: 7px; margin-bottom: 22px; padding: 0; border: 0; }
+.donation-eyebrow { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: calc(11px * var(--text-scale, 1)); font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.donation-eyebrow .ico { --ico: 15px; --glyph: 15px; }
+.donation-page-head h1 { color: var(--ink); font-size: calc(19px * var(--text-scale, 1)); font-weight: 600; letter-spacing: -.02em; line-height: 1.25; }
+.donation-page-head p { max-width: 68ch; color: var(--soft); font-size: calc(12px * var(--text-scale, 1)); line-height: 1.5; }
+.donation-layout { display: grid; grid-template-columns: minmax(250px, .82fr) minmax(0, 1.35fr); align-items: start; gap: 20px; }
+.donation-currencies, .donation-wallet { min-width: 0; }
+.donation-section-head { min-height: 42px; margin-bottom: 8px; padding: 0; border: 0; }
+.donation-section-head h2, .donation-wallet-head h2 { color: var(--ink); font-size: calc(15px * var(--text-scale, 1)); font-weight: 620; letter-spacing: -.015em; }
+.donation-section-head p { margin-top: 4px; color: var(--faint); font-size: calc(11.5px * var(--text-scale, 1)); line-height: 1.45; }
+.donation-coin-list { display: grid; gap: 3px; }
+.donation-coin { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 11px; min-width: 0; min-height: 43px; padding: 6px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--soft); font: inherit; text-align: left; cursor: pointer; transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.donation-coin:hover { background: var(--hover); color: var(--ink); }
+.donation-coin:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.donation-coin.is-selected, .donation-coin[aria-pressed='true'] { border-color: var(--accent-edge); background: var(--accent-wash); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.donation-coin-logo, .donation-wallet-logo { display: block; width: 28px; height: 28px; flex: none; object-fit: contain; }
+.donation-coin-monogram:not([hidden]), .donation-wallet-monogram:not([hidden]) { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--accent) 18%, var(--card)); color: var(--accent); font-size: 12px; font-weight: 750; }
+.donation-coin-name { min-width: 0; overflow: hidden; color: var(--ink); font-size: calc(12.5px * var(--text-scale, 1)); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.donation-coin-ticker { color: var(--faint); font-size: calc(10.5px * var(--text-scale, 1)); font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: .04em; }
+.donation-wallet { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow-border); }
+.donation-wallet-head { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.donation-wallet-coin { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.donation-wallet-logo, .donation-wallet-monogram:not([hidden]) { width: 36px; height: 36px; }
+.donation-wallet-monogram:not([hidden]) { font-size: 15px; }
+.donation-wallet-head h2 { font-size: calc(15px * var(--text-scale, 1)); }
+.donation-wallet-head #donationWalletTicker { display: block; margin-top: 3px; color: var(--faint); font-size: calc(10.5px * var(--text-scale, 1)); font-weight: 650; letter-spacing: .05em; }
+.donation-native-network { flex: none; color: var(--faint); font-size: calc(11px * var(--text-scale, 1)); }
+.donation-network-field { display: grid; flex: 0 1 180px; gap: 4px; color: var(--faint); font-size: calc(10.5px * var(--text-scale, 1)); font-weight: 600; }
+.donation-network-field select { width: 100%; min-height: 32px; padding: 5px 8px; color: var(--ink); font: inherit; font-size: calc(11.5px * var(--text-scale, 1)); }
+.donation-wallet-body { display: grid; justify-items: center; gap: 16px; padding: 22px 18px; }
+.donation-qr-frame { display: grid; width: min(100%, 256px); aspect-ratio: 1; place-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.donation-qr-code { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.donation-wallet-copy { width: 100%; min-width: 0; text-align: center; }
+.donation-label { display: block; margin-bottom: 7px; color: var(--faint); font-size: calc(10.5px * var(--text-scale, 1)); font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.donation-wallet-copy strong { display: block; color: var(--ink); font-size: calc(13px * var(--text-scale, 1)); font-weight: 600; }
+.donation-wallet-copy .donation-address { overflow-wrap: anywhere; color: var(--ink); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: calc(12px * var(--text-scale, 1)); font-variant-ligatures: none; line-height: 1.65; user-select: all; }
+.donation-wallet-copy p { max-width: 46ch; margin: 7px auto 0; color: var(--soft); font-size: calc(12px * var(--text-scale, 1)); line-height: 1.55; }
+.donation-wallet-foot { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; border-top: 1px solid var(--line); }
+.donation-wallet-foot > span { display: inline-flex; align-items: center; gap: 7px; color: var(--faint); font-size: calc(10.5px * var(--text-scale, 1)); }
+.donation-wallet-foot > span .ico { flex: none; --ico: 14px; --glyph: 14px; color: var(--accent); }
+.donation-copy { min-height: 30px; padding: 5px 8px; font-size: calc(11px * var(--text-scale, 1)); }
+.donation-copy:disabled { opacity: .52; cursor: not-allowed; }
+.donation-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; color: var(--faint); font-size: calc(11px * var(--text-scale, 1)); line-height: 1.5; }
+.donation-note .ico { flex: none; --ico: 14px; --glyph: 14px; color: var(--accent); }
+
+@media (max-width: 1050px) {
+  .donation-layout { grid-template-columns: minmax(230px, .8fr) minmax(0, 1.2fr); gap: 20px; }
+  .donation-wallet-body { padding: 18px; }
+}
+@media (max-width: 780px) {
+  .app-topbar-product, .app-topbar-divider { display: none; }
+  .donation-layout { grid-template-columns: minmax(0, 1fr); }
+  .donation-coin-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .support-card { grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 13px !important; }
+  .support-coming-soon { grid-column: 2; justify-self: start; }
+  .donation-panel.is-active { padding: 24px 16px 32px; }
+  .donation-page-head { margin-bottom: 18px; }
+  .donation-page-head h1 { font-size: calc(18px * var(--text-scale, 1)); }
+  .donation-wallet-head { flex-wrap: wrap; padding: 12px; }
+  .donation-wallet-body { padding: 14px 12px; }
+  .donation-wallet-foot { align-items: flex-start; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .donation-coin, .sidebar-support { transition: none; }
+}

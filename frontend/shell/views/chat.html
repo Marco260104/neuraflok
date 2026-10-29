@@ -75,7 +75,7 @@
                 <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Provider connections</h2><p>Connect accounts in NEURAFLOK's private browser, then activate a verified session in the composer.</p></div></header>
                 <div class="settings-surface pane provider-settings">
                   <select id="chatExecutor" hidden aria-hidden="true" tabindex="-1"><option value="web">Web session</option><option value="api">Configured model</option></select>
-                  <div class="setting"><span class="setting-text"><b>Default web provider</b><em>Viewified sessions can be activated from the message composer.</em></span><select id="webProvider" aria-label="Default web provider"><option value="deepseek">DeepSeek</option><option value="kimi">Kimi</option><option value="qwen">Qwen</option><option value="glm">Z AI</option></select></div>
+                  <div class="setting"><span class="setting-text"><b>Default web provider</b><em>Verified sessions can be activated from the message composer.</em></span><select id="webProvider" aria-label="Default web provider"><option value="deepseek">DeepSeek</option><optgroup label="Coming soon"><option value="kimi" disabled>Kimi</option><option value="qwen" disabled>Qwen</option><option value="glm" disabled>Z AI</option></optgroup></select></div>
                   <p class="provider-hint" id="webProviderHint" role="status">Checking browser sessions…</p>
                   <div class="provider-notes">
                     <p class="provider-account-warning"><i class="ico ph ph-warning-circle" aria-hidden="true"></i><span><strong>Separate account recommended.</strong> Sessions stay in the browser where you sign in; NEURAFLOK never copies cookies between profiles.</span></p>
@@ -83,9 +83,9 @@
                   </div>
                   <div class="provider-grid" id="webProviderCards">
                     <article class="provider-card" data-provider-card="deepseek"><div class="provider-card-title"><span class="provider-code" data-provider-logo="deepseek"></span><span class="provider-card-copy"><strong>DeepSeek</strong><span id="providerStatusDeepseek">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="deepseek">Activate</button><button class="btn" type="button" data-open-provider="deepseek">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="deepseek" hidden>Disconnect</button></div></article>
-                    <article class="provider-card" data-provider-card="kimi"><div class="provider-card-title"><span class="provider-code" data-provider-logo="kimi"></span><span class="provider-card-copy"><strong>Kimi</strong><span id="providerStatusKimi">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="kimi">Activate</button><button class="btn" type="button" data-open-provider="kimi">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="kimi" hidden>Disconnect</button></div></article>
-                    <article class="provider-card" data-provider-card="qwen"><div class="provider-card-title"><span class="provider-code" data-provider-logo="qwen"></span><span class="provider-card-copy"><strong>Qwen</strong><span id="providerStatusQwen">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="qwen">Activate</button><button class="btn" type="button" data-open-provider="qwen">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="qwen" hidden>Disconnect</button></div></article>
-                    <article class="provider-card" data-provider-card="glm"><div class="provider-card-title"><span class="provider-code" data-provider-logo="glm"></span><span class="provider-card-copy"><strong>Z AI</strong><span id="providerStatusGlm">Checking session</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="glm">Activate</button><button class="btn" type="button" data-open-provider="glm">Connect</button><button class="btn provider-disconnect" type="button" data-disconnect-provider="glm" hidden>Disconnect</button></div></article>
+                    <article class="provider-card" data-provider-card="kimi" data-state="coming-soon"><div class="provider-card-title"><span class="provider-code" data-provider-logo="kimi"></span><span class="provider-card-copy"><strong>Kimi</strong><span id="providerStatusKimi">Coming soon</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="kimi" disabled data-coming-soon-label>Coming soon</button></div></article>
+                    <article class="provider-card" data-provider-card="qwen" data-state="coming-soon"><div class="provider-card-title"><span class="provider-code" data-provider-logo="qwen"></span><span class="provider-card-copy"><strong>Qwen</strong><span id="providerStatusQwen">Coming soon</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="qwen" disabled data-coming-soon-label>Coming soon</button></div></article>
+                    <article class="provider-card" data-provider-card="glm" data-state="coming-soon"><div class="provider-card-title"><span class="provider-code" data-provider-logo="glm"></span><span class="provider-card-copy"><strong>Z AI</strong><span id="providerStatusGlm">Coming soon</span></span><i class="provider-state-dot" aria-hidden="true"></i></div><div class="provider-card-actions"><button class="btn provider-use" type="button" data-select-provider="glm" disabled data-coming-soon-label>Coming soon</button></div></article>
                   </div>
                 </div>
                 <header class="settings-section-head automation-section-head" hidden><div><h2 class="settings-section-title">Worker model settings</h2><p>Choose a model and reasoning level for browser workers.</p></div></header>
@@ -359,7 +359,7 @@
               <div id="skillPicker" class="skill-autocomplete" aria-label="Skills" hidden></div>
               <div id="composerSelectedSkills" class="composer-selected-skills" aria-label="Selected skills" hidden></div>
               <label class="sr-only" for="chatInput">Send a message</label>
-              <div id="composerImages" class="composer-images" hidden></div><textarea dir="auto" id="chatInput" rows="1" placeholder="Describe your goal and define measurable outcomes for better results"></textarea>
+              <div id="composerImages" class="composer-images" hidden></div><textarea dir="auto" id="chatInput" rows="1" placeholder="Ask anything…"></textarea>
               <div class="composer-toolbar">
                 <div class="composer-primary-controls">
                 <details class="composer-menu" id="attachmentMenu">
@@ -373,7 +373,7 @@
                     </div>
                   </div>
                 </details>
-                <details class="composer-menu composer-access-picker" id="composerAccess">
+                <details class="composer-menu composer-access-picker" id="composerAccess" hidden>
                   <summary id="composerAccessTrigger" aria-label="Access" title="Access">
                     <i class="ico ph ph-shield-check composer-access-shield" aria-hidden="true"></i>
                     <span id="composerAccessLabel" class="sr-only">Full access</span>
@@ -400,9 +400,9 @@
                     <button class="composer-access-manage" id="manageComposerAccess" type="button"><i class="ico ph ph-sliders-horizontal" aria-hidden="true"></i><span>Change access</span></button>
                   </div>
                 </details>
-                <button class="composer-goal-pill" id="composerGoalBtn" type="button" title="Goal" aria-label="Goal">
-                  <i class="ico ph ph-target" aria-hidden="true"></i>
-                  <span>Goal</span>
+                <button class="composer-goal-pill" id="composerPlanBtn" type="button" title="Read relevant project files and propose a plan before making changes." aria-label="Plan" aria-pressed="false" hidden>
+                  <i class="ico ph ph-list-checks" aria-hidden="true"></i>
+                  <span>Plan</span>
                 </button>
                 <details class="composer-menu" id="composerSettings" hidden>
                     <summary aria-label="Chat mode" title="Chat mode"><i id="composerModeIcon" class="ico ph ph-chat-circle" aria-hidden="true"></i><span id="composerModeLabel">Normal</span><svg class="disclosure-chevron dropdown-chevron picker-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg></summary>

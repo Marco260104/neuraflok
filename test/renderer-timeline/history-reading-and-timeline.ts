@@ -399,7 +399,12 @@ it('does not show a handoff note as a recovery verdict', async () => {
 });
 
 it('uses the Working label for active turns', async () => {
-  const { w } = await boot([{ seq: 1, time: T0, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
+  const { w, append } = await boot([]);
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'extension', kind: 'user_message', messageId: 'active-question', turnId: 'held-turn', message: text('Current request') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   expect(w.document.getElementById('chatState')!.textContent).toMatch(/^Working for /);
 });
 
@@ -481,6 +486,35 @@ it('shows the running turn working at its top while it works', async () => {
   expect(line.previousElementSibling?.matches('.ev-user_message')).toBe(true);
 });
 
+it('clears the thinking indicator when a failed turn ends even if controls still report it active', async () => {
+  const now = Date.now();
+  const { w, append } = await boot([
+    { seq: 1, time: now - 5_000, source: 'extension', kind: 'turn_start', turnId: 'held-turn' },
+    { kind: 'user_message', seq: 2, origin: 2, time: now - 4_900, source: 'extension', turnId: 'held-turn', messageId: 'q-failed', message: text('Test a failed reply') },
+    { kind: 'chat_error', seq: 3, time: now - 2_000, source: 'extension', turnId: 'held-turn', recoverable: false, message: text('Sign in to DeepSeek in this browser, then try again.') },
+    { seq: 4, time: now - 1_900, source: 'extension', kind: 'turn_end', turnId: 'held-turn', outcome: 'failed' }
+  ]);
+  await append([]);
+
+  expect(w.document.getElementById('timeline')!.textContent).toContain('Sign in to DeepSeek in this browser');
+  expect(w.document.querySelectorAll('.turn-status.is-working, .turn-now:not([hidden])')).toHaveLength(0);
+});
+
+it('does not show stale Stop or Thinking for an old chat with an internal warmup failure and no authored message', async () => {
+  const now = Date.now();
+  const { w, append } = await boot([
+    { seq: 1, time: now - 1_000, source: 'extension', kind: 'chat_error', turnId: 'internal-warmup',
+      recoverable: false, message: text('Could not open a new conversation.') }
+  ]);
+  await append([]);
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.getAttribute('aria-label')).toBe('Send message');
+  expect(w.document.querySelectorAll('.turn-status.is-working, .turn-now:not([hidden])')).toHaveLength(0);
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+});
+
 it('ends the running turn with a row saying what it is doing now', async () => {
   const asked = Date.now() - 12_000;
   const { w, append } = await boot([
@@ -521,12 +555,16 @@ it('ends the running turn with a row saying what it is doing now', async () => {
 });
 
 it('shows a just-started turn working right after your message, never in the header first', async () => {
-  // The controls report a running turn before any of its rows reached the timeline.
-  const { w } = await boot([]);
+  const { w, append } = await boot([]);
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'extension', kind: 'user_message', messageId: 'just-sent-question', turnId: 'held-turn', message: text('A new request') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   const line = w.document.querySelector<HTMLElement>('.turn-status')!;
   expect(line.textContent).toMatch(/^Working/);
   expect(line.classList.contains('is-working')).toBe(true);
-  expect(line.previousElementSibling?.id).toBe('inputQueue');
+  expect(line.previousElementSibling?.matches('.ev-user_message')).toBe(true);
   expect(w.document.getElementById('chatState')!.classList.contains('is-mirrored')).toBe(true);
 });
 
@@ -548,4 +586,21 @@ it('anchors the worked line to your message when the page reports an empty turn 
   expect(lines.map(line => line.textContent)).toEqual(['Worked for 21s']);
   expect(lines[0]!.previousElementSibling?.matches('.ev-user_message')).toBe(true);
   expect(lines[0]!.nextElementSibling?.textContent).toContain('quinto arquivo');
+});
+
+it('hides provider-internal tool markup in already saved assistant messages', async () => {
+  const { w, append } = await boot([
+    { kind: 'assistant_message', seq: 1, time: T0, source: 'extension', messageId: 'internal-only', final: true,
+      message: text('<tool_call> {"name":"write_stdin","arguments":{"session_id":5164,"chars":""}} </tool_call>') },
+    { kind: 'assistant_message', seq: 2, time: T0 + 1_000, source: 'extension', messageId: 'answer-with-internal-markup', final: true,
+      message: text('El proyecto está listo.\n<tool_call> {"name":"write_stdin","arguments":{"session_id":5164,"chars":""}} </tool_call>') }
+  ]);
+  await append([]);
+
+  const rows = [...w.document.querySelectorAll<HTMLElement>('.ev-assistant_message')];
+  expect(rows[0]!.hidden).toBe(true);
+  expect(rows[1]!.hidden).toBe(false);
+  expect(rows[1]!.textContent).toContain('El proyecto está listo.');
+  expect(rows[1]!.textContent).not.toContain('tool_call');
+  expect(rows[1]!.textContent).not.toContain('session_id');
 });

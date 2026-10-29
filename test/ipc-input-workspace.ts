@@ -94,7 +94,7 @@ it('publishes the owning session when delivered input history is revised in plac
 it('stages clipboard image bytes with a preview through the general attachment owner', async () => {
   const drop = (payload: unknown) => handlers.get('sessions:dropFiles')!(null, payload) as Promise<any>;
   expect(await drop({ files: [] })).toMatchObject({ ok: false });
-  expect(await drop({ files: [{ name: 'huge.png', bytes: new Uint8Array(12 * 1024 * 1024 + 1) }] })).toMatchObject({ ok: false });
+  expect(await drop({ files: [{ name: 'huge.png', bytes: new Uint8Array(100 * 1024 * 1024 + 1) }] })).toMatchObject({ ok: false });
   const sharp = (await import('sharp')).default;
   const bytes = await sharp({ create: { width: 12, height: 8, channels: 3, background: '#123456' } }).png().toBuffer();
   const pasted = await drop({ files: [{ name: 'screenshot.png', bytes: new Uint8Array(bytes) }] });

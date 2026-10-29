@@ -14,8 +14,8 @@ export function createChatRendererAdapters(
     eventBody(event: SessionEvent, context?: ChatEventContext): HTMLElement {
       return eventRenderer().eventBody(event, context);
     },
-    attachmentCard(file: InputAttachment, inComposer = false): HTMLElement {
-      return eventRenderer().attachmentCard(file, inComposer);
+    attachmentCard(file: InputAttachment, inComposer = false, uploadStatus?: 'uploading' | 'ready' | 'failed'): HTMLElement {
+      return eventRenderer().attachmentCard(file, inComposer, uploadStatus);
     },
     answerActions(turnId: string): HTMLElement {
       return eventRenderer().answerActions(turnId);

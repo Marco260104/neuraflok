@@ -28,12 +28,18 @@ export function createChatProgress(runtime: ChatProgressRuntime) {
     window.clearTimeout(runtime.durationTimer);
     runtime.durationTimer = undefined;
     const note = $('chatState');
-    const current = status.stateLine();
-    ui(note, 'textContent', () => status.stateLine().text);
+    const visibleStateLine = () => turn.suppressWarmupWithoutPendingMessage()
+      ? { text: '', tone: '' as const }
+      : status.stateLine();
+    const current = visibleStateLine();
+    ui(note, 'textContent', () => visibleStateLine().text);
     note.className = `subhead-note${current.tone ? ` ${current.tone}` : ''}`;
     note.classList.toggle('is-working', current.working === true);
     const developer = runtime.state()?.config.ui.developerMode;
-    if (!developer && !turn.hasStatusInTimeline())
+    // A Stop request can clear the provider controls before the stopped
+    // boundary reaches history. Revisit an in-timeline status in that case so
+    // the previous live row does not remain animated after the turn is idle.
+    if (!developer && (!turn.hasStatusInTimeline() || current.working !== true))
       turn.parkTurnStatus(current.working === true);
     if (!developer && current.working === true)
       turn.paintTurnStatus(current);
@@ -50,6 +56,7 @@ export function createChatProgress(runtime: ChatProgressRuntime) {
   }
 
   return {
+    suppressWarmupWithoutPendingMessage: turn.suppressWarmupWithoutPendingMessage,
     get turnNow() {
       return turn.turnNow;
     },

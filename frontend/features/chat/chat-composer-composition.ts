@@ -8,6 +8,7 @@ import { createChatSessionControls } from './chat-session-controls.js';
 import { createChatDraftState } from './chat-draft-state.js';
 import { createChatDeliveryControls } from './chat-delivery-controls.js';
 import { createWebChatWarmup } from './chat-web-warmup.js';
+import { blocksStopForWarmup, composerWarmupKey, composerWarmupState } from './chat-composer-ready.js';
 import { localizedGoalError, type GoalDraftPresentation, type GoalProgressView } from './chat-goal-progress.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
 import type { RecoveryCountdown } from '../../../contracts/recovery.js';
@@ -81,6 +82,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get selectedProjectId() { return bindings.selectedProjectId; },
     get selectionGeneration() { return bindings.selectionGeneration; },
     get sessions() { return bindings.sessions; },
+    get events() { return bindings.events; },
     turnWorking: dependencies.turnWorking,
     get pendingNewInput() { return bindings.pendingNewInput; },
     get startingInputs() { return bindings.startingInputs; },
@@ -89,6 +91,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     adoptAcceptedOpening: entry => chatInputQueue.adoptAcceptedOpening(entry),
     selectSession: bindings.selectSession,
     paintDeliveryControls: bindings.paintDeliveryControls,
+    refreshSessionControls: () => bindings.refreshSessionControls(),
     refreshInputQueue: () => bindings.refreshInputQueue(),
     setPendingNewInput: value => { bindings.pendingNewInput = value; },
     paintPreparationStatus: () => dependencies.parkTurnStatus(dependencies.turnWorking())
@@ -100,6 +103,12 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get selectedId() { return bindings.selectedId; },
     get sessions() { return bindings.sessions; },
     get selectedProjectId() { return bindings.selectedProjectId; },
+    projectScopedSelection: () => {
+      const session = bindings.sessions.find(row => row.id === bindings.selectedId);
+      return !!(session?.projectId ?? bindings.selectedProjectId);
+    },
+    projectPlanMode: () => bindings.chatTaskControls?.projectPlanMode() ?? false,
+    clearProjectPlanMode: (key?: string) => bindings.chatTaskControls?.clearProjectPlanMode(key),
     get imageDrafts() { return imageDrafts; },
     authoredComposerText: bindings.authoredComposerText,
     get selectionGeneration() { return bindings.selectionGeneration; },
@@ -174,6 +183,8 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
   bindings.chatTaskControls = createChatTaskControls({
     draftKey: bindings.draftKey,
     get selectedId() { return bindings.selectedId; },
+    get selectedProjectId() { return bindings.selectedProjectId; },
+    get sessions() { return bindings.sessions; },
     get selectionGeneration() { return bindings.selectionGeneration; },
     get controlledSessionId() { return bindings.controlledSessionId; },
     get controlledSelection() { return bindings.controlledSelection; },
@@ -190,6 +201,19 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
   bindings.chatDeliveryControls = createChatDeliveryControls({
     get selectedId() { return bindings.selectedId; },
     get selectionGeneration() { return bindings.selectionGeneration; },
+    get detailFor() { return bindings.detailFor; },
+    get events() { return bindings.events; },
+    selectedSummary: () => bindings.sessions.find(row => row.id === bindings.selectedId),
+    preparingChatInternally: () => {
+      const warmup = composerWarmupState(composerWarmupKey(bindings.selectedId, bindings.selectionGeneration));
+      // A restored queue row is not evidence of a turn started by this view.
+      // Release a failed preparation gate only after fresh, public provider activity.
+      return blocksStopForWarmup(warmup, bindings.events, bindings.controlledTurnId, bindings.selectionGeneration);
+    },
+    projectScopedSelection: () => {
+      const session = bindings.sessions.find(row => row.id === bindings.selectedId);
+      return !!(session?.projectId ?? bindings.selectedProjectId);
+    },
     get controlledSessionId() { return bindings.controlledSessionId; },
     get controlledSelection() { return bindings.controlledSelection; },
     get controlledTurnId() { return bindings.controlledTurnId; },

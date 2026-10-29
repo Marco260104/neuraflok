@@ -26,7 +26,7 @@ it('applies the staging quota atomically across concurrent picker/drop calls', a
   const stat = fs.stat.bind(fs);
   vi.spyOn(fs, 'stat').mockImplementation((async (file: any, options?: any) => {
     const result = await stat(file, options);
-    if (String(file) === sentinel) return Object.assign(result, { size: 2 * 1024 * 1024 * 1024 - 10 });
+    if (String(file) === sentinel) return Object.assign(result, { size: 5 * 1024 * 1024 * 1024 - 10 });
     return result;
   }) as typeof fs.stat);
   const outcomes = await Promise.allSettled([

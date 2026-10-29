@@ -6,9 +6,12 @@ import { MAX_PROVIDER_MESSAGE_CHARS } from '../../../../contracts/messaging/prov
 import { SKILL_ID_PATTERN } from '../../../../contracts/skills.js';
 import { BROWSER_PICKUP_MAX_ATTEMPTS } from '../../../../contracts/recovery.js';
 import { attachmentSchema } from './attachments/index.js';
+import { MAX_ATTACHMENTS } from './attachments/contracts.js';
 
 export const inputArgs = z.object({
   projectId: z.string().uuid().nullable().optional(),
+  /** The first project-plan turn may inspect files but must not mutate the project. */
+  projectPlanPhase: z.literal('draft').optional(),
   automation: z.enum(['off', 'goal', 'loop']).optional(),
   loopAfterTurn: z.boolean().optional(),
   objective: z.string().trim().max(16000).optional(),
@@ -16,7 +19,7 @@ export const inputArgs = z.object({
   authoredSource: z.enum(['text', 'objective', 'none']).optional(),
   stages: z.array(z.string().trim().min(1).max(16000)).max(11).optional(),
   images: z.array(z.object({ name: z.string().min(1).max(110), dataUrl: z.string().max(512100).regex(/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/) })).max(MAX_INPUT_IMAGES).optional(),
-  attachments: z.array(attachmentSchema).max(20).optional(),
+  attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
   /** User selected the next exact local-tool response, even before the first call. */
   delivery: z.literal('tool').optional(),
   attachmentDelivery: z.literal('tool').optional(),

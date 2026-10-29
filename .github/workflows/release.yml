@@ -3,6 +3,11 @@ name: Release candidate
 on:
   workflow_call:
     inputs:
+      ref:
+        description: Git ref to build (defaults to the caller's commit)
+        type: string
+        required: false
+        default: ''
       platforms:
         description: all or common
         type: string
@@ -20,6 +25,8 @@ jobs:
       files: ${{ steps.targets.outputs.files }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -40,6 +47,8 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.include) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -193,6 +202,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

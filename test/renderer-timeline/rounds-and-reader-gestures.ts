@@ -20,15 +20,23 @@ it('titles a finished round with the native step that ends it, by position and i
 
 it('names a round still in progress after its latest real action, until prose ends it', async () => {
   // The turn still works and nothing follows the step: it is a note, whatever it says, not a recap.
-  const { w, append } = await boot([toolCall(2, 'call-a'), toolCall(3, 'call-b'), nativeStep(4, 'Executed exact command check')]);
-  expect(latestCallTitle(w.document)).toBeTruthy();
-  expect(groupTitle(w.document)).toBe(latestCallTitle(w.document));
-  const pending = [...w.document.querySelectorAll<HTMLElement>('#timeline .tool-group-body .thinking-line')];
-  expect(pending.map(line => line.textContent)).toEqual(['Executed exact command check']);
-  expect(pending[0]!.querySelector('.ph-check-circle')).toBeNull();
-  // Once prose follows, the same step ends a finished round and titles it.
-  await append([{ kind: 'assistant_message', seq: 5, time: T0 + 5000, source: 'extension', messageId: 'after-round', message: text('Done.'), final: true, state: 'final' }]);
-  expect(groupTitle(w.document)).toBe('Executed exact command check');
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(T0);
+  try {
+    const { w, append } = await boot([toolCall(2, 'call-a'), toolCall(3, 'call-b'), nativeStep(4, 'Executed exact command check')]);
+    vi.setSystemTime(T0 + 10_000);
+    await append([]);
+    expect(latestCallTitle(w.document)).toBeTruthy();
+    expect(groupTitle(w.document)).toBe(latestCallTitle(w.document));
+    const pending = [...w.document.querySelectorAll<HTMLElement>('#timeline .tool-group-body .thinking-line')];
+    expect(pending.map(line => line.textContent)).toEqual(['Executed exact command check']);
+    expect(pending[0]!.querySelector('.ph-check-circle')).toBeNull();
+    // Once prose follows, the same step ends a finished round and titles it.
+    await append([{ kind: 'assistant_message', seq: 5, time: T0 + 5000, source: 'extension', messageId: 'after-round', message: text('Done.'), final: true, state: 'final' }]);
+    expect(groupTitle(w.document)).toBe('Executed exact command check');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('names a finished round that ends in a call after that call, and keeps the globe on a step before its calls', async () => {

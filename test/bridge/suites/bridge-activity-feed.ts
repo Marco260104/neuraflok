@@ -447,7 +447,7 @@ describe('activity feed', () => {
     const entry = reply.body.entries[0];
     expect(entry.turnId).toBe('turn-42');
     expect(entry.attribution).toBe('request_id');
-    expect(entry.summary.title).toBe('Edited src/main.ts');
+    expect(entry.summary.title).toBe('Edited main.ts in src');
     expect(entry.summary.metric).toBe('+18 −4');
     expect(entry.generating).toBeUndefined();
     expect(entry).not.toHaveProperty('args');
@@ -466,7 +466,7 @@ describe('activity feed', () => {
     expect(reply.body.stream[2]).toMatchObject({
       turnId: 'turn-42',
       tool: 'apply_patch',
-      summary: { title: 'Edited src/main.ts', metric: '+18 −4' }
+      summary: { title: 'Edited main.ts in src', metric: '+18 −4' }
     });
     expect(reply.body.stream[2]).not.toHaveProperty('args');
     expect(reply.body.stream[2]).not.toHaveProperty('result');

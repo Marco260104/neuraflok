@@ -1,5 +1,6 @@
 import { createProviderPageExecutor } from './execution/router.js';
 import { createProviderTabs } from './provider-catalog.js';
+import { deepseekConversationPageUrl } from './deepseek-session.js';
 import { createProviderSessionObserver } from './session-observer.js';
 
 export function createProviderRuntime({ chrome, activeTabs, call, tabReply, maintain }) {
@@ -116,10 +117,15 @@ export function createProviderRuntime({ chrome, activeTabs, call, tabReply, main
 
     const candidates = await queryProviderTabs(provider);
     let savedTabId = null;
+    let savedUrl = null;
     try {
       const rows = (await chrome.storage.local.get('webProviderTabs')).webProviderTabs;
       const row = rows && typeof rows === 'object' ? rows[conversationId] : null;
       if (row?.provider === provider && Number.isInteger(row.tab)) savedTabId = row.tab;
+      if (provider === 'deepseek' && row?.provider === provider && typeof row.url === 'string') {
+        savedUrl = deepseekConversationPageUrl(row.url);
+        if (!savedUrl) return false;
+      }
     } catch {}
     if (savedTabId !== null) {
       candidates.sort((left, right) => Number(right.id === savedTabId) - Number(left.id === savedTabId));
@@ -142,6 +148,42 @@ export function createProviderRuntime({ chrome, activeTabs, call, tabReply, main
       if (!current || !providerTabs.usable(current) || !providerTabs.matches(current, provider)) continue;
       try {
         await chrome.tabs.update(candidate.id, { active: true });
+        if (Number.isInteger(current.windowId)) await chrome.windows.update(current.windowId, { focused: true });
+        return true;
+      } catch {}
+    }
+
+    // The app can restart while its persistent browser profile still retains
+    // the provider's local conversation address. Recreate that exact page
+    // instead of leaving the user on the provider home page or reporting a
+    // missing session. Never navigate an unrelated live tab to this address.
+    if (provider === 'deepseek' && savedUrl) {
+      let tab = candidates.find(candidate =>
+        providerTabs.usable(candidate) && deepseekConversationPageUrl(candidate.url || candidate.pendingUrl) === savedUrl);
+      if (!tab) {
+        try {
+          tab = await createProviderTab(savedUrl, false);
+          if (!Number.isInteger(tab?.id)) return false;
+          if (!await waitForTabReady(tab.id)) return false;
+          if (!await restoreDeepseekTab(tab.id)) return false;
+          tab = await chrome.tabs.get(tab.id).catch(() => null);
+        } catch {
+          return false;
+        }
+      }
+      if (!tab || !providerTabs.usable(tab) || deepseekConversationPageUrl(tab.url || tab.pendingUrl) !== savedUrl) return false;
+      const snapshot = await tabReply(tab.id, { type: 'neuraflok-deepseek-snapshot' }).catch(() => null);
+      if (!snapshot || snapshot.signedIn !== true || snapshot.hasConversation !== true ||
+          (snapshot.conversationId && snapshot.conversationId !== conversationId)) return false;
+      const current = await chrome.tabs.get(tab.id).catch(() => null);
+      if (!current || !providerTabs.usable(current) || deepseekConversationPageUrl(current.url || current.pendingUrl) !== savedUrl) return false;
+      try {
+        const rows = (await chrome.storage.local.get('webProviderTabs')).webProviderTabs;
+        await chrome.storage.local.set({ webProviderTabs: {
+          ...(rows && typeof rows === 'object' ? rows : {}),
+          [conversationId]: { provider, tab: current.id, url: savedUrl, at: Date.now() }
+        } });
+        await chrome.tabs.update(current.id, { active: true });
         if (Number.isInteger(current.windowId)) await chrome.windows.update(current.windowId, { focused: true });
         return true;
       } catch {}
@@ -184,6 +226,9 @@ export function createProviderRuntime({ chrome, activeTabs, call, tabReply, main
       deepseekPages.set(tab.id, { at: Date.now() });
       void maintain(true).catch(() => undefined);
       return { ok: true };
+    },
+    async 'neuraflok-deepseek-attachment-uploaded'(message, sender) {
+      return executor.reportAttachmentUploaded(message, sender);
     },
     async 'neuraflok-provider-present'(message, sender) {
       const tab = sender?.tab;

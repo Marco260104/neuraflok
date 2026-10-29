@@ -62,6 +62,20 @@ it('does not mistake search or sign-in controls for a usable provider session', 
   dom.window.close();
 });
 
+it('refreshes an existing web-provider adapter in place after SPA reinjection', () => {
+  const { dom, api, window } = mount('chat.qwen.ai');
+  const previousSetter = vi.fn();
+  api.setValue = previousSetter;
+
+  window.eval(domSource);
+
+  expect((window as any).NEURAFLOK_PROVIDER).toBe(api);
+  expect(api.setValue).not.toBe(previousSetter);
+  api.setValue(api.composer(), 'fresh adapter after route change');
+  expect(api.composer().value).toBe('fresh adapter after route change');
+  dom.window.close();
+});
+
 it('reuses an existing companion mark after the page adapter is updated', () => {
   const { dom, window } = mount('chat.qwen.ai', '<div id="neural-jam-provider-mark">Old mark</div>');
   const listeners: Array<(message: any, sender: unknown, sendResponse: (value: unknown) => void) => unknown> = [];

@@ -1,8 +1,10 @@
 import type { LocalProject } from '../../../contracts/workspace/projects.js';
 import type { SessionSummary } from '../../../contracts/session.js';
+import { providerForConversationId } from '../../../contracts/web-providers.js';
 import { $ } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 import { ensureSelectedChatWarmup } from './chat-composer-ready.js';
+import { recordChatSelection } from './chat-turn-state.js';
 
 interface Runtime {
   get sessions(): SessionSummary[];
@@ -36,14 +38,33 @@ interface Runtime {
   restoreDraft(): void;
   paintJumpLatest(): void;
   paintSessions(): void;
+  paintAutomationSwitch(): void;
   paintDetail(scrolling?: boolean): void;
   paintHandoff(): void;
   loadDetail(): void;
   refreshInputQueue(): void;
+  stopProjectTurn(sessionId: string, previousProjectId: string | null): Promise<void>;
+}
+
+export function shouldStopDeepseekTurnOnProjectSwitch(
+  previousProjectId: string | null,
+  nextProjectId: string | null,
+  session: SessionSummary | undefined
+): boolean {
+  return previousProjectId !== nextProjectId && (previousProjectId !== null || nextProjectId !== null) &&
+    session?.origin?.kind !== 'worker' && session?.origin?.kind !== 'helper' &&
+    !!session?.conversationId && providerForConversationId(session.conversationId) === 'deepseek';
 }
 
 export function createChatNavigation(runtime: Runtime) {
   let timelineScrollTop: number | null = null;
+
+  function stopLeavingProjectTurn(sessionId: string | null, previousProjectId: string | null,
+    nextProjectId: string | null): void {
+    if (!sessionId || !shouldStopDeepseekTurnOnProjectSwitch(previousProjectId, nextProjectId,
+      runtime.sessions.find(row => row.id === sessionId))) return;
+    void runtime.stopProjectTurn(sessionId, previousProjectId).catch(() => undefined);
+  }
 
   function showView(name: string): void {
     const pane = $('chatBody');
@@ -71,6 +92,14 @@ export function createChatNavigation(runtime: Runtime) {
 
   function selectSession(id: string): void {
     const ownerChanged = id !== runtime.selectedId;
+    const previousId = runtime.selectedId;
+    const previousProjectId = runtime.selectedProjectId;
+    const selected = runtime.sessions.find(row => row.id === id);
+    const parent = selected?.origin?.kind === 'worker' ? selected.origin.fromSessionId : null;
+    const nextProjectId = runtime.projectGroup(parent
+      ? runtime.sessions.find(row => row.id === parent)?.projectId
+      : selected?.projectId);
+    stopLeavingProjectTurn(previousId, previousProjectId, nextProjectId);
     runtime.rememberDraft();
     runtime.selectionGeneration++;
     runtime.replaceComposerDraft();
@@ -78,16 +107,14 @@ export function createChatNavigation(runtime: Runtime) {
     runtime.resetComposerQueue();
     runtime.newChatSelected = false;
     runtime.selectedId = id;
+    recordChatSelection(id, runtime.selectionGeneration);
     showView('timeline');
     runtime.refreshBackgroundProcesses();
-    const selected = runtime.sessions.find(row => row.id === id);
     runtime.applySessionModel(id, selected, runtime.selectionGeneration);
-    const parent = selected?.origin?.kind === 'worker' ? selected.origin.fromSessionId : null;
     if (parent) runtime.expandedWorkers.add(parent);
-    runtime.selectedProjectId = runtime.projectGroup(parent
-      ? runtime.sessions.find(row => row.id === parent)?.projectId
-      : selected?.projectId);
+    runtime.selectedProjectId = nextProjectId;
     if (runtime.selectedProjectId) runtime.expandedProjects.add(runtime.selectedProjectId);
+    runtime.paintAutomationSwitch();
     ui($<HTMLTextAreaElement>('chatInput'), 'placeholder', () => t('Ask anything…'));
     runtime.restoreDraft();
     if (ownerChanged) {
@@ -95,6 +122,9 @@ export function createChatNavigation(runtime: Runtime) {
       $('timeline').setAttribute('inert', '');
       $('timeline').setAttribute('aria-busy', 'true');
     }
+    // Mark the history handshake before repainting the sidebar so stale
+    // provider activity cannot flash as a live response while the chat opens.
+    ensureSelectedChatWarmup();
     runtime.paintSessions();
     if (ownerChanged) {
       runtime.paintDetail(false);
@@ -102,10 +132,10 @@ export function createChatNavigation(runtime: Runtime) {
     }
     runtime.loadDetail();
     runtime.refreshInputQueue();
-    ensureSelectedChatWarmup();
   }
 
   function selectNewChat(projectId: string | null = null): void {
+    stopLeavingProjectTurn(runtime.selectedId, runtime.selectedProjectId, projectId);
     runtime.rememberDraft();
     runtime.selectionGeneration++;
     runtime.replaceComposerDraft();
@@ -114,7 +144,9 @@ export function createChatNavigation(runtime: Runtime) {
     runtime.resetComposerQueue();
     runtime.newChatSelected = true;
     runtime.selectedId = null;
+    recordChatSelection(null, runtime.selectionGeneration);
     runtime.selectedProjectId = projectId;
+    runtime.paintAutomationSwitch();
     runtime.resetNewChatTimeline();
     runtime.refreshBackgroundProcesses();
     if (projectId) runtime.expandedProjects.add(projectId);

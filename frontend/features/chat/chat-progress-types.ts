@@ -3,10 +3,13 @@ import type { GoalWait } from '../../../contracts/automation/goal-progress.js';
 import type { AppState } from '../../../contracts/types.js';
 import type { Badge } from './chat-session-row.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
+import type { PendingNewProjectInput } from './chat-warmup-inputs.js';
 
 export interface ChatProgressRuntime {
   api: Pick<typeof window.api, 'runningProcesses' | 'runningTools' | 'stopProcess'>;
   selectedId: string | null;
+  selectedProjectId: string | null;
+  pendingNewInput: PendingNewProjectInput | null;
   selectionGeneration: number;
   controlledSessionId: string | null;
   controlledSelection: number;

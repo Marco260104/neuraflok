@@ -105,7 +105,7 @@
   animation: surface-in 220ms cubic-bezier(.16, 1, .3, 1);
 }
 .wizard > .step.is-open > .step-mark { display: none; }
-.wizard > .step.is-open h3 { color: var(--ink); margin: 0; font-size: calc(20px * var(--text-scale, 1)); font-weight: 650; letter-spacing: -.01em; }
+.wizard > .step.is-open h3 { color: var(--ink); margin: 0; font-size: calc(17px * var(--text-scale, 1)); font-weight: 600; letter-spacing: -.01em; }
 .wizard > .step.is-open > .step-body:has(> .step-art) {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 400px); column-gap: 36px; align-content: start;
 }
@@ -140,7 +140,7 @@
   padding: 4px 0 32px;
 }
 .setup-board > .setup-heading { grid-column: 1 / -1; margin-bottom: 8px; }
-.setup-board > .setup-heading h1 { font-size: calc(22px * var(--text-scale, 1)); letter-spacing: -.03em; }
+.setup-board > .setup-heading h1 { font-size: calc(18px * var(--text-scale, 1)); letter-spacing: -.02em; }
 .setup-board > .setup-track {
   grid-column: 1;
   grid-row: 2;

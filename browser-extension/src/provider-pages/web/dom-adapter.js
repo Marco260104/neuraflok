@@ -99,7 +99,7 @@
   const newChat = () => [...document.querySelectorAll('a[href], button, [role="button"]')].filter(visible)
     .find((node) => /new chat|new conversation|nuevo chat|nueva conversación|nouveau chat|neuer chat|新建聊天|新建会话|新对话|新對話|新しいチャット|새 채팅/i.test(labelOf(node))) || null;
 
-  globalThis.NEURAFLOK_PROVIDER = {
+  const api = {
     provider,
     composer,
     sendButton,
@@ -153,4 +153,9 @@
       return false;
     }
   };
+  // Re-injection happens on SPA route changes. Keep the adapter identity that
+  // the already-installed delivery listener captured, and update its methods.
+  const current = globalThis.NEURAFLOK_PROVIDER;
+  if (current && current.provider === provider) Object.assign(current, api);
+  else globalThis.NEURAFLOK_PROVIDER = api;
 })();

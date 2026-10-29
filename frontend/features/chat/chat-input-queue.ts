@@ -12,6 +12,7 @@ import { createQueuedTaskList } from './queued-task-list.js';
 import { createChatInputRows } from './chat-input-rows.js';
 import { adoptOpeningSession, markComposerWarmupOpening } from './chat-composer-ready.js';
 import { isWarmupInput } from './chat-web-warmup.js';
+import { projectAuthoredInputs } from './chat-warmup-inputs.js';
 
 export interface ChatInputQueueRuntime {
   api: Pick<typeof window.api, 'cancelInput' | 'editQueuedInput' | 'getSession' | 'listInputs' | 'listPausedHelpers' | 'reorderQueuedInputs' | 'retryHelper' | 'retryInputBrowser' | 'sendInput'>;
@@ -121,6 +122,18 @@ export function createChatInputQueue(runtime: Runtime) {
   }
   function paintPendingInputs(): void {
     const all = runtime.pendingComposerInputs;
+    const selected = runtime.sessions.find(row => row.id === runtime.selectedId);
+    const inheritedProjectId = selected?.origin?.kind === 'worker' && selected.origin.fromSessionId
+      ? runtime.sessions.find(row => row.id === selected.origin?.fromSessionId)?.projectId
+      : undefined;
+    const activeProjectId = selected?.projectId ?? inheritedProjectId ?? runtime.selectedProjectId;
+    const internalProjectMessageIds = new Set(projectAuthoredInputs(
+      [...runtime.startingInputs.values(), ...all],
+      runtime.selectedId,
+      runtime.projectGroup(activeProjectId) ? activeProjectId : null,
+      runtime.selectionGeneration,
+      runtime.pendingNewInput,
+    ).map(entry => entry.id));
     const belongsToSelection = (entry: InputEntry): boolean =>
       runtime.selectedId === null
         ? runtime.pendingNewInput?.generation === runtime.selectionGeneration &&
@@ -156,6 +169,7 @@ export function createChatInputQueue(runtime: Runtime) {
               : runtime.events.length > 0))));
     const rows = all.filter(
       (entry) =>
+        !internalProjectMessageIds.has(entry.id) &&
         !runtime.dismissedInputNotices.has(entry.id) &&
         !(!notice(entry) && anchored(entry)) &&
         !(
@@ -177,7 +191,7 @@ export function createChatInputQueue(runtime: Runtime) {
     rows.push(...visibleStartingComposerInputs(
       runtime.startingInputs.values(),
       belongsToSelection,
-      new Set(all.map(entry => entry.id)),
+      new Set([...all.map(entry => entry.id), ...internalProjectMessageIds]),
     ));
     const host = $('inputQueue');
     const previous = new Map(

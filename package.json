@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A desktop coding workspace for signed-in DeepSeek, Kimi, Qwen, and Z AI sessions with approved local tools.",
   "license": "MIT",
-  "author": "NEURAFLOK contributors",
+  "author": "Marco Torres (Marco260104)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MARCO260104/neuraflok.git"
@@ -23,7 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify": "npm run verify:ci",
-    "verify:ci": "npm run rg && npm run verify:privacy && npm run verify:notices && npm run typecheck && node -e \"require('electron')\" && vitest run --exclude test/mcp-shutdown.test.ts --exclude test/computer.test.ts && vitest run --maxWorkers=1 test/computer.test.ts test/mcp-shutdown.test.ts",
+    "verify:ci": "npm run rg && npm run verify:privacy && npm run verify:notices && npm run typecheck && node -e \"require('electron')\" && vitest run --maxWorkers=8 --exclude test/mcp-shutdown.test.ts --exclude test/computer.test.ts && vitest run --maxWorkers=1 test/computer.test.ts test/mcp-shutdown.test.ts",
     "verify:notices": "node scripts/generate-third-party-notices.mjs --check && node scripts/package-native-sources.mjs --check",
     "verify:privacy": "node scripts/verify-public-history.mjs",
     "verify:ui": "node scripts/verify-ui.mjs",
@@ -70,6 +70,7 @@
     "marked": "18.0.14",
     "node-pty": "1.2.0-beta.15",
     "pdfjs-dist": "^6.3.289",
+    "qrcode": "^1.5.4",
     "quickjs-emscripten-core": "0.32.0",
     "sharp": "0.35.4",
     "smol-toml": "1.9.0",
@@ -83,6 +84,7 @@
     "@types/js-yaml": "4.0.9",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.19.0",
+    "@types/qrcode": "^1.5.6",
     "@types/ws": "8.18.1",
     "axe-core": "4.13.0",
     "electron": "44.3.0",

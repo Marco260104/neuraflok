@@ -7,7 +7,10 @@ import { openRowMenu, rowMenuOpenFor, toggleRowMenu } from './row-menu.js';
 import { SIDEBAR_PROJECT_SCOPE } from './sidebar/order-preferences.js';
 import { pinnedSortScope } from './sidebar/pins.js';
 
-export function createChatSessionNavigationComposition(bindings: typeof import('./chat-orchestrator.js').chatRuntimeBindings) {
+export function createChatSessionNavigationComposition(
+  bindings: typeof import('./chat-orchestrator.js').chatRuntimeBindings,
+  suppressWarmupWithoutPendingMessage: () => boolean = () => false,
+) {
   let chatSessionList: ReturnType<typeof createChatSessionList>;
   const chatSessionRowRuntime = {
     get selectedId() { return bindings.selectedId; },
@@ -19,6 +22,8 @@ export function createChatSessionNavigationComposition(bindings: typeof import('
     set renaming(value: typeof bindings.renaming) { bindings.renaming = value; },
     state: () => bindings.deps.state(),
     sessionWorking: bindings.sessionWorking,
+    suppressWarmupActivity: (summary: SessionSummary) =>
+      summary.id === bindings.selectedId && suppressWarmupWithoutPendingMessage(),
     isUnseen: (summary: SessionSummary) => bindings.sidebarCompletion?.isUnseen(summary) ?? false,
     pinnable: bindings.pinnable,
     pinnedChat: bindings.pinnedChat,

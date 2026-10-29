@@ -7,12 +7,13 @@
               <img class="sidebar-wordmark" data-brand-wordmark alt="NEURAFLOK" />
             </button>
             <div class="sidebar-brand-actions">
+              <button class="btn sidebar-brand-action" id="workspaceRefresh" type="button" title="Refresh projects and chats" aria-label="Refresh projects and chats"><i class="ico ph ph-arrow-clockwise" aria-hidden="true"></i></button>
               <button class="btn sidebar-brand-action" id="searchChatsButton" type="button" aria-haspopup="dialog" aria-controls="searchDialog" title="Search chats" aria-label="Search chats"><i class="ico ph ph-magnifying-glass" aria-hidden="true"></i></button>
             </div>
           </div>
         </div>
         <div class="sidebar-primary" id="sidebarPrimary">
-          <button class="btn new-chat" id="newChat" type="button"><i class="ico ph ph-pencil-simple" aria-hidden="true"></i><span>New chat</span></button>
+          <button class="btn new-chat" id="newChat" type="button"><i class="ico ph ph-plus" aria-hidden="true"></i><span>New chat</span></button>
           <button class="btn sidebar-primary-link" id="sidebarSkills" data-sidebar-page="skills" type="button"><i class="ico ph ph-cube" aria-hidden="true"></i>Skills</button>
         </div>
       <!-- Settings search: while it holds a query, its results take the page list's place. -->
@@ -56,7 +57,6 @@
                   <span class="sidebar-session-label"><svg class="disclosure-chevron sidebar-section-chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5"></path></svg>Chats</span>
                   <span class="acts">
                     <button class="btn" id="newChatInChats" type="button" title="New chat" aria-label="New chat"><i class="ico ph ph-plus" aria-hidden="true"></i></button>
-                    <button class="btn" id="chatRefresh" type="button" title="Refresh chats" aria-label="Refresh chats"><i class="ico ph ph-arrow-clockwise" aria-hidden="true"></i></button>
                   </span>
                 </summary>
                 <div id="chatList"><p class="empty" role="status">Loading chats…</p></div>
@@ -67,6 +67,9 @@
         </section>
 
         <div class="sidebar-bottom">
+          <button class="sidebar-settings sidebar-support" id="supportProject" data-workspace-page="donation" type="button" title="Support the project" aria-label="Support the project">
+            <i class="ico ph ph-hand-heart" aria-hidden="true"></i><span>Support the project</span>
+          </button>
           <button class="sidebar-settings" id="workspaceSettings" type="button" aria-haspopup="dialog" aria-controls="quickSettingsDialog" aria-expanded="false" title="Settings" aria-label="Settings">
             <i class="ico ph ph-gear-six" aria-hidden="true"></i><span>Settings</span>
           </button>

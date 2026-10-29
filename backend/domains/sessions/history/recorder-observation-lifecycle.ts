@@ -6,6 +6,7 @@ type ObservationEventBase = {
   source: 'extension';
   authoredAt?: number;
   turnId?: string;
+  internalWarmup?: true;
   agent?: string;
 };
 

@@ -30,13 +30,14 @@ it('keeps project keyboard focus across activity repaint without taking composer
   expect(listSessions).toHaveBeenCalledTimes(reads + 1);
 });
 
-it('saves provider selection and only enables signed-in sessions', async () => {
+it('keeps untested providers visibly upcoming and unselectable even when their sessions are detected', async () => {
   const openWebProvider = vi.fn(async () => ({ ok: true, data: true }));
   const mounted = await mountChat({}, [], { openWebProvider });
   const doc = mounted.window.document;
   const active = doc.getElementById('webProvider') as HTMLSelectElement;
   const qwenUse = doc.querySelector<HTMLButtonElement>('[data-select-provider="qwen"]')!;
   expect(qwenUse.disabled).toBe(true);
+  expect(qwenUse.textContent).toBe('Coming soon');
 
   const seen = structuredClone(mounted.state);
   seen.bridge = {
@@ -51,30 +52,42 @@ it('saves provider selection and only enables signed-in sessions', async () => {
   };
   mounted.push(seen);
   expect(doc.getElementById('providerStatusDeepseek')!.textContent).toBe('Session active');
-  expect(doc.getElementById('providerStatusQwen')!.textContent).toBe('Sign in required');
+  for (const id of ['kimi', 'qwen', 'glm']) {
+    expect(doc.getElementById(`providerStatus${id[0]!.toUpperCase()}${id.slice(1)}`)!.textContent).toBe('Coming soon');
+    expect(doc.querySelector<HTMLButtonElement>(`[data-select-provider="${id}"]`)!.disabled).toBe(true);
+    expect(doc.querySelector<HTMLButtonElement>(`[data-open-provider="${id}"]`)).toBeNull();
+  }
   expect(qwenUse.disabled).toBe(true);
   expect(active.querySelector<HTMLOptionElement>('option[value="kimi"]')!.disabled).toBe(true);
 
   const signedIn = structuredClone(seen);
   signedIn.bridge.webProviders.qwen = { open: true, signedIn: true, tabId: 22, lastSeenAt: Date.now() };
   mounted.push(signedIn);
-  // Keep the fake IPC reply aligned with the latest live bridge snapshot after saving the provider.
-  mounted.state.bridge = signedIn.bridge;
-  expect(qwenUse.disabled).toBe(false);
+  expect(qwenUse.disabled).toBe(true);
+  expect(qwenUse.textContent).toBe('Coming soon');
   qwenUse.click();
-  await vi.waitFor(() => expect(mounted.calls.at(-1)?.ui?.webProvider).toBe('qwen'));
-  expect(doc.getElementById('chatModelPickerName')!.textContent).toBe('Qwen Web');
-  expect(doc.getElementById('executorQuickSelect')).toBeNull();
-  expect(doc.getElementById('providerQuickSelect')).toBeNull();
+  await vi.waitFor(() => expect(mounted.calls).toEqual([]));
+  expect(active.value).toBe('deepseek');
 
   const qwenModel = doc.querySelector<HTMLButtonElement>('[data-model-pick-web="qwen"]')!;
-  expect(qwenModel.disabled).toBe(false);
+  expect(qwenModel.disabled).toBe(true);
   qwenModel.click();
-  await vi.waitFor(() => expect(mounted.calls.at(-1)?.ui?.chatExecutor).toBe('web'));
+  expect(mounted.calls).toEqual([]);
+  const qwenConnect = doc.querySelector<HTMLButtonElement>('[data-model-connect="qwen"]')!;
+  expect(qwenConnect.disabled).toBe(true);
+  expect(qwenConnect.textContent).toBe('Coming soon');
+  expect(openWebProvider).not.toHaveBeenCalled();
+});
 
-  doc.querySelector<HTMLButtonElement>('[data-open-provider="glm"]')!.click();
-  await vi.waitFor(() => expect(openWebProvider).toHaveBeenCalledWith('glm', 'connect'));
-
+it('replaces a saved upcoming provider with DeepSeek in both provider selectors', async () => {
+  const mounted = await mountChat();
+  const state = structuredClone(mounted.state);
+  state.config.ui.webProvider = 'qwen';
+  mounted.push(state);
+  const doc = mounted.window.document;
+  expect((doc.getElementById('webProvider') as HTMLSelectElement).value).toBe('deepseek');
+  expect((doc.getElementById('browserWebProvider') as HTMLSelectElement).value).toBe('deepseek');
+  expect(doc.getElementById('chatModelPickerName')!.textContent).toBe('DeepSeek Web');
 });
 
 it('disconnects a signed-in web model from the chat picker', async () => {
@@ -234,7 +247,7 @@ it('opens provider connection details from the capsule without launching the MCP
   expect(doc.querySelector<HTMLElement>('.app')!.dataset.screen).toBe('chat');
 });
 
-it('opens a selected provider from the internal browser setup step', async () => {
+it('only opens the available provider from setup and rejects upcoming providers', async () => {
   const opened: Array<[string, string]> = [];
   const mounted = await mountChat({}, [], {
     openWebProvider: (provider: string, mode: string) => {
@@ -259,8 +272,11 @@ it('opens a selected provider from the internal browser setup step', async () =>
   const provider = doc.getElementById('browserWebProvider') as HTMLSelectElement;
   provider.value = 'kimi';
   provider.dispatchEvent(new mounted.window.Event('change', { bubbles: true }));
+  expect(provider.value).toBe('deepseek');
+  expect(opened).toEqual([]);
+  expect(doc.querySelector<HTMLButtonElement>('[data-setup-open-provider="kimi"]')!.disabled).toBe(true);
   doc.getElementById('openBrowserProvider')!.click();
-  expect(opened).toEqual([['kimi', 'connect']]);
+  expect(opened).toEqual([['deepseek', 'activate']]);
 });
 
 it('keeps the provider capsule tied to the signed-in page', async () => {
@@ -277,6 +293,28 @@ it('keeps the provider capsule tied to the signed-in page', async () => {
   mounted.push(signedIn);
   expect(doc.getElementById('sidebarConnection')!.getAttribute('aria-label')).toBe('System active · DeepSeek');
   expect(doc.getElementById('sidebarConnection')!.classList.contains('is-connected')).toBe(true);
+});
+
+it('refreshes the visible connection capsule when provider presence changes between app snapshots', async () => {
+  const mounted = await mountChat();
+  const doc = mounted.window.document;
+  const next = structuredClone(mounted.state);
+  next.config.ui = { ...next.config.ui, chatExecutor: 'web', webProvider: 'deepseek' };
+  next.bridge = {
+    ...next.bridge,
+    present: true,
+    paired: true,
+    webProviders: { ...emptyWebProviderPresence(), deepseek: { open: true, signedIn: false, tabId: 21, lastSeenAt: Date.now() } }
+  };
+  mounted.push(next);
+  const capsule = doc.getElementById('sidebarConnection')!;
+  const label = doc.getElementById('sidebarConnectionLabel')!;
+  expect(label.textContent).toBe('DeepSeek · Sign in');
+
+  next.bridge.webProviders.deepseek = { open: true, signedIn: true, tabId: 21, lastSeenAt: Date.now() };
+  await vi.waitFor(() => expect(capsule.getAttribute('aria-label')).toBe('System active · DeepSeek'));
+  expect(capsule.classList.contains('is-connected')).toBe(true);
+  expect(label.textContent).toBe('');
 });
 
 it('keeps the Settings footer action visible while settings are open', async () => {

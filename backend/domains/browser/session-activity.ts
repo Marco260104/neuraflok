@@ -4,7 +4,7 @@ import { CHAT_ACTIVE_MS, type SessionSummary } from '../../../contracts/session.
 import { providerForConversationId } from '../../../contracts/web-providers.js';
 import { isChatBlocked } from '../sessions/continuity/blocked-chats.js';
 import { apiChatFlightTurnId } from '../providers/api-chat.js';
-import { webProviderFlightTurnId } from '../providers/browser-chat.js';
+import { webProviderAuthoredFlightTurnId } from '../providers/browser-chat.js';
 import { runningToolProgress } from '../../infrastructure/tool-gateway/protocol/call-context.js';
 
 export interface ActivityGrant {
@@ -28,7 +28,7 @@ export function activityDeadline(grant: Pick<ActivityGrant, 'model' | 'evidenceA
 export function sessionActivityExpiresAt(summary: SessionSummary): number | null | undefined {
   const id = summary.conversationId;
   if (id && isChatBlocked(id)) return null;
-  const flightTurn = webProviderFlightTurnId(summary.id) ?? apiChatFlightTurnId(summary.id);
+  const flightTurn = webProviderAuthoredFlightTurnId(summary.id) ?? apiChatFlightTurnId(summary.id);
   if (flightTurn) return Date.now() + 600_000;
   if (id && (providerForConversationId(id) || isApiConversationId(id))) return null;
   const grant = id ? activeUntil.get(id) : undefined;

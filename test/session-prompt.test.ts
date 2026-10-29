@@ -4,6 +4,7 @@ import path from 'node:path';
 import { defaultConfig, initConfigPath, saveConfig } from '../backend/infrastructure/settings/config.js';
 import { initDurableStore, resetDurableForTests } from '../backend/persistence/durable.js';
 import { addProject, assignSessionProject } from '../backend/domains/workspace/projects.js';
+import { buildProjectContextTree } from '../backend/domains/workspace/projects/context-tree.js';
 import { createSession, initSessionStore, rebindSession, resetSessionStoreForTests } from '../backend/domains/sessions/history/store.js';
 import { fitSessionPrompt, prepareProviderSessionPrompt, prepareProviderSkillFollowup, prepareSessionPrompt } from '../backend/domains/sessions/input/prompt.js';
 import { MAX_PROVIDER_MESSAGE_CHARS, prependUserPrompt, userPromptText } from '../contracts/messaging/provider-message-envelope.js';
@@ -143,17 +144,32 @@ it('reads only the linked folder, refreshes its contents, and leaves unfiled cha
 });
 
 it('builds a provider-native workspace context without the old MCP-client prompt or frame', async () => {
-  await fs.mkdir(path.join(directory, 'provider-project'), { recursive: true });
+  await fs.mkdir(path.join(directory, 'provider-project', 'src'), { recursive: true });
+  await fs.mkdir(path.join(directory, 'provider-project', 'node_modules', 'sample'), { recursive: true });
   await fs.writeFile(path.join(directory, 'provider-project', 'AGENTS.md'), 'Keep the existing architecture intact.');
+  await fs.writeFile(path.join(directory, 'provider-project', 'src', 'index.ts'), 'export const ready = true;');
+  await fs.writeFile(path.join(directory, 'provider-project', 'node_modules', 'sample', 'index.js'), 'private dependency');
+  await fs.writeFile(path.join(directory, 'provider-project', '.env'), 'PRIVATE_TREE_NAME_ONLY');
+  await fs.writeFile(path.join(directory, 'provider-project', 'id_rsa'), 'PRIVATE_KEY_NAME_ONLY');
   const project = await addProject(path.join(directory, 'provider-project'));
   const prompt = await prepareProviderSessionPrompt(
     'Review the project and explain the safest next change.',
     { projectId: project.id },
     { maxChars: 72_000, maxBytes: 288_000 }
   );
-  expect(prompt).toContain('<WORKSPACE_CONTEXT>');
-  expect(prompt).toContain('You are an assistant working with the user in their selected workspace.');
+  expect(prompt).toContain('<ASSISTANT_INSTRUCTIONS>');
+  expect(prompt).toContain('FINAL RESPONSE STYLE: Answer the user\'s current question naturally and directly');
+  expect(prompt).toContain('For a structured answer or project overview with several features, use real Markdown headings and bullet lists');
+  expect(prompt).toContain('You are an assistant working with the user in their selected project.');
+  expect(prompt).toContain('Application-generated setup acknowledgements and hidden context checks may appear in earlier provider messages.');
+  expect(prompt).not.toContain('NEURAFLOK_READY');
   expect(prompt).toContain('# AGENTS.md instructions for /work/provider-project');
+  expect(prompt).toContain('PROJECT FILE TREE (names only; bounded)');
+  expect(prompt).toContain('src/');
+  expect(prompt).toContain('index.ts');
+  expect(prompt).not.toContain('node_modules');
+  expect(prompt).not.toContain('PRIVATE_TREE_NAME_ONLY');
+  expect(prompt).not.toContain('id_rsa');
   expect(prompt).toContain('Review the project and explain the safest next change.');
   expect(prompt).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
 });
@@ -196,6 +212,50 @@ it('bounds a large file and refuses invalid file types and revoked access withou
   await expect(prepareSessionPrompt('Revoked', { projectId: project.id })).rejects.toThrow();
 });
 
+it('keeps a large project tree bounded, names-only, and explicit about omitted paths', async () => {
+  const projectPath = path.join(directory, 'large-project-tree');
+  await fs.mkdir(path.join(projectPath, '.git'), { recursive: true });
+  await fs.mkdir(path.join(projectPath, 'node_modules', 'private-package'), { recursive: true });
+  await fs.mkdir(path.join(projectPath, 'packages', 'service', 'src'), { recursive: true });
+  await fs.writeFile(path.join(projectPath, '.env.production'), 'NEVER_INLINE_ENV_CONTENT');
+  await fs.writeFile(path.join(projectPath, 'secret.key'), 'NEVER_INLINE_SECRET_CONTENT');
+  await fs.writeFile(path.join(projectPath, 'node_modules', 'private-package', 'index.js'), 'NEVER_INLINE_DEPENDENCY_CONTENT');
+  await fs.writeFile(path.join(projectPath, 'packages', 'service', 'src', 'index.ts'), 'NEVER_INLINE_SOURCE_CONTENT');
+  for (let index = 0; index < 350; index++)
+    await fs.writeFile(path.join(projectPath, `zz-generated-${String(index).padStart(3, '0')}.md`), 'NEVER_INLINE_REPOSITORY_CONTENT');
+  const project = await addProject(projectPath);
+
+  const tree = await buildProjectContextTree(project.id);
+
+  expect(tree).toContain('PROJECT FILE TREE (names only; bounded)');
+  expect(tree.length).toBeLessThanOrEqual(12_200);
+  expect(tree).toContain('packages/');
+  expect(tree).toContain('project tree shortened; use the project tools to inspect omitted paths');
+  expect(tree).not.toMatch(/^\s*\.git\/?\s*$/m);
+  expect(tree).not.toContain('node_modules');
+  expect(tree).not.toContain('.env.production');
+  expect(tree).not.toContain('secret.key');
+  expect(tree).not.toContain('NEVER_INLINE');
+});
+
+const largeProjectFixture = process.env.NEURAFLOK_QA_LARGE_PROJECT_ROOT;
+it.skipIf(!largeProjectFixture)('keeps a real large repository context bounded on the supplied QA fixture', async () => {
+  const projectPath = path.resolve(largeProjectFixture!);
+  await saveConfig({ ...defaultConfig(), roots: [
+    { name: 'work', path: directory },
+    { name: 'large-project', path: projectPath },
+  ] });
+  const project = await addProject(projectPath);
+
+  const tree = await buildProjectContextTree(project.id);
+
+  expect(tree.length).toBeLessThanOrEqual(12_200);
+  expect(tree).toContain('PROJECT FILE TREE (names only; bounded)');
+  expect(tree).toContain('project tree shortened; use the project tools to inspect omitted paths');
+  expect(tree).not.toContain('node_modules');
+  expect(tree).not.toMatch(/^\s*\.git\/?\s*$/m);
+});
+
 it('tells the provider to reply in the configured interface language', async () => {
   await fs.mkdir(path.join(directory, 'language-project'), { recursive: true });
   const project = await addProject(path.join(directory, 'language-project'));
@@ -206,19 +266,53 @@ it('tells the provider to reply in the configured interface language', async () 
   expect(prompt).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
 });
 
-it('keeps language and project directory on later provider turns without repeating AGENTS.md', async () => {
+it('keeps project tree, instructions, language, and recent summary on later provider turns', async () => {
   await fs.mkdir(path.join(directory, 'follow-project'), { recursive: true });
   await fs.writeFile(path.join(directory, 'follow-project', 'AGENTS.md'), 'DO_NOT_REPEAT_ON_FOLLOWUP');
+  await fs.mkdir(path.join(directory, 'follow-project', 'packages', 'service'), { recursive: true });
+  await fs.writeFile(path.join(directory, 'follow-project', 'packages', 'service', 'index.ts'), 'export const version = 42;');
   const project = await addProject(path.join(directory, 'follow-project'));
   await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }], ui: { ...defaultConfig().ui, language: 'es' } });
   const opening = await prepareProviderSessionPrompt('Escribe un README', { projectId: project.id });
   expect(opening).toContain('Reply in Spanish');
   expect(opening).toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
-  const followup = await prepareProviderSkillFollowup('Continúa con el README', 'Continúa con el README', undefined, { projectId: project.id });
+  const summary = 'Original request: Update the project safely.\nAssistant: The service package was reviewed.';
+  const followup = await prepareProviderSkillFollowup('Continúa con el README', 'Continúa con el README', undefined, {
+    projectId: project.id, historySummary: summary
+  });
   expect(followup).toContain('Reply in Spanish');
   expect(followup).toContain('Selected project directory: /work/follow-project');
   expect(followup).toContain('For exec_command, set workdir to /work/follow-project and use relative paths in cmd. Never put /work/follow-project inside cmd.');
-  expect(followup).not.toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
+  expect(followup).toContain('DO_NOT_REPEAT_ON_FOLLOWUP');
+  expect(followup).toContain('PROJECT FILE TREE');
+  expect(followup).toContain('packages/');
+  expect(followup).toContain('index.ts');
+  expect(followup).toContain(summary);
   expect(followup).toContain('Continúa con el README');
   expect(followup).not.toMatch(/ChatGPT|NEURAFLOK|OpenAI|NEURAFLOK_CONTEXT/);
+});
+
+it('keeps an ordinary chat plain and carries only its natural-language instructions and prior history', async () => {
+  const session = await createSession({ title: 'Ordinary chat' });
+  await saveConfig({ ...defaultConfig(), roots: [{ name: 'work', path: directory }] });
+  const opening = await prepareProviderSessionPrompt('Answer briefly.', { sessionId: session.id });
+  const followup = await prepareProviderSkillFollowup('One more thing.', 'One more thing.', undefined, {
+    sessionId: session.id,
+    historySummary: 'User: The earlier answer mentioned marker NF_OLD_CHAT_42.'
+  });
+  for (const prompt of [opening, followup]) {
+    expect(prompt).toContain('Answer the user naturally and directly');
+    expect(prompt).toContain('Markdown is required: begin with a real Markdown heading using ##');
+    expect(prompt).toContain('Never leave a plan title as plain text');
+    expect(prompt).toContain('Keep greetings and short factual answers as concise prose');
+    expect(prompt).toContain('Application-generated setup acknowledgements and hidden context checks may appear in earlier provider messages.');
+    expect(prompt).toContain('Do not inspect files, mention paths, run commands');
+    expect(prompt).not.toContain('PROJECT FILE TREE');
+    expect(prompt).not.toContain('Selected project directory');
+    expect(prompt).not.toContain('Available tools');
+    expect(prompt).not.toContain('NEURAFLOK_READY');
+  }
+  expect(opening.match(/USER MESSAGE:\nAnswer briefly\./g)).toHaveLength(1);
+  expect(followup.match(/USER MESSAGE:\nOne more thing\./g)).toHaveLength(1);
+  expect(followup).toContain('NF_OLD_CHAT_42');
 });

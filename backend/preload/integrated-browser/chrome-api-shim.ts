@@ -108,6 +108,15 @@ export function installChromeShim(trace: boolean): void {
   }
   // Forward the startup event emitted by the app.
   Object.defineProperty(chrome.runtime, 'onStartup', { value: event('runtime.onStartup'), configurable: true, writable: true });
+  // A small, correlated command channel lets the app ask this exact browser
+  // profile to restore a conversation from its persistent extension storage.
+  Object.defineProperty(chrome.runtime, 'onNeuraflokReveal', {
+    value: event('neuraflok.reveal-provider-conversation'), configurable: true, writable: true
+  });
+  Object.defineProperty(chrome.runtime, 'neuraflokRevealResult', {
+    value: (requestId: string, shown: boolean) => bridge.call('neuraflok.reveal-result', [requestId, shown]),
+    configurable: true, writable: true
+  });
   chrome.debugger = {
     attach: method('debugger.attach'),
     detach: method('debugger.detach'),

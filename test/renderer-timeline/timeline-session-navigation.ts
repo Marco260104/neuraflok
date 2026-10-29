@@ -35,6 +35,36 @@ it('makes parent and worker session selectors keyboard-focusable and activates t
   expect(w.document.querySelector(`.sess.is-sel[data-id="${worker.id}"]`)).not.toBeNull();
 });
 
+it('hides project-only composer controls synchronously when switching to a normal chat', async () => {
+  const project: LocalProject = { id: '11111111-2222-4333-8444-555555555555', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const projectChat: SessionSummary = { ...summary([]), id: 'project-chat-controls', title: 'Project chat', projectId: project.id,
+    conversationId: 'ds-project-chat-controls', chatIds: ['ds-project-chat-controls'] };
+  const normalChat: SessionSummary = { ...summary([]), id: 'normal-chat-controls', title: 'Normal chat',
+    conversationId: 'ds-normal-chat-controls', chatIds: ['ds-normal-chat-controls'] };
+  const { w } = await boot([], false, [], [project], { sessions: [projectChat, normalChat] });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${projectChat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const access = w.document.getElementById('composerAccess') as HTMLDetailsElement;
+  const plan = w.document.getElementById('composerPlanBtn') as HTMLButtonElement;
+  const projectPill = w.document.getElementById('composerProjectPill') as HTMLButtonElement;
+  expect(access.hidden).toBe(false);
+  expect(plan.hidden).toBe(false);
+  expect(projectPill.hidden).toBe(false);
+
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const loadDetail = chatRuntimeBindings.loadDetail;
+  chatRuntimeBindings.loadDetail = async () => false;
+  try {
+    w.document.querySelector<HTMLElement>(`.sess[data-id="${normalChat.id}"] [data-session-select]`)!.click();
+    expect(access.hidden).toBe(true);
+    expect(plan.hidden).toBe(true);
+    expect(projectPill.hidden).toBe(true);
+  } finally {
+    chatRuntimeBindings.loadDetail = loadDetail;
+  }
+});
+
 it('shows elapsed runtime and stops the owned background process from the dock', async () => {
   const { w, publishBackgroundProcesses } = await boot([]);
   await publishBackgroundProcesses([{
@@ -362,21 +392,569 @@ it.each(['failed', 'empty', 'new-chat'] as const)('retires retained rows after a
   expect(welcome.hidden).toBe(outcome === 'failed');
 });
 
-it('keeps the welcome screen visible while an empty chat has only internal warmup pending', async () => {
-  const blank = { ...summary([]), id: 'warmup-session', title: 'New chat', conversationId: 'ds-warmup-chat', chatIds: [], events: 0, userMessages: 0, toolCalls: 0 };
-  const { w, live, append } = await boot([], true, [], [], { sessions: [blank] });
+it('keeps project preparation invisible on an empty chat until the user sends a message', async () => {
+  const project: LocalProject = { id: '55555555-5555-4555-8555-555555555555', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const blank = { ...summary([]), id: 'warmup-session', title: 'New chat', projectId: project.id,
+    conversationId: 'ds-warmup-chat', chatIds: [], events: 0, userMessages: 0, toolCalls: 0,
+    activityExpiresAt: Date.now() + 60_000 };
+  const { w, live, append } = await boot([], true, [], [project], { sessions: [blank] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  markComposerWarmupOpening(composerWarmupKey(blank.id, generation), generation, true);
+  chatRuntimeBindings.controlledSessionId = blank.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = 'stale-provider-turn';
   live.inputs.push({ id: 'internal-warmup', sessionId: blank.id, deliveredSessionId: blank.id, conversationId: blank.conversationId,
-    text: 'NEURAFLOK_WARMUP', warmup: true, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null,
+    text: 'NEURAFLOK_WARMUP', warmup: true, projectId: project.id, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null,
     state: 'browser', owner: 'browser', createdAt: Date.now() });
 
   await append([]);
 
   expect(w.document.getElementById('timelineEmpty')!.hidden).toBe(false);
   expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.getElementById('chatState')!.classList.contains('is-working')).toBe(false);
+  expect(w.document.querySelector(`#sessionList [data-id="${blank.id}"] .session-status.is-active`)).toBeNull();
+  expect((w.document.getElementById('chatSend') as HTMLButtonElement).dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+  expect(w.document.querySelector('#timeline .turn-now-text')).toBeNull();
+  expect(w.document.body.textContent).not.toMatch(/Reading project|Leyendo proyecto/i);
 });
 
-it('shows an early composer send as a chat message and changes Reading project to Thinking after dispatch', async () => {
-  const { w, live } = await boot([]);
+it('hides a stale Stop action while an old ordinary chat opens its history handshake', async () => {
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'old-answer', message: text('Earlier answer.'), state: 'final', final: true }
+  ];
+  const ordinary = { ...summary(history), id: 'old-ordinary-chat', title: 'Earlier chat',
+    conversationId: 'ds-old-ordinary-chat', chatIds: ['ds-old-ordinary-chat'], activityExpiresAt: Date.now() + 60_000 };
+  const { w, append } = await boot(history, true, [], [], { sessions: [ordinary] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const sessionId = chatRuntimeBindings.selectedId!;
+  const generation = chatRuntimeBindings.selectionGeneration;
+  markComposerWarmupOpening(composerWarmupKey(sessionId, generation), generation, true);
+  chatRuntimeBindings.controlledSessionId = sessionId;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = 'stale-provider-turn';
+
+  await append([]);
+
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.querySelector(`#sessionList [data-id="${sessionId}"] .session-status.is-active`)).toBeNull();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+});
+
+it('does not revive Stop from a recent message when reopening an old chat without matching turn activity', async () => {
+  const askedAt = Date.now();
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'recent-old-question', message: text('Earlier question') }
+  ];
+  const ordinary: SessionSummary = { ...summary(history), id: 'old-chat-with-stale-turn-control', title: 'Earlier chat',
+    conversationId: 'ds-old-chat-with-stale-turn-control', chatIds: ['ds-old-chat-with-stale-turn-control'],
+    updatedAt: askedAt, activeTurnId: null, lastAssistantFinalAt: null, lastTurnEndAt: null };
+  const { w } = await boot(history, false, [], [], { sessions: [ordinary] });
+  const api = (w as any).api;
+  api.getSession = async () => ({ ok: true, data: { summary: ordinary, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: ordinary.id, conversationId: ordinary.conversationId,
+    automation: 'off', activeTurnId: 'stale-provider-turn', finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${ordinary.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  await settle(1_300);
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
+it('keeps Stop hidden while an old project chat settles its hidden preparation turn', async () => {
+  const project: LocalProject = { id: '13131313-1313-4313-8313-131313131313', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary([]), id: 'old-project-chat-with-internal-warmup', title: 'Old project chat',
+    projectId: project.id, conversationId: 'ds-old-project-chat-with-internal-warmup',
+    chatIds: ['ds-old-project-chat-with-internal-warmup'], lastAssistantFinalAt: null, lastTurnEndAt: null,
+    lastTurnOutcome: null, lastToolCallAt: null };
+  const { w } = await boot([], false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId,
+    automation: 'off', activeTurnId: 'internal-warmup-turn', finishHeld: false, blocked: '', job: null } });
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupFailed } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  const warmupId = 'hidden-project-warmup-input';
+  const warmupInput = { id: warmupId, sessionId: chat.id, deliveredSessionId: chat.id, projectId: project.id,
+    conversationId: chat.conversationId, text: 'NEURAFLOK_WARMUP', warmup: true, state: 'sent',
+    mode: 'auto', dueAt: Date.now(), model: null, reasoningEffort: null, owner: 'browser', createdAt: Date.now() } as InputEntry;
+  const activityAt = Date.now();
+  chatRuntimeBindings.pendingComposerInputs = [warmupInput];
+  chatRuntimeBindings.events = [
+    { seq: 1, time: activityAt, source: 'extension', kind: 'user_message', messageId: 'hidden-warmup-message',
+      message: text('NEURAFLOK_WARMUP') },
+    { seq: 2, time: activityAt + 1, source: 'extension', kind: 'turn_start', turnId: 'internal-warmup-turn' },
+    { seq: 3, time: activityAt + 2, source: 'mcp', kind: 'page_tool', messageId: 'warmup-progress',
+      turnId: 'internal-warmup-turn', label: 'Preparing…' }
+  ];
+  markComposerWarmupFailed(composerWarmupKey(chat.id, generation), 'Synthetic delayed acknowledgement', generation);
+  chatRuntimeBindings.paintDeliveryControls();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+
+  const authoredAt = Date.now();
+  chatRuntimeBindings.events = [...chatRuntimeBindings.events,
+    { seq: 4, time: authoredAt, source: 'app', kind: 'user_message', messageId: 'authored-question', inputId: 'authored-input',
+      message: text('Continue my project task') },
+    { seq: 5, time: authoredAt + 1, source: 'mcp', kind: 'page_tool', messageId: 'authored-progress',
+      turnId: 'internal-warmup-turn', label: 'Working on the requested task…' }
+  ];
+  chatRuntimeBindings.paintDeliveryControls();
+  expect(send.dataset.action).toBe('stop');
+  expect(send.classList.contains('is-stop')).toBe(true);
+});
+
+it('keeps Stop hidden when the first old chat opened from the start page only has preselection activity', async () => {
+  const now = Date.now();
+  const turnId = 'recently-stale-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: now - 2_000, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: now - 1_000, source: 'mcp', kind: 'page_tool', messageId: 'old-page-activity', turnId, label: 'Searching…' }
+  ];
+  const oldChat: SessionSummary = { ...summary(history), id: 'first-open-old-chat', title: 'Old chat',
+    conversationId: 'ds-first-open-old-chat', chatIds: ['ds-first-open-old-chat'], activeTurnId: turnId };
+  const { w } = await boot(history, false, [], [], { sessions: [oldChat] });
+  const api = (w as any).api;
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: oldChat.id, conversationId: oldChat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${oldChat.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
+it('does not turn a restored pending message into Stop when opening an old chat', async () => {
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'restored-question', message: text('Earlier question') },
+    { seq: 2, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'restored-answer', message: text('Earlier answer.'), state: 'final', final: true }
+  ];
+  const ordinary = { ...summary(history), id: 'old-chat-with-pending-receipt', title: 'Earlier chat',
+    conversationId: 'ds-old-chat-with-pending-receipt', chatIds: ['ds-old-chat-with-pending-receipt'] };
+  const { w, live } = await boot(history, false, [], [], { sessions: [ordinary] });
+  const restored: InputEntry = { id: 'restored-pending-input', sessionId: ordinary.id, deliveredSessionId: ordinary.id,
+    text: 'Previously queued synthetic message', mode: 'auto', dueAt: T0, model: null, reasoningEffort: null,
+    state: 'browser', owner: 'browser', createdAt: T0, conversationId: ordinary.conversationId } as InputEntry;
+  live.inputs.push(restored);
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  chatRuntimeBindings.pendingComposerInputs = [restored];
+  const api = (w as any).api;
+  let resolveHistory!: (value: unknown) => void;
+  api.getSession = () => new Promise(resolve => { resolveHistory = resolve; });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${ordinary.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(send.getAttribute('aria-label')).not.toBe('Cancel delivery');
+
+  resolveHistory({ ok: true, data: { summary: ordinary, events: history, total: history.length, nextFrom: history.length + 1 } });
+  await settle();
+});
+
+it('keeps stale Stop hidden until an old chat history is loaded and confirms live turns only', async () => {
+  const turnId = 'old-chat-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'old-answer', turnId,
+      message: text('Earlier answer.'), state: 'final', final: true },
+    { seq: 4, time: T0 + 1100, source: 'extension', kind: 'turn_end', turnId, outcome: 'completed' }
+  ];
+  const ordinary = { ...summary(history), id: 'old-chat-history-loading', title: 'Earlier chat',
+    conversationId: 'ds-old-chat-history-loading', chatIds: ['ds-old-chat-history-loading'], activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, true, [], [], { sessions: [ordinary] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const sessionId = chatRuntimeBindings.selectedId!;
+  const generation = chatRuntimeBindings.selectionGeneration;
+
+  chatRuntimeBindings.detailFor = null;
+  chatRuntimeBindings.events = [];
+  chatRuntimeBindings.controlledSessionId = sessionId;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+
+  chatRuntimeBindings.detailFor = sessionId;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+
+  const liveTurn = 'currently-running-chat-turn';
+  const currentQuestionAt = Date.now();
+  chatRuntimeBindings.events = [
+    ...history,
+    { seq: 5, time: currentQuestionAt, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
+    { seq: 6, time: currentQuestionAt + 100, source: 'extension', kind: 'turn_start', turnId: liveTurn }
+  ];
+  chatRuntimeBindings.controlledTurnId = liveTurn;
+  chatRuntimeBindings.paintDeliveryControls();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('stop');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(true);
+});
+
+it('keeps Stop hidden when reopening an old chat restores only a recent turn start', async () => {
+  const turnId = 'replayed-old-turn-start';
+  const history: SessionEvent[] = [
+    { seq: 1, time: Date.now() - 1_000, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier question') },
+    { seq: 2, time: Date.now() - 500, source: 'extension', kind: 'turn_start', turnId }
+  ];
+  const oldChat: SessionSummary = { ...summary(history), id: 'reopened-chat-with-stale-start', title: 'Old chat',
+    conversationId: 'ds-reopened-chat-with-stale-start', chatIds: ['ds-reopened-chat-with-stale-start'],
+    lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null,
+    activityExpiresAt: Date.now() + 60_000 };
+  const otherChat: SessionSummary = { ...summary([]), id: 'chat-open-before-reselect', title: 'Another chat',
+    conversationId: 'ds-chat-open-before-reselect', chatIds: ['ds-chat-open-before-reselect'] };
+  const { w } = await boot(history, false, [], [], { sessions: [oldChat, otherChat] });
+  const api = (w as any).api;
+  api.getSessionControls = (id: string) => Promise.resolve({ ok: true, data: {
+    sessionId: id, conversationId: id === oldChat.id ? oldChat.conversationId : otherChat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null
+  } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${otherChat.id}"] [data-session-select]`)!.click();
+  await settle();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${oldChat.id}"] [data-session-select]`)!.click();
+  await settle();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
+it('does not show Stop after opening a completed old project chat while provider controls lag behind', async () => {
+  const turnId = 'completed-project-turn-with-lagging-controls';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'completed-project-question', message: text('Earlier project question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'completed-project-answer', turnId,
+      message: text('Earlier project answer.'), state: 'final', final: true },
+    { seq: 4, time: T0 + 1100, source: 'extension', kind: 'turn_end', turnId, outcome: 'completed' }
+  ];
+  const project: LocalProject = { id: '99999999-9999-4999-8999-999999999999', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'completed-old-project-chat', title: 'Completed project chat', projectId: project.id,
+    conversationId: 'ds-completed-old-project-chat', chatIds: ['ds-completed-old-project-chat'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastAssistantFinalAt: T0 + 1000, lastTurnEndAt: T0 + 1100, lastTurnOutcome: 'completed',
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  // The provider still reports the ID of a turn that history already closed.
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(send.getAttribute('aria-label')).toBe('Send message');
+
+  await settle(50);
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
+});
+
+it('keeps stale Stop hidden when an old project has no recent activity for that turn', async () => {
+  const turnId = 'stale-project-turn-cleared-during-reopen';
+  const askedAt = Date.now() - 20_000;
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'stale-project-question', message: text('Earlier project question') },
+    { seq: 2, time: askedAt + 100, source: 'extension', kind: 'turn_start', turnId }
+  ];
+  const project: LocalProject = { id: '42424242-4242-4242-8242-424242424242', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat-stale-control', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-chat-stale-control', chatIds: ['ds-old-project-chat-stale-control'], activeTurnId: turnId,
+    lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null, lastToolCallAt: null,
+    activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  const { chatSelectionStartedAt } = await import('../../frontend/features/chat/chat-turn-state.js');
+  expect(chatSelectionStartedAt(chat.id, generation)).toBeGreaterThan(askedAt + 1_000);
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+  chatRuntimeBindings.paintStateLine();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  await settle(250);
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.querySelectorAll('#timeline .turn-status.is-working, #timeline .turn-now:not([hidden])')).toHaveLength(0);
+  chatRuntimeBindings.controlledTurnId = null;
+  chatRuntimeBindings.paintDeliveryControls();
+  await settle(1_050);
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
+it('does not show Stop for late provider activity when reopening a project without a new user question', async () => {
+  const turnId = 'old-project-late-provider-activity';
+  const askedAt = Date.now() - 20_000;
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'older-project-question', message: text('Earlier project question') }
+  ];
+  const project: LocalProject = { id: '45454545-4545-4545-8545-454545454545', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat-late-activity', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-chat-late-activity', chatIds: ['ds-old-project-chat-late-activity'], activeTurnId: turnId,
+    lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null, lastToolCallAt: null };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = async () => ({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId,
+    automation: 'off', activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = [...history, {
+    seq: 2, time: Date.now(), source: 'mcp', kind: 'page_tool', messageId: 'restored-provider-progress', turnId,
+    label: 'Preparing project context'
+  }];
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+  chatRuntimeBindings.paintStateLine();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(w.document.querySelectorAll('#timeline .turn-status.is-working, #timeline .turn-now:not([hidden])')).toHaveLength(0);
+});
+
+it('does not flash Stop when an old project reply is final by message state only', async () => {
+  const turnId = 'legacy-final-state-project-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'legacy-project-question', message: text('Earlier project question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    // Older recordings can carry the final state without the compatibility boolean.
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'legacy-project-answer', turnId,
+      message: text('Earlier project answer.'), state: 'final', final: false }
+  ];
+  const project: LocalProject = { id: '67676767-6767-4676-8676-676767676767', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'legacy-final-state-project-chat', title: 'Earlier project chat', projectId: project.id,
+    conversationId: 'ds-legacy-final-state-project-chat', chatIds: ['ds-legacy-final-state-project-chat'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.controlledSessionId = chat.id;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = turnId;
+  chatRuntimeBindings.paintDeliveryControls();
+  chatRuntimeBindings.paintStateLine();
+
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(w.document.getElementById('chatState')!.textContent).toBe('');
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+});
+
+it('does not flash Stop when an old chat history page omits its terminal event but the session summary records completion', async () => {
+  const turnId = 'completed-turn-omitted-from-history-page';
+  const askedAt = T0 + 20_000;
+  // A bounded transcript page may not include the final boundary even though
+  // the sidebar summary has already projected it from durable history.
+  const history: SessionEvent[] = [
+    { seq: 1, time: askedAt, source: 'app', kind: 'user_message', messageId: 'old-question', message: text('Earlier project question') }
+  ];
+  const project: LocalProject = { id: '12121212-1212-4212-8212-121212121212', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-summary-completed', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-summary-completed', chatIds: ['ds-old-project-summary-completed'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastAssistantFinalAt: askedAt + 1_000, lastTurnEndAt: askedAt + 1_200, lastTurnOutcome: 'completed',
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  const controls: Array<(value: unknown) => void> = [];
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = () => new Promise(resolve => controls.push(resolve));
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  await vi.waitFor(() => expect(controls).toHaveLength(1));
+  controls[0]!({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId, automation: 'off', activeTurnId: turnId,
+    finishHeld: false, blocked: '', job: null } });
+  await settle();
+
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+});
+
+it('does not flash Stop while an old project chat restores completed history and stale controls', async () => {
+  const turnId = 'finished-project-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'project-question', message: text('Earlier project question') },
+    { seq: 2, time: T0 + 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 3, time: T0 + 1000, source: 'extension', kind: 'assistant_message', messageId: 'project-answer', turnId,
+      message: text('Earlier project answer.'), state: 'final', final: true },
+    { seq: 4, time: T0 + 1100, source: 'extension', kind: 'turn_end', turnId, outcome: 'completed' }
+  ];
+  const project: LocalProject = { id: '88888888-8888-4888-8888-888888888888', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat', title: 'Old project chat', projectId: project.id,
+    conversationId: 'ds-old-project-chat', chatIds: ['ds-old-project-chat'], updatedAt: Date.now(), activeTurnId: turnId,
+    lastAssistantFinalAt: T0 + 1000, lastTurnEndAt: T0 + 1100, lastTurnOutcome: 'completed',
+    lastToolCallAt: Date.now() - 5_000, activityExpiresAt: Date.now() + 60_000 };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat] });
+  const api = (w as any).api;
+  const controls: Array<(value: unknown) => void> = [];
+  api.getSession = async () => ({ ok: true, data: { summary: chat, events: history, total: history.length, nextFrom: history.length + 1 } });
+  api.getSessionControls = () => new Promise(resolve => controls.push(resolve));
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  await vi.waitFor(() => expect(controls).toHaveLength(1));
+  await settle();
+  expect(w.document.getElementById('chatState')!.classList.contains('is-working')).toBe(false);
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector(`.sess[data-id="${chat.id}"] .session-status.is-active`)).not.toBeNull();
+
+  controls[0]!({ ok: true, data: { sessionId: chat.id, conversationId: chat.conversationId, automation: 'off',
+    activeTurnId: turnId, finishHeld: false, blocked: '', job: null } });
+  await settle();
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector(`.sess[data-id="${chat.id}"] .session-status.is-active`)).not.toBeNull();
+});
+
+it('keeps a cancelled project turn settled after switching away and reopening the old chat', async () => {
+  const asked = Date.now() - 8_000;
+  const turnId = 'cancelled-project-turn';
+  const history: SessionEvent[] = [
+    { seq: 1, time: asked - 100, source: 'extension', kind: 'turn_start', turnId },
+    { seq: 2, time: asked, source: 'app', kind: 'user_message', messageId: 'cancelled-project-question', message: text('Synthetic cancellation test') },
+    { seq: 3, time: asked + 500, source: 'extension', kind: 'assistant_message', messageId: 'cancelled-project-partial', turnId,
+      message: text('A partial synthetic response…'), state: 'streaming', final: false }
+  ];
+  const project: LocalProject = { id: '77777777-7777-4777-8777-777777777777', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const chat: SessionSummary = { ...summary(history), id: 'cancelled-project-chat', title: 'Stopped project turn',
+    projectId: project.id, conversationId: 'ds-cancelled-project-chat', chatIds: ['ds-cancelled-project-chat'],
+    updatedAt: Date.now(), lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: null,
+    lastToolCallAt: null, activityExpiresAt: Date.now() + 60_000 };
+  const other: SessionSummary = { ...summary([]), id: 'other-chat', title: 'Other chat', conversationId: 'ds-other-chat',
+    chatIds: ['ds-other-chat'], updatedAt: Date.now() - 1_000, lastToolCallAt: null, activityExpiresAt: null };
+  const { w, live, append } = await boot(history, false, [], [project], { sessions: [other, chat] });
+  let stopped = false;
+  const api = (w as any).api;
+  api.getSessionControls = (id: string) => Promise.resolve({ ok: true, data: {
+    sessionId: id, conversationId: id === chat.id ? chat.conversationId : other.conversationId,
+    automation: 'off', activeTurnId: id === chat.id && !stopped ? turnId : null,
+    finishHeld: false, blocked: '', job: null
+  } });
+  api.stopSessionTurn = vi.fn(async () => { stopped = true; return { ok: true, data: {} }; });
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"]`)!.click();
+  await settle();
+  const send = w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(send.dataset.action).toBe('send');
+  expect(send.classList.contains('is-stop')).toBe(false);
+
+  await append([{ seq: 4, time: Date.now(), source: 'extension', kind: 'page_tool', messageId: 'live-after-open', turnId, label: 'Continuing…' }]);
+  expect(send.dataset.action).toBe('stop');
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).not.toBeNull();
+  send.click();
+  await settle();
+  expect(api.stopSessionTurn).toHaveBeenCalledWith(chat.id, turnId);
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector('.turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('.turn-now:not([hidden])')).toBeNull();
+
+  await append([{ seq: 5, time: Date.now(), source: 'extension', kind: 'turn_end', turnId, outcome: 'stopped' }]);
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${other.id}"]`)!.click();
+  await settle();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"]`)!.click();
+  await settle();
+  expect(send.dataset.action).toBe('send');
+  expect(w.document.querySelector('.turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('.turn-now:not([hidden])')).toBeNull();
+
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  const acceptSendInput = api.sendInput;
+  let releaseAcceptance!: () => void;
+  api.sendInput = vi.fn((args: unknown) => new Promise(resolve => {
+    const result = acceptSendInput(args);
+    releaseAcceptance = () => resolve(result);
+  }));
+  input.value = 'Continue after the cancelled answer.';
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  expect(send.disabled).toBe(false);
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  expect(live.sent.at(-1)?.text).toBe('Continue after the cancelled answer.');
+  expect([...w.document.querySelectorAll<HTMLElement>('#timeline .said.is-user')]
+    .some(row => row.textContent?.includes('Continue after the cancelled answer.'))).toBe(true);
+  expect(w.document.querySelector('.turn-now:not([hidden]) .turn-now-text')?.textContent).toBe('Thinking…');
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(w.document.getElementById('inputQueue')?.textContent).not.toContain('Continue after the cancelled answer.');
+  expect(send.dataset.action).toBe('send');
+  expect(send.getAttribute('aria-label')).toBe('Send message');
+  releaseAcceptance();
+  await settle();
+});
+
+it('shows an early composer send as a chat message while project preparation stays internal', async () => {
+  const project: LocalProject = { id: '66666666-6666-4666-8666-666666666666', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const { w, live } = await boot([], true, [], [project]);
   const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
   const { clearComposerWarmup, composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
   const sessionId = chatRuntimeBindings.selectedId!;
@@ -386,19 +964,133 @@ it('shows an early composer send as a chat message and changes Reading project t
   input.value = 'Continue the task from yesterday.';
   input.dispatchEvent(new w.Event('input', { bubbles: true }));
   w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain('Continue the task from yesterday.');
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).not.toBe('Cancel delivery');
   await settle();
   const entry = live.inputs.find(row => row.text === input.value || row.text === 'Continue the task from yesterday.') as InputEntry;
   expect(live.sent[0]).toMatchObject({ sessionId, warmupDeferred: { selectionGeneration: generation }, mode: 'after-turn' });
 
   expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(entry.text);
   expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
-  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Reading project…');
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+
+  for (const state of ['browser', 'tool'] as const) {
+    entry.state = state;
+    await chatRuntimeBindings.refreshInputQueue();
+    expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+    expect(w.document.getElementById('chatSend')!.getAttribute('aria-label')).not.toBe('Cancel delivery');
+  }
+
+  const stopTurn = vi.fn(async () => ({ ok: true, data: {} }));
+  const cancelInput = vi.fn(async () => ({ ok: true, data: true }));
+  (w as any).api.stopSessionTurn = stopTurn;
+  (w as any).api.cancelInput = cancelInput;
+  chatRuntimeBindings.controlledSessionId = sessionId;
+  chatRuntimeBindings.controlledSelection = generation;
+  chatRuntimeBindings.controlledTurnId = 'stale-project-turn';
+  entry.state = 'browser';
+  await chatRuntimeBindings.refreshInputQueue();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  w.document.getElementById('chatSend')!.dataset.action = 'stop';
+  w.document.getElementById('chatSend')!.click();
+  await settle();
+  expect(stopTurn).not.toHaveBeenCalled();
+  expect(cancelInput).not.toHaveBeenCalled();
+
+  clearComposerWarmup(composerWarmupKey(sessionId, generation));
+  await chatRuntimeBindings.refreshInputQueue();
+  expect(w.document.getElementById('chatSend')!.dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
 
   entry.state = 'sent';
-  clearComposerWarmup(composerWarmupKey(sessionId, generation));
   chatRuntimeBindings.pendingComposerInputs = [entry];
   chatRuntimeBindings.paintDetail(true);
   expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+
+  const internalWarmup: InputEntry = {
+    id: 'internal-project-warmup', sessionId, deliveredSessionId: sessionId, projectId: project.id,
+    text: 'NEURAFLOK_WARMUP', warmup: true, mode: 'after-turn', afterTurn: true, dueAt: T0,
+    model: null, reasoningEffort: null, state: 'queued', owner: null, createdAt: Date.now(), conversationId: 'chat-b'
+  };
+  live.inputs.push(internalWarmup);
+  chatRuntimeBindings.pendingComposerInputs = [entry, internalWarmup];
+  await chatRuntimeBindings.refreshInputQueue();
+  expect(w.document.getElementById('finishQueue')!.hidden).toBe(true);
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.getElementById('inputQueue')!.textContent).not.toContain('NEURAFLOK_WARMUP');
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+});
+
+it('shows an old ordinary chat message as sent while its hidden warmup waits internally', async () => {
+  const { w, live } = await boot([]);
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { composerWarmupKey, markComposerWarmupOpening } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const sessionId = chatRuntimeBindings.selectedId!;
+  const generation = chatRuntimeBindings.selectionGeneration;
+  markComposerWarmupOpening(composerWarmupKey(sessionId, generation), generation);
+  const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  input.value = 'Continue this ordinary conversation.';
+  input.dispatchEvent(new w.Event('input', { bubbles: true }));
+  w.document.getElementById('composer')!.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  await settle();
+
+  expect(w.document.querySelector('#timeline .said.is-user')?.textContent).toContain(input.value || 'Continue this ordinary conversation.');
+  expect(w.document.getElementById('finishQueue')!.hidden).toBe(true);
+  expect(w.document.querySelector('#finishQueue .queued-input')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-now .turn-now-text')?.textContent).toBe('Thinking…');
+  expect((w.document.getElementById('chatSend') as HTMLButtonElement).dataset.action).toBe('send');
+  expect(w.document.getElementById('chatSend')!.classList.contains('is-stop')).toBe(false);
+  expect(live.sent[0]).toMatchObject({ sessionId, mode: 'after-turn' });
+});
+
+it('does not restore a completed project receipt as a duplicate message or Thinking status', async () => {
+  const projectId = '78787878-7878-4787-8787-787878787878';
+  const askedAt = Date.now() - 8_000;
+  const completedAt = askedAt + 2_000;
+  const turnId = 'old-project-completed-turn';
+  // Simulate a bounded history page where the user row is off-page while its
+  // assistant final is visible. The durable outbox receipt proves the input
+  // was recorded and the summary proves that turn has already finished.
+  const history: SessionEvent[] = [
+    { seq: 34, time: completedAt, source: 'extension', kind: 'assistant_message', messageId: 'old-project-final', turnId,
+      message: text('The previous project task is complete.'), state: 'final', final: true }
+  ];
+  const chat: SessionSummary = { ...summary(history), id: 'old-project-chat-no-stale-thinking', title: 'Earlier project chat', projectId,
+    conversationId: 'ds-old-project-chat-no-stale-thinking', chatIds: ['ds-old-project-chat-no-stale-thinking'],
+    activeTurnId: null, lastAssistantFinalAt: null, lastTurnEndAt: null, lastTurnOutcome: 'completed' };
+  const project: LocalProject = { id: projectId, name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const other: SessionSummary = { ...summary([]), id: 'other-chat-during-navigation', title: 'Another chat',
+    conversationId: 'ds-other-chat-during-navigation', chatIds: ['ds-other-chat-during-navigation'] };
+  const { w } = await boot(history, false, [], [project], { sessions: [chat, other] });
+  const { chatRuntimeBindings } = await import('../../frontend/features/chat/chat-orchestrator.js');
+  const { clearComposerWarmup, composerWarmupKey } = await import('../../frontend/features/chat/chat-composer-ready.js');
+  const input: InputEntry = {
+    id: 'old-project-authored-receipt', sessionId: chat.id, deliveredSessionId: chat.id, projectId,
+    text: 'Synthetic old project request', authoredSource: 'text', mode: 'auto', dueAt: askedAt, model: null,
+    reasoningEffort: null, state: 'sent', owner: null, createdAt: askedAt, deliveredAt: askedAt,
+    conversationId: chat.conversationId, historyRecorded: true, historyAnchored: true, historySeq: 17
+  };
+
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${other.id}"] [data-session-select]`)!.click();
+  w.document.querySelector<HTMLElement>(`.sess[data-id="${chat.id}"] [data-session-select]`)!.click();
+  await settle();
+  const generation = chatRuntimeBindings.selectionGeneration;
+  clearComposerWarmup(composerWarmupKey(chat.id, generation));
+  chatRuntimeBindings.pendingComposerInputs = [input];
+  chatRuntimeBindings.events = history;
+  chatRuntimeBindings.detailFor = chat.id;
+  chatRuntimeBindings.paintDetail(true);
+
+  expect(w.document.querySelector('#timeline .turn-now:not([hidden])')).toBeNull();
+  expect(w.document.querySelector('#timeline .turn-status.is-working')).toBeNull();
+  expect(w.document.querySelector('#inputQueue .pending-message')).toBeNull();
+  expect(w.document.querySelector('#timeline')?.textContent).not.toContain(input.text);
+  expect((w.document.getElementById('chatSend') as HTMLButtonElement).dataset.action).toBe('send');
 });
 
 it('shows a new-chat send immediately while its opening session is still being adopted', async () => {

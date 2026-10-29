@@ -1,7 +1,12 @@
 import type { AppState } from '../../../contracts/types.js';
 import { usesApiProvider, usesBrowserProvider } from '../../../contracts/chat-protocol.js';
 import { requiresApprovedFilesystemRoot } from '../../../contracts/capabilities.js';
-import { WEB_PROVIDERS, isWebProviderId, type WebProviderId } from '../../../contracts/web-providers.js';
+import {
+  WEB_PROVIDERS,
+  isSelectableWebProvider,
+  selectableWebProviderOrDefault,
+  type WebProviderId,
+} from '../../../contracts/web-providers.js';
 import { $, ago, el, shortAgo } from '../../shared/dom.js';
 import { t, ui } from '../../shared/i18n.js';
 
@@ -18,7 +23,7 @@ export function createProviderStatusView(options: ProviderStatusViewOptions) {
   }
 
   function webProviderWorkspaceLabel(next: AppState): string {
-    const provider = isWebProviderId(next.config.ui.webProvider) ? next.config.ui.webProvider : 'deepseek';
+    const provider = selectableWebProviderOrDefault(next.config.ui.webProvider);
     const presence = providerPresence(next.bridge, provider);
     if (!next.bridge.present) return t('Extension offline');
     if (presence?.signedIn === true) return `${t('System active')} · ${WEB_PROVIDERS[provider].label}`;
@@ -28,6 +33,11 @@ export function createProviderStatusView(options: ProviderStatusViewOptions) {
   }
 
   function paintWebProviderSighting(node: HTMLElement, bridge: AppState['bridge'], provider: WebProviderId): void {
+    if (!isSelectableWebProvider(provider)) {
+      ui(node, 'textContent', () => t('Coming soon'));
+      node.dataset.tone = 'wait';
+      return;
+    }
     const sighting = providerPresence(bridge, provider);
     const open = sighting?.open === true;
     const signedIn = sighting?.signedIn ?? null;
@@ -41,7 +51,7 @@ export function createProviderStatusView(options: ProviderStatusViewOptions) {
 
   function facts(next: AppState): HTMLElement[] {
     const { bridge, config } = next;
-    const selectedProvider = isWebProviderId(config.ui.webProvider) ? config.ui.webProvider : 'deepseek';
+    const selectedProvider = selectableWebProviderOrDefault(config.ui.webProvider);
     const presence = providerPresence(bridge, selectedProvider);
     const extensionStatus = bridge.present ? t('Connected') : bridge.paired ? t('Paired · not active') : t('Not connected');
     const providerStatus = usesBrowserProvider(config.ui.chatExecutor)
@@ -69,7 +79,7 @@ export function createProviderStatusView(options: ProviderStatusViewOptions) {
 
   function checks(next: AppState) {
     const browserExecutor = usesBrowserProvider(next.config.ui.chatExecutor);
-    const selectedProvider = isWebProviderId(next.config.ui.webProvider) ? next.config.ui.webProvider : 'deepseek';
+    const selectedProvider = selectableWebProviderOrDefault(next.config.ui.webProvider);
     const presence = providerPresence(next.bridge, selectedProvider);
     const extensionRequired = browserExecutor;
     const extensionStatus = next.bridge.present ? 'pass' : extensionRequired ? 'fail' : 'skipped';
@@ -129,7 +139,7 @@ export function createProviderStatusView(options: ProviderStatusViewOptions) {
     $('bigRequest').textContent = shortAgo(bridge.lastSeenAt);
     $('bigRequest').className = bridge.lastSeenAt === null ? 'is-cold' : '';
 
-    const selectedProvider = isWebProviderId(config.ui.webProvider) ? config.ui.webProvider : 'deepseek';
+    const selectedProvider = selectableWebProviderOrDefault(config.ui.webProvider);
     for (const id of Object.keys(WEB_PROVIDERS) as WebProviderId[]) {
       const suffix = `${id[0]!.toUpperCase()}${id.slice(1)}`;
       paintWebProviderSighting($<HTMLElement>(`connectionPopover${suffix}Status`), bridge, id);

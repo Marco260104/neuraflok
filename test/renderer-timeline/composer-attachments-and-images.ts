@@ -5,6 +5,29 @@ import type { InputEntry } from "../../backend/domains/sessions/input/input.js";
 
 import { T0, boot, settle, summary, text, toolCall } from './context.js';
 
+it('shows a PDF loading badge in the sent bubble while keeping the composer usable', async () => {
+  const file = { id: '00000000-0000-4000-8000-000000000001', name: 'scan.pdf', size: 42, mimeType: 'application/pdf' };
+  const app = await boot([{
+    seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'upload-message', inputId: 'upload-input',
+    authoredText: 'Describe the scanned PDF.', attachments: [file], attachmentUpload: 'uploading',
+    message: text('Describe the scanned PDF.')
+  }]);
+  const status = app.w.document.querySelector('.attachment-upload-status')!;
+  expect(status.classList.contains('is-uploading')).toBe(true);
+  expect(status.textContent).toContain('Uploading');
+  expect(status.getAttribute('aria-live')).toBe('polite');
+
+  const composer = app.w.document.getElementById('chatInput') as HTMLTextAreaElement;
+  const send = app.w.document.getElementById('chatSend') as HTMLButtonElement;
+  expect(composer.disabled).toBe(false);
+  composer.value = 'A follow-up typed during the upload';
+  composer.dispatchEvent(new app.w.Event('input', { bubbles: true }));
+  await settle();
+  expect(composer.value).toBe('A follow-up typed during the upload');
+  expect(send.disabled).toBe(false);
+  expect(send.dataset.action).toBe('send');
+});
+
 it('keeps canonical image attachments above the user text bubble for the selected session', async () => {
   const app = await boot([]);
   const { w } = app;

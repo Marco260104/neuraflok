@@ -72,7 +72,7 @@ function refusal(error: unknown): RequestError | null {
   if (message.startsWith('This chat is linked to an unsupported provider session.')) {
     return new RequestError(409, 'unsupported_provider', 'start a new chat to continue with a connected provider');
   }
-  if (/^Connect .+ in NEURAFLOK's browser before sending\.$/.test(message)) {
+  if (/^(?:Connect .+ in NEURAFLOK's browser before sending\.|NeuraFlok's browser connection to .+ is not active\.|NeuraFlok could not (?:verify|confirm) the .+ session through its browser companion\.)/.test(message)) {
     return new RequestError(409, 'provider_not_connected', message);
   }
   if (/^(Choose an API model|Add the API endpoint URL|Add an OpenRouter API key) in Settings before sending\.$/.test(message)) {

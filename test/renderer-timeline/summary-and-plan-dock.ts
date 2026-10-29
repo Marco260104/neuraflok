@@ -423,10 +423,12 @@ it('shows Send directly alone for a running turn, keeps After this turn selected
 });
 
 it('shows elapsed work for the exact recorded turn without exposing lifecycle rows', async () => {
-  const { w, append } = await boot([{ seq: 1, time: T0, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
+  const { w, append } = await boot([]);
+  const startedAt = Date.now();
+  await append([{ seq: 1, time: startedAt, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }]);
   expect(w.document.getElementById('chatState')!.textContent).toMatch(/^Working for /);
   (w as any).api.getSessionControls = (id: string) => Promise.resolve({ ok: true, data: { sessionId: id, automation: 'off', activeTurnId: null, finishHeld: false, blocked: '', job: null } });
-  await append([{ seq: 2, time: T0 + 65_000, source: 'extension', kind: 'turn_end', turnId: 'held-turn', outcome: 'completed' }]);
+  await append([{ seq: 2, time: startedAt + 65_000, source: 'extension', kind: 'turn_end', turnId: 'held-turn', outcome: 'completed' }]);
   expect(w.document.getElementById('chatState')!.textContent).toBe('Worked for 1m 5s');
 });
 
@@ -480,10 +482,30 @@ it('says a chat worked as soon as its page reports the end after its last tool c
   expect(note.textContent).toBe('Working…');
 });
 
+it('does not let a previous completion hide a newer internal turn', async () => {
+  const now = Date.now();
+  const { w, append } = await boot([
+    { seq: 1, time: now - 5_000, source: 'extension', kind: 'turn_start', turnId: 'previous-turn' },
+    { seq: 2, time: now - 4_000, source: 'extension', kind: 'turn_end', turnId: 'previous-turn', outcome: 'completed' }
+  ]);
+  (w as any).api.getSessionControls = async (id: string) => ({ ok: true, data: {
+    sessionId: id, automation: 'off', activeTurnId: 'internal-current-turn', finishHeld: false, blocked: '', job: null
+  } });
+
+  await append([{ seq: 3, time: Date.now(), source: 'extension', kind: 'turn_start', turnId: 'internal-current-turn' }]);
+
+  expect(w.document.getElementById('chatState')!.textContent).toMatch(/^Working for /);
+});
+
 it('stops directly from the empty composer without a second Stop menu action', async () => {
-  const { w } = await boot([]);
+  const { w, append } = await boot([]);
   const stop = vi.fn(async () => ({ ok: true, data: {} }));
   (w as any).api.stopSessionTurn = stop;
+  const startedAt = Date.now();
+  await append([
+    { seq: 1, time: startedAt, source: 'app', kind: 'user_message', messageId: 'current-question', message: text('Current question') },
+    { seq: 2, time: startedAt + 1, source: 'extension', kind: 'turn_start', turnId: 'held-turn' }
+  ]);
   const input = w.document.getElementById('chatInput') as HTMLTextAreaElement;
   const send = w.document.getElementById('chatSend') as HTMLButtonElement;
   expect(send.getAttribute('aria-label')).toBe('Stop turn');
@@ -510,6 +532,8 @@ it('shows Stop immediately for a queued first send, switches to Send for a new d
   form.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
   expect(send.dataset.action).toBe('stop');
   expect(send.disabled).toBe(false);
+  expect(w.document.querySelector('#inputQueue .pending-message')?.textContent).toContain('First request');
+  expect(w.document.querySelector('.turn-now:not([hidden]) .turn-now-text')?.textContent).toBe('Thinking…');
   await settle();
   expect(send.dataset.action).toBe('stop');
   expect(w.document.querySelector('#inputQueue button')?.textContent).not.toBe('Cancel');

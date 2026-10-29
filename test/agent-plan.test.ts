@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { createSession, flushSessions, initSessionStore, readSessionPlan, rebindSession, resetSessionStoreForTests, sessionsRoot, updateSessionPlan } from '../backend/domains/sessions/history/store.js';
+import { clearProjectPlanState, createSession, flushSessions, initSessionStore, readProjectPlanState, readSessionPlan, rebindSession, resetSessionStoreForTests, sessionsRoot, updateProjectPlanState, updateSessionPlan } from '../backend/domains/sessions/history/store.js';
 import { agentPlanUpdateSchema, MAX_AGENT_PLAN_BYTES } from '../contracts/agent-plan.js';
 import { makeTempDir, removeTempDir } from './helpers.js';
 import { prepareHandoff, resumeBootstrapMatches, resumeBootstrapText } from '../backend/domains/sessions/continuity/handoff.js';
@@ -79,6 +79,22 @@ it('persists a plan across restart and replacement, fencing old chats and older 
   expect(await readSessionPlan(session.id)).toEqual({ ...update, updatedAt: 200 });
   expect(await updateSessionPlan(session.id, 'plan-destination', { plan: [] }, 400)).toBe(true);
   expect((await readSessionPlan(session.id))?.plan).toEqual([]);
+});
+
+it('persists a project plan until an explicitly approved turn completes, fenced to the current chat', async () => {
+  const session = await createSession({ conversationId: 'project-plan-source' });
+  const state = { request: 'Update the sample safely.', plan: 'Read the current sample, then update and verify it.' };
+  expect(await updateProjectPlanState(session.id, 'project-plan-source', state, 100)).toBe(true);
+  expect(await readProjectPlanState(session.id)).toEqual({ ...state, updatedAt: 100 });
+  expect(await updateProjectPlanState(session.id, 'stale-project-chat', { ...state, plan: 'stale' }, 200)).toBe(false);
+  await flushSessions();
+  resetSessionStoreForTests();
+  initSessionStore(dir);
+  expect(await readProjectPlanState(session.id)).toEqual({ ...state, updatedAt: 100 });
+  expect(await clearProjectPlanState(session.id, 'stale-project-chat')).toBe(false);
+  expect(await readProjectPlanState(session.id)).toEqual({ ...state, updatedAt: 100 });
+  expect(await clearProjectPlanState(session.id, 'project-plan-source')).toBe(true);
+  expect(await readProjectPlanState(session.id)).toBeNull();
 });
 
 it('serializes a concurrent rebind before a delayed source update', async () => {
