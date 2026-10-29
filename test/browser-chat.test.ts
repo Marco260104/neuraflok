@@ -45,6 +45,7 @@ import {
 } from '../backend/domains/providers/provider-page.js';
 import {
   WEB_CHAT_CORE_TOOLS,
+  containsUnwrappedApplyPatch,
   formatWebChatResult,
   incompleteWebChatTool,
   openaiToolParameters,
@@ -306,6 +307,8 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(incompleteWebChatTool('```neuraflok-tool\n{"name":"read","arguments":{"paths":\n```')).toBe(true);
   expect(incompleteWebChatTool('```neuraflok-tool\n{"name":"read","arguments":{"paths":["/workspace/a.txt"]}}\n```')).toBe(false);
   expect(incompleteWebChatTool('```unbranded-tool\n{"name":"read","arguments":{"paths":\n```')).toBe(false);
+  expect(containsUnwrappedApplyPatch('*** Begin Patch\n*** Add File: /workspace/a.txt\n+content\n*** End Patch')).toBe(true);
+  expect(containsUnwrappedApplyPatch('A regular answer mentioning apply_patch is not a diff.')).toBe(false);
   const rooted = webToolGuide(
     [{ name: 'read', description: 'Read files', inputSchema: { $schema: 'x', type: 'object', properties: {} } }],
     { roots: ['/c', '/skills'], project: '/c' }
@@ -942,6 +945,47 @@ it('reviews tool-assisted work and keeps going when the requested project is sti
   const events = await readEvents(input.id);
   expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'apply_patch')).toHaveLength(2);
   expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('Both requested files are present'))).toBe(true);
+});
+
+it('recovers from a raw patch response without exposing it or treating it as an executed edit', async () => {
+  const pages: string[] = [];
+  const rawPatch = '*** Begin Patch\n*** Add File: /workspace/must-not-exist.txt\n+not executed\n*** End Patch';
+  const appliedPatch = '*** Begin Patch\n*** Add File: /workspace/recovered-output.txt\n+created by tool\n*** End Patch';
+  const request = 'Create recovered-output.txt and verify it exists.';
+  let reply = 0;
+  configureDeepseekForTests({ complete: async (text) => {
+    pages.push(text);
+    switch (reply++) {
+      case 0:
+        return { text: `I will make the file.\n\n${rawPatch}` };
+      case 1:
+        expect(text).toContain('RECOVERY:');
+        expect(text).toContain('That text was not executed');
+        return { text: `\`\`\`neuraflok-tool\n${JSON.stringify({ name: 'apply_patch', arguments: { patch: appliedPatch } })}\n\`\`\`` };
+      case 2:
+        return { text: 'recovered-output.txt was created.' };
+      case 3:
+        expect(text).toContain('COMPLETION REVIEW');
+        return { text: 'Verified: recovered-output.txt exists.' };
+      default:
+        throw new Error('The raw-patch recovery requested an unexpected provider turn.');
+    }
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: request, mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  const turnId = await runDeepseekProjectInput(input);
+
+  expect(turnId).toBeTruthy();
+  expect(pages).toHaveLength(4);
+  expect(await fs.readFile(path.join(directory, 'recovered-output.txt'), 'utf8')).toBe('created by tool\n');
+  await expect(fs.readFile(path.join(directory, 'must-not-exist.txt'), 'utf8')).rejects.toThrow();
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'tool_call' && event.call.tool === 'apply_patch')).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('*** Begin Patch'))).toBe(false);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('Verified: recovered-output.txt exists.'))).toBe(true);
 });
 
 it('keeps later tool results and the original request when earlier output must be shortened', async () => {
