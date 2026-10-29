@@ -6,6 +6,7 @@ import { getConfig } from '../../../infrastructure/settings/config.js';
 import { WEB_PROVIDERS, isWebProviderId, providerForConversationId } from '../../../../contracts/web-providers.js';
 import type { WebProviderId } from '../../../../contracts/web-providers.js';
 import { isApiConversationId, usesApiProvider } from '../../../../contracts/chat-protocol.js';
+import { isDeepseekSupportedAttachment, isSupportedProviderText } from '../../../../contracts/attachments.js';
 import { enqueueInput, cancelInput, listInputs, noteInputStartupError, failLocalExecutorInput, nextAfterTurnLocalInput, type InputArgs, type InputEntry } from './input.js';
 import { isProviderTextAttachment } from './attachments/index.js';
 import { getSession } from '../history/store.js';
@@ -20,6 +21,11 @@ const localTurnSettledListeners = new Set<(result: { entry: Readonly<InputEntry>
 
 const PROVIDER_AUTH_REFRESH_MS = 8_000;
 const PROVIDER_AUTH_POLL_MS = 100;
+
+function unsupportedWebAttachment(name: string, mimeType: string, provider: WebProviderId): boolean {
+  if (provider === 'deepseek') return !isDeepseekSupportedAttachment(name, mimeType);
+  return mimeType.startsWith('image/') || !(mimeType === 'application/pdf' || /\.pdf$/i.test(name) || isSupportedProviderText(name, mimeType));
+}
 
 function waitForProviderPresence(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -148,9 +154,10 @@ async function dispatchLocalAfterTurn(sessionId: string, conversationId: string,
     } else {
       const selected = provider!;
       await assertWebProviderReady(selected);
-      if ((entry.images?.length ?? 0) > 0 || entry.attachments?.some(file =>
-        !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
+      if ((entry.images?.length ?? 0) > 0)
         throw new Error(`${WEB_PROVIDERS[selected].label} web sessions accept text and source files. Use the API executor for image attachments.`);
+      if (entry.attachments?.some(file => unsupportedWebAttachment(file.name, file.mimeType, selected)))
+        throw new Error(`${WEB_PROVIDERS[selected].label} does not support one of these attachments. For DeepSeek, use PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, common images, text, or code files.`);
     }
   } catch (error) {
     await failLocalExecutorInput(entry.id, (error as Error).message);
@@ -209,9 +216,11 @@ export async function sendDesktopInput(input: InputArgs): Promise<InputEntry> {
   };
   if (!apiExecutor) {
     await assertWebProviderReady(provider);
-    if ((input.images?.length ?? 0) > 0 || input.attachments?.some(file =>
-      !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file))) {
+    if ((input.images?.length ?? 0) > 0) {
       throw new Error(`${WEB_PROVIDERS[provider].label} web sessions accept text and source files. Use the API executor for image attachments.`);
+    }
+    if (input.attachments?.some(file => unsupportedWebAttachment(file.name, file.mimeType, provider))) {
+      throw new Error(`${WEB_PROVIDERS[provider].label} does not support one of these attachments. For DeepSeek, use PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, common images, text, or code files.`);
     }
   } else {
     await (await import('../../providers/api-chat.js')).assertApiChatReady(input.sessionId ?? undefined);
@@ -271,9 +280,10 @@ export async function retryQueuedInputBrowser(id: string): Promise<InputEntry | 
         throw new Error('The API executor accepts text, source files, and images. Add other file types through a project folder.');
     } else {
       await assertWebProviderReady(provider);
-      if ((entry.images?.length ?? 0) > 0 || entry.attachments?.some(file =>
-        !file.mimeType.startsWith('image/') && !isProviderTextAttachment(file)))
+      if ((entry.images?.length ?? 0) > 0)
         throw new Error(`${WEB_PROVIDERS[provider].label} web sessions accept text and source files. Use the API executor for image attachments.`);
+      if (entry.attachments?.some(file => unsupportedWebAttachment(file.name, file.mimeType, provider)))
+        throw new Error(`${WEB_PROVIDERS[provider].label} does not support one of these attachments. For DeepSeek, use PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, common images, text, or code files.`);
     }
     const repaired = await noteInputStartupError(id, null);
     if (!repaired || repaired.state !== 'queued') return repaired ?? null;

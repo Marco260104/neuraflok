@@ -1,13 +1,29 @@
 import { expect, it } from 'vitest';
-import { projectPlanAction, projectPlanContext } from '../backend/domains/providers/project-plan-flow.js';
+import {
+  hasEmptyProjectPlanDecisionArguments,
+  projectPlanContext,
+  projectPlanDecisionFromTool,
+  projectPlanRevisionFromTool
+} from '../backend/domains/providers/project-plan-flow.js';
 import { scopeProjectPlanTool } from '../backend/domains/providers/project-plan-tools.js';
 
-it('requires a clear stand-alone plan approval or cancellation', () => {
-  expect(projectPlanAction('Aprobar')).toBe('approved');
-  expect(projectPlanAction('Yes, proceed.')).toBe('approved');
-  expect(projectPlanAction('Cancelar plan')).toBe('cancel');
-  expect(projectPlanAction('Aprobado, pero cambia primero el alcance')).toBeNull();
-  expect(projectPlanAction('Please update the plan')).toBeNull();
+it('uses model workflow signals instead of matching approval phrases', () => {
+  expect(projectPlanDecisionFromTool('approve_project_plan')).toBe('approved');
+  expect(projectPlanDecisionFromTool('cancel_project_plan')).toBe('cancel');
+  expect(projectPlanDecisionFromTool('revise_project_plan')).toBe('revise');
+  expect(projectPlanDecisionFromTool('apply_patch')).toBeNull();
+  expect(hasEmptyProjectPlanDecisionArguments('{}')).toBe(true);
+  expect(hasEmptyProjectPlanDecisionArguments('{"approved":true}')).toBe(false);
+  expect(hasEmptyProjectPlanDecisionArguments('not json')).toBe(false);
+  expect(projectPlanRevisionFromTool('{"plan":"Revised plan"}')).toBe('Revised plan');
+  expect(projectPlanRevisionFromTool('{"plan":""}')).toBeNull();
+  expect(projectPlanRevisionFromTool('{"plan":"Revised plan","other":true}')).toBeNull();
+  const review = projectPlanContext({ request: 'Update the route.', plan: 'Read route files, edit, verify.' }, 'review');
+  expect(review).toContain('Judge the latest user-authored message by its meaning');
+  expect(review).toContain('call approve_project_plan by itself');
+  expect(review).toContain('Questions and uncertainty are not approval');
+  expect(review).not.toContain('Sí, hazlo');
+  expect(review).not.toContain('Aprobar');
 });
 
 it('keeps plan reads inside the selected project and scopes unqualified searches there', () => {
@@ -25,8 +41,11 @@ it('keeps plan reads inside the selected project and scopes unqualified searches
 
 it('keeps prior approved work visible while distinguishing a new plan from review and approval', () => {
   const state = { request: 'Update the route.', plan: 'Read route files, edit the handler, then verify.' };
-  expect(projectPlanContext(state, 'review')).toContain('The user has not approved this plan.');
+  expect(projectPlanContext(state, 'review')).toContain('latest user-authored message');
+  expect(projectPlanContext(state, 'review')).toContain('not the app-wide access setting');
+  expect(projectPlanContext(state, 'review')).toContain('revise_project_plan');
   expect(projectPlanContext(state, 'review')).toContain(state.plan);
   expect(projectPlanContext(state, 'approved')).toContain('The user explicitly approved this plan.');
+  expect(projectPlanContext(state, 'approved')).toContain('The earlier planning gate is cleared');
   expect(projectPlanContext(state, 'draft')).toContain('Do not edit or create files');
 });

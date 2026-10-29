@@ -623,6 +623,9 @@
   "Attach up to 20 files and 512 MB per message": "Прикрепляйте до 20 файлов и 512 МБ на сообщение",
   "Files": "Файлы",
   "Attach up to 20 files per message": "Прикрепляйте до 20 файлов на сообщение",
+  "Attach up to 50 files per message": "Прикрепляйте до 50 файлов на сообщение",
+  "Each attachment must be 100 MB or smaller": "Размер каждого файла не должен превышать 100 МБ",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "Неподдерживаемый формат. DeepSeek поддерживает PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, изображения, текстовые файлы и код.",
   "Handoff copied": "Передача контекста скопирована",
   "Run cleared — every worker ended": "Запуск очищен — все воркеры завершены",
   "{0} cleared — its slot is free": "{0} очищен — его слот свободен",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "Загрузка…",
+  "Uploaded": "Загружено",
+  "Upload failed": "Не удалось загрузить",
+  "NEURAFLOK community links": "Ссылки сообщества NEURAFLOK",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

@@ -227,6 +227,9 @@ export function createProviderRuntime({ chrome, activeTabs, call, tabReply, main
       void maintain(true).catch(() => undefined);
       return { ok: true };
     },
+    async 'neuraflok-deepseek-attachment-uploaded'(message, sender) {
+      return executor.reportAttachmentUploaded(message, sender);
+    },
     async 'neuraflok-provider-present'(message, sender) {
       const tab = sender?.tab;
       const provider = message?.provider;

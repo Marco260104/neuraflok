@@ -108,6 +108,13 @@
 .turn-now-body { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 /* Every state holds the same slot, set apart from the rows above, so a change of state never moves it. */
 .meta.is-progress.thinking-line.turn-now { margin-top: 14px; }
+.turn-stopped-continue {
+  margin-left: 8px; padding: 0 4px; border: 0; background: transparent; color: var(--accent);
+  font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.turn-stopped-continue:hover:not(:disabled) { color: var(--ink); }
+.turn-stopped-continue:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.turn-stopped-continue:disabled { cursor: progress; opacity: .6; }
 .meta.is-progress.thinking-line.turn-now.is-thinking { gap: 10px; font-weight: 500; }
 .turn-now.is-thinking .turn-now-icon { width: 14px; height: 14px; animation: none; }
 .turn-now.is-thinking .turn-now-icon::before { content: none; }

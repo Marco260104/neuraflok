@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import {
   webChatRoundReminder,
   WEB_CHAT_READ_ONLY_TOOLS,
+  WEB_CHAT_PLAN_DECISION_TOOLS,
+  isWebChatPlanDecisionToolName,
   formatWebChatResult,
   incompleteWebChatTool,
   incompleteToolNotice,
@@ -22,6 +24,7 @@ import {
   requestProviderPageComplete,
   resetProviderPageForTests
 } from './provider-page.js';
+import type { ProviderPageAttachment, ProviderPageAttachmentSource } from './provider-page.js';
 import { logInfo, logWarn } from '../../infrastructure/settings/logger.js';
 import { getConfig } from '../../infrastructure/settings/config.js';
 import { recoveryMessage } from '../../../contracts/recovery.js';
@@ -47,7 +50,10 @@ import {
   listInputs,
   type InputEntry
 } from '../sessions/input/input.js';
-import { recordDeliveredInput } from '../sessions/input/input-history.js';
+import { recordDeliveredInput, updateDeliveredInputAttachmentStatus } from '../sessions/input/input-history.js';
+import { readProviderUploadAttachment } from '../sessions/input/attachments/index.js';
+import { isDeepseekDirectUpload } from '../../../contracts/attachments.js';
+import { hasFreshProviderAttachmentSession, markProviderAttachmentSessionPrepared, retirePreuploadedProviderAttachments, wasProviderAttachmentPreuploaded } from './preuploaded-attachments.js';
 import { noteLocalAgentTurnStarted } from '../automation/local-agent-observations.js';
 import {
   clearProjectPlanState,
@@ -57,7 +63,13 @@ import {
 } from '../sessions/history/store.js';
 import { readSessionEvents } from '../sessions/history/read-model.js';
 import { summarizeProviderConversation, summarizeSessionHistory, sessionHistoryMessages, textOnlyWebMessages } from './conversation-summary.js';
-import { projectPlanAction, projectPlanContext } from './project-plan-flow.js';
+import {
+  hasEmptyProjectPlanDecisionArguments,
+  projectPlanContext,
+  projectPlanDecisionFromTool,
+  projectPlanRevisionFromTool,
+  type ProjectPlanStage
+} from './project-plan-flow.js';
 import {
   advertisedBrowserChatTools,
   createBrowserChatToolRegistrar,
@@ -76,8 +88,27 @@ const DEFAULT_WEB_CHAT_READINESS_MAX_DURATION_MS = 5 * 60_000;
 let webChatReadinessTimeoutMs = DEFAULT_WEB_CHAT_READINESS_TIMEOUT_MS;
 let webChatReadinessMaxDurationMs = DEFAULT_WEB_CHAT_READINESS_MAX_DURATION_MS;
 const DEEPSEEK_CONTEXT_UNAVAILABLE = 'DEEPSEEK_CONTEXT_UNAVAILABLE:';
+const DEEPSEEK_ATTACHMENT_STAGE_UNAVAILABLE = 'DEEPSEEK_ATTACHMENT_STAGE_UNAVAILABLE:';
 const VERIFIED_DEEPSEEK_CONTEXT_TTL_MS = 2 * 60_000;
 const verifiedDeepseekContexts = new Map<string, { conversationId: string; verifiedAt: number }>();
+
+async function providerPageAttachments(
+  entry: Readonly<InputEntry>,
+  provider: WebProviderId,
+  includePreuploaded = false,
+  conversationId = entry.conversationId ?? ''
+): Promise<ProviderPageAttachmentSource[]> {
+  if (provider !== 'deepseek' || !entry.attachments?.length) return [];
+  const files = entry.attachments.filter(file => (includePreuploaded || !wasProviderAttachmentPreuploaded(conversationId, file.id)) &&
+    isDeepseekDirectUpload(file.name, file.mimeType));
+  return Promise.all(files.map(async file => ({
+    id: file.id,
+    name: file.name,
+    mimeType: file.mimeType,
+    size: file.size,
+    bytes: await readProviderUploadAttachment(file)
+  })));
+}
 
 function emptyAssistantReply(language: UiLanguage | undefined): string {
   const replies: Record<UiLanguage, string> = {
@@ -116,7 +147,14 @@ export function webProviderAuthoredFlightTurnId(sessionId: string): string | und
 }
 
 export function configureBrowserChatForTests(options: {
-  complete?: (text: string, signal?: AbortSignal, options?: { fresh?: boolean }) => Promise<{ text: string }>;
+  complete?: (text: string, signal?: AbortSignal, options?: {
+    fresh?: boolean;
+    uploadOnly?: boolean;
+    removeOnly?: boolean;
+    attachments?: ProviderPageAttachmentSource[];
+    attachmentTargets?: ProviderPageAttachment[];
+    preparedAttachmentPage?: boolean;
+  }) => Promise<{ text: string; attachmentUploaded?: boolean; attachmentRemoved?: boolean }>;
   readinessTimeoutMs?: number;
   readinessMaxDurationMs?: number;
 }): void {
@@ -183,6 +221,10 @@ function isOpening(messages: WebChatMessage[]): boolean {
 
 function isDeepseekContextUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(DEEPSEEK_CONTEXT_UNAVAILABLE);
+}
+
+function isDeepseekAttachmentStageUnavailable(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith(DEEPSEEK_ATTACHMENT_STAGE_UNAVAILABLE);
 }
 
 function isVerifiedIdleProviderFailure(error: unknown): boolean {
@@ -461,24 +503,30 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   if (entry.projectPlanPhase === 'draft' && !projectChat) {
     throw new Error('Plan mode is available only in a chat linked to a project.');
   }
-  const pendingPlan = projectChat ? await readProjectPlanState(sessionId) : null;
-  const planStage = !projectChat ? null : entry.projectPlanPhase === 'draft'
+  let pendingPlan = projectChat ? await readProjectPlanState(sessionId) : null;
+  let planStage: ProjectPlanStage = !projectChat ? null : entry.projectPlanPhase === 'draft'
     ? 'draft'
-    : pendingPlan ? projectPlanAction(entry.text) ?? 'review' : null;
-  const projectPlanReadOnly = planStage !== null && planStage !== 'approved';
+    : pendingPlan ? 'review' : null;
+  let projectPlanReadOnly = planStage !== null;
   const conversationId = resolveConversation(provider, entry, session?.conversationId ?? null);
+  const deepseekProviderAttachments = provider === 'deepseek' ? (entry.attachments ?? []).filter(file =>
+    isDeepseekDirectUpload(file.name, file.mimeType)) : [];
+  let preparedFreshAttachmentPage = deepseekProviderAttachments.length > 0 &&
+    deepseekProviderAttachments.every(file => wasProviderAttachmentPreuploaded(conversationId, file.id)) &&
+    hasFreshProviderAttachmentSession(sessionId, conversationId);
   const registrar = createBrowserChatToolRegistrar();
   const guideCtx = await getBrowserChatGuideContext(sessionId);
   const allTools = advertisedBrowserChatTools(registrar);
   const planTools = allTools.filter(tool => (WEB_CHAT_READ_ONLY_TOOLS as readonly string[]).includes(tool.name));
+  const planReviewTools = pendingPlan ? [...planTools, ...WEB_CHAT_PLAN_DECISION_TOOLS] : planTools;
   if (projectPlanReadOnly && (!guideCtx.project || !planTools.some(tool => tool.name === 'read'))) {
     throw new Error('Plan mode needs a readable project folder and file-reading permission. No message was sent.');
   }
-  const reminder = !projectChat ? '' : projectPlanReadOnly
+  let reminder = !projectChat ? '' : projectPlanReadOnly
     ? 'Only read or search relevant project files. Do not edit, run commands, or use other tools. Answer the current request and wait for explicit plan approval before making changes.'
     : webChatRoundReminder(guideCtx);
-  const system = !projectChat ? webPlainChatInstructions(guideCtx.language)
-    : projectPlanReadOnly ? webProjectPlanToolGuide(planTools, guideCtx)
+  let system = !projectChat ? webPlainChatInstructions(guideCtx.language)
+    : projectPlanReadOnly ? webProjectPlanToolGuide(planStage === 'review' ? planReviewTools : planTools, guideCtx)
       : webToolGuide(allTools, guideCtx);
   const prior = await readWebProviderThread(sessionId, conversationId, provider);
   const hasProviderTranscript = Boolean(prior?.messages.some(message => message.role !== 'system'));
@@ -508,16 +556,10 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   // Bootstrap only when the provider transcript is actually empty. A completed
   // automatic warmup already loaded setup into this provider chat, even when
   // the first authored request arrives after the context-verification TTL.
-  const opening = isOpening(messages) && !hasProviderTranscript && (!hasPriorAuthoredContext ||
+  const opening = !preparedFreshAttachmentPage && isOpening(messages) && !hasProviderTranscript && (!hasPriorAuthoredContext ||
     (!session?.conversationId && !entry.conversationId) || session?.origin?.kind === 'worker' || openingWarmup);
-  const preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, {
-    historySummary: opening || !hasPriorAuthoredContext ? undefined : historySummary,
-    projectPlanPhase: planStage === 'draft' ? 'draft' : undefined,
-    projectPlanContext: planStage && planStage !== 'draft'
-      ? projectPlanContext(pendingPlan ?? { request: entry.text, plan: '' }, planStage)
-      : undefined
-  });
-  const bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
+  let preparedText = '';
+  let bootstrap: string | null = null;
   const userMessageId = randomUUID();
   const turnId = randomUUID();
   signal?.throwIfAborted();
@@ -531,14 +573,29 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
   flights.set(sessionId, { turnId, abort, warmup: entry.warmup === true });
   const now = () => Date.now();
   const internalWarmup = entry.warmup ? { internalWarmup: true as const } : {};
+  let acceptedInput: InputEntry | undefined;
+  let attachmentUploadConfirmed = false;
+  const attachmentUploadTracked = deepseekProviderAttachments.length > 0 &&
+    !deepseekProviderAttachments.every(file => wasProviderAttachmentPreuploaded(ownedConversation, file.id));
   try {
-    const accepted = (await listInputs()).find(row => row.id === entry.id && row.state === 'sent');
-    if (!accepted) throw new Error(`NEURAFLOK could not verify the accepted ${WEB_PROVIDERS[provider].label} message.`);
+    acceptedInput = (await listInputs()).find(row => row.id === entry.id && row.state === 'sent');
+    if (!acceptedInput) throw new Error(`NEURAFLOK could not verify the accepted ${WEB_PROVIDERS[provider].label} message.`);
     if (!entry.warmup) {
-      await recordDeliveredInput(accepted, undefined, { turnId });
+      await recordDeliveredInput(acceptedInput, undefined, { turnId, attachmentUpload: attachmentUploadTracked });
     }
     await observe(ownedConversation, [{ kind: 'turn_start', time: now(), turnId, ...internalWarmup }]);
     if (!entry.warmup) await noteLocalAgentTurnStarted(ownedConversation, now());
+    preparedText = entry.warmup ? '' : await prepareLocalProviderPrompt(entry, sessionId, {
+      allowImageAttachments: provider === 'deepseek',
+      allowPdfAttachments: provider === 'deepseek',
+      allowOfficeAttachments: provider === 'deepseek',
+      historySummary: opening || !hasPriorAuthoredContext ? undefined : historySummary,
+      projectPlanPhase: planStage === 'draft' ? 'draft' : undefined,
+      projectPlanContext: planStage && planStage !== 'draft'
+        ? projectPlanContext(pendingPlan ?? { request: entry.text, plan: '' }, planStage)
+        : undefined
+    });
+    bootstrap = opening ? await prepareWebProviderBootstrap(entry, sessionId, system) : null;
     let thread: WebChatThread = {
       version: 1,
       sessionId,
@@ -603,11 +660,18 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     let idleRecoveries = 0;
     let plainTextRetries = 0;
     let prohibitedPlanRetries = 0;
+    let planDecisionRetries = 0;
+    let planDecisionAllowed = true;
     let executedToolCalls = 0;
     let reviewedToolCalls = 0;
-
+    let pageAttachments: ProviderPageAttachmentSource[] = [];
     const unsubscribeProgress = onProviderPageProgress(async (progress) => {
       if (progress.conversationId !== ownedConversation) return;
+      if (progress.attachmentsUploaded && attachmentUploadTracked && acceptedInput && !attachmentUploadConfirmed) {
+        attachmentUploadConfirmed = true;
+        pageAttachments = [];
+        await updateDeliveredInputAttachmentStatus(acceptedInput, 'ready');
+      }
       const clean = stripWebChatTools(progress.text);
       if (clean && clean !== lastObservedClean) {
         lastObservedClean = clean;
@@ -625,6 +689,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     });
 
     try {
+      pageAttachments = await providerPageAttachments(acceptedInput, provider, false, ownedConversation);
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         abort.signal.throwIfAborted();
         const live = createBrowserChatToolRegistrar();
@@ -634,7 +699,19 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         while (true) {
           abort.signal.throwIfAborted();
           try {
-            completion = await requestProviderPageComplete(provider, ownedConversation, requestText, abort.signal);
+            const offerOptions = pageAttachments.length || preparedFreshAttachmentPage
+              ? {
+                ...(pageAttachments.length ? { attachments: pageAttachments } : {}),
+                ...(preparedFreshAttachmentPage ? { preparedAttachmentPage: true } : {})
+              }
+              : undefined;
+            completion = await requestProviderPageComplete(provider, ownedConversation, requestText, abort.signal, offerOptions);
+            markProviderAttachmentSessionPrepared(sessionId, ownedConversation);
+            pageAttachments = [];
+            if (attachmentUploadTracked && acceptedInput && !attachmentUploadConfirmed) {
+              attachmentUploadConfirmed = true;
+              await updateDeliveredInputAttachmentStatus(acceptedInput, 'ready');
+            }
             break;
           } catch (error) {
             const canContinue = provider === 'deepseek' && !entry.warmup &&
@@ -642,12 +719,30 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
               isVerifiedIdleProviderFailure(error);
             if (canContinue) {
               idleRecoveries++;
+              if (attachmentUploadConfirmed) pageAttachments = [];
               requestText = `${recoveryMessage(entry.text)}\n\n${reminder}`;
               thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: requestText }]);
               await persistWebProviderThread(thread, provider);
               continue;
             }
-            if (provider !== 'deepseek' || contextRecoveryAttempted || round !== 0 || !isDeepseekContextUnavailable(error)) throw error;
+            const attachmentStageUnavailable = isDeepseekAttachmentStageUnavailable(error);
+            if (attachmentStageUnavailable) {
+              if (provider !== 'deepseek' || contextRecoveryAttempted || round !== 0) throw error;
+              // Losing a composer receipt does not mean the provider chat or
+              // its history is lost. Keep this exact chat, clear its stale
+              // local receipt in the page, and retry once with the original
+              // attachment bytes before sending the same request.
+              const restoredAttachments = await providerPageAttachments(acceptedInput ?? entry, provider, true, ownedConversation);
+              if (!restoredAttachments.length) {
+                throw new Error('DeepSeek lost the staged attachment and NeuraFlok could not restore its local file. No message was sent.');
+              }
+              contextRecoveryAttempted = true;
+              preparedFreshAttachmentPage = false;
+              pageAttachments = restoredAttachments;
+              continue;
+            }
+            if (provider !== 'deepseek' || contextRecoveryAttempted || round !== 0 ||
+                !isDeepseekContextUnavailable(error)) throw error;
             const replay = replayWebProviderTranscript(priorMessages, requestText, 96_000, entry.text);
             if (!replay) {
               throw new Error('DeepSeek perdió el historial remoto y NeuraFlok no tiene suficiente transcripción local para reconstruir el contexto. No se envió el mensaje.');
@@ -659,13 +754,72 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
               throw new Error('DeepSeek no confirmó la restauración del contexto. No se envió el mensaje.');
             }
             rememberDeepseekContext(sessionId, ownedConversation);
+            markProviderAttachmentSessionPrepared(sessionId, ownedConversation);
             contextRecoveryAttempted = true;
-            requestText = replay;
+            preparedFreshAttachmentPage = false;
+            // Rebuilding a lost provider page also loses its unsent composer
+            // attachments. Replay the staged originals on the recovered page.
+            pageAttachments = await providerPageAttachments(acceptedInput ?? entry, provider, true, ownedConversation);
+            requestText = replay ?? requestText;
           }
         }
         const raw = completion.text ?? '';
         const calls = parseWebChatTools(raw);
         const assistantContent = stripWebChatTools(raw);
+        const decisionCalls = calls.filter(call => isWebChatPlanDecisionToolName(call.function.name));
+        if (decisionCalls.length) {
+          const decisionCall = decisionCalls[0]!;
+          const candidate = planDecisionAllowed && decisionCalls.length === 1 && calls.length === 1 && planStage === 'review' && pendingPlan
+            ? projectPlanDecisionFromTool(decisionCall.function.name) : null;
+          const revision = candidate === 'revise' ? projectPlanRevisionFromTool(decisionCall.function.arguments) : null;
+          const decision = candidate && (candidate === 'revise' ? revision !== null : hasEmptyProjectPlanDecisionArguments(decisionCall.function.arguments))
+            ? candidate : null;
+          const result = !decision
+            ? 'No decision or project action was applied. A plan decision is valid only as one workflow decision call with empty arguments and no other tool calls. Reassess the latest user-authored message by its meaning; if it is uncertain, answer or ask a concise clarification without changing files.'
+            : decision === 'approved'
+              ? 'Approval confirmed. The user’s latest message authorizes the pending plan. No project action has run yet; continue in the next turn using the updated workflow instructions.'
+              : decision === 'cancel'
+                ? 'Cancellation confirmed. The user’s latest message cancels the pending plan. No project action has run.'
+                : 'The revised plan was saved for review. No project action has run.';
+          thread.messages = trimWebProviderThread([...thread.messages,
+            { role: 'assistant', ...(assistantContent ? { content: assistantContent } : {}), tool_calls: calls },
+            ...calls.map(call => ({ role: 'tool' as const, tool_call_id: call.id,
+              content: isWebChatPlanDecisionToolName(call.function.name) ? result : 'No tool was executed because a plan decision cannot be combined with other tool calls.' }))
+          ]);
+          if (!decision) {
+            await persistWebProviderThread(thread, provider);
+            if (planDecisionAllowed && planDecisionRetries++ === 0 && planStage === 'review' && pendingPlan) {
+              pageText = `${formatWebChatResult(decisionCall.function.name, result)}\n\n${projectPlanContext(pendingPlan, 'review')}\n\n${webProjectPlanToolGuide(planReviewTools, guideCtx)}`;
+              continue;
+            }
+            assistantText = assistantContent || emptyAssistantReply(guideCtx.language);
+            break;
+          }
+          if (decision === 'approved') {
+            planStage = 'approved';
+            projectPlanReadOnly = false;
+            reminder = webChatRoundReminder(guideCtx);
+            system = `${webToolGuide(allTools, guideCtx)}\n\n${projectPlanContext(pendingPlan!, 'approved')}`;
+          } else if (decision === 'cancel') {
+            planStage = 'cancel';
+            system = `${webPlainChatInstructions(guideCtx.language)}\n\n${projectPlanContext(pendingPlan!, 'cancel')}`;
+          } else {
+            const revisedPlanState = { request: pendingPlan!.request, plan: revision!, updatedAt: now() };
+            await updateProjectPlanState(sessionId, ownedConversation, revisedPlanState, now());
+            pendingPlan = revisedPlanState;
+            planDecisionAllowed = false;
+            system = `${webProjectPlanToolGuide(planTools, guideCtx)}\n\nOriginal request:\n${revisedPlanState.request}\n\nRevised plan:\n${revisedPlanState.plan}\n\nThe requested revision has been saved. In this reply, present the updated plan and wait for the user. Do not call workflow decision tools or make project changes.`;
+          }
+          if (decision === 'cancel') await clearProjectPlanState(sessionId, ownedConversation);
+          thread.messages = withWebProviderSystem(thread.messages, system);
+          await persistWebProviderThread(thread, provider);
+          pageText = `${formatWebChatResult(decisionCall.function.name, result)}\n\n${system}\n\n${decision === 'approved'
+            ? 'Continue the approved work now. Start with the next required project tool call; do not ask for approval again.'
+            : decision === 'cancel'
+              ? 'Reply briefly and naturally to acknowledge that the plan was cancelled. Do not call tools.'
+              : 'Present the revised plan naturally, then wait for the user’s decision. Do not call tools in this reply.'}`;
+          continue;
+        }
         if (!projectChat && (calls.length || incompleteWebChatTool(raw))) {
           if (plainTextRetries++ === 0) {
             pageText = 'Answer the user\'s current message directly in natural text. This is a normal chat with no file or command tools. Do not emit tool syntax.';
@@ -746,8 +900,6 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       if (projectChat && usablePlanReply) {
         if (planStage === 'draft') {
           await updateProjectPlanState(sessionId, ownedConversation, { request: entry.text, plan: assistantText }, now());
-        } else if (planStage === 'review' && pendingPlan) {
-          await updateProjectPlanState(sessionId, ownedConversation, { request: pendingPlan.request, plan: assistantText }, now());
         } else if (planStage === 'approved' || planStage === 'cancel') {
           await clearProjectPlanState(sessionId, ownedConversation);
         }
@@ -765,6 +917,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         },
         { kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true }
       ]);
+      if (acceptedInput?.attachments?.length) retirePreuploadedProviderAttachments(ownedConversation, acceptedInput.attachments);
       logInfo(`${provider}: session ${sessionId} completed turn ${turnId}`);
       return turnId;
     } finally {
@@ -772,13 +925,16 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     }
   } catch (error) {
     const aborted = abort.signal.aborted || (error instanceof Error && error.name === 'AbortError');
+    if (attachmentUploadTracked && acceptedInput && !attachmentUploadConfirmed) {
+      await updateDeliveredInputAttachmentStatus(acceptedInput, 'failed').catch(() => false);
+    }
     if (aborted) {
       await observe(ownedConversation, [
         { kind: 'turn_end', time: now(), turnId, outcome: 'stopped', detail: 'Stop requested', ...internalWarmup }
       ]).catch(() => undefined);
       return null;
     }
-    const detail = (error as Error).message.replace(/^DEEPSEEK_CONTEXT_UNAVAILABLE:\s*/, '').slice(0, 500);
+    const detail = (error as Error).message.replace(/^DEEPSEEK_(?:CONTEXT_UNAVAILABLE|ATTACHMENT_STAGE_UNAVAILABLE):\s*/, '').slice(0, 500);
     logWarn(`${provider}: session ${sessionId} failed: ${detail}`);
     await observe(ownedConversation, [
       { kind: 'chat_error', time: now(), turnId, inputId: entry.id, text: detail, recoverable: false, ...internalWarmup },

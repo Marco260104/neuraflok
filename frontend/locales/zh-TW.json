@@ -788,6 +788,9 @@
   "Attach up to 20 files and 512 MB per message": "每則訊息最多附加 20 個檔案，總大小不超過 512 MB",
   "Files": "檔案",
   "Attach up to 20 files per message": "每則訊息最多附加 20 個檔案",
+  "Attach up to 50 files per message": "每則訊息最多附加 50 個檔案",
+  "Each attachment must be 100 MB or smaller": "每個檔案不得超過 100 MB",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "不支援此檔案格式。DeepSeek 支援 PDF、DOC/DOCX、XLS/XLSX、PPT/PPTX、圖片、文字和程式碼檔案。",
   "Handoff copied": "交接摘要已複製",
   "Run cleared — every worker ended": "執行已清除 — 所有子代理已結束",
   "{0} cleared — its slot is free": "{0} 已清除 — 名額已釋放",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "正在上傳…",
+  "Uploaded": "已上傳",
+  "Upload failed": "上傳失敗",
+  "NEURAFLOK community links": "NEURAFLOK 社群連結",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

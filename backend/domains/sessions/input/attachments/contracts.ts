@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type { InputAttachment } from '../../../../../contracts/input.js';
+import { MAX_ATTACHMENT_SIZE_BYTES } from '../../../../../contracts/attachments.js';
 
-export const MAX_ATTACHMENT_BYTES = 512 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_SIZE_BYTES;
+export const MAX_ATTACHMENTS = 50;
 export const ATTACHMENT_CHUNK_BYTES = 512 * 1024;
 
 export const attachmentSchema = z.object({

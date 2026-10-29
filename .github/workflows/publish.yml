@@ -1,6 +1,8 @@
 name: Publish release
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -9,7 +11,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   preflight:
@@ -18,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -26,12 +28,12 @@ jobs:
       - run: npm ci
       - name: Confirm the tag is unpublished
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/check-release-absent.mjs
       - name: Verify release metadata agrees
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
@@ -60,18 +62,22 @@ jobs:
   candidate:
     needs: preflight
     uses: ./.github/workflows/release.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
 
   publish:
     name: Publish
     needs: candidate
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     env:
-      TAG: ${{ inputs.tag }}
+      TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@v4
         with:
           name: neuraflok-candidate-${{ github.run_id }}

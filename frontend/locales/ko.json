@@ -605,6 +605,9 @@
   "Attach up to 20 files and 512 MB per message": "메시지당 최대 20개 파일, 총 512 MB 첨부 가능",
   "Files": "파일",
   "Attach up to 20 files per message": "메시지당 최대 20개 파일 첨부 가능",
+  "Attach up to 50 files per message": "메시지당 최대 50개 파일 첨부 가능",
+  "Each attachment must be 100 MB or smaller": "각 파일은 100 MB 이하여야 합니다",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "지원하지 않는 파일 형식입니다. DeepSeek는 PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, 이미지, 텍스트 및 코드 파일을 지원합니다.",
   "Handoff copied": "인수인계 복사됨",
   "Run cleared — every worker ended": "실행 지워짐 — 모든 워커 종료",
   "{0} cleared — its slot is free": "{0} 지워짐 — 슬롯 사용 가능",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "업로드 중…",
+  "Uploaded": "업로드 완료",
+  "Upload failed": "업로드하지 못했습니다",
+  "NEURAFLOK community links": "NEURAFLOK 커뮤니티 링크",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

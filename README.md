@@ -1,62 +1,106 @@
 # NEURAFLOK
 
-<p align="center"><img src="brand/Logotipo.png" alt="NEURAFLOK" width="520"></p>
+<p align="center">
+  <img src="brand/Logotipo.png" alt="NEURAFLOK" width="340">
+</p>
 
-<p align="center">A local coding workspace for signed-in AI sessions, project files, and approved tools.</p>
+<p align="center"><strong>One workspace for AI conversations and local projects.</strong></p>
+<p align="center">A local-first desktop app for working with AI providers, project files, and approved tools.</p>
 
-NEURAFLOK brings browser conversations, local projects, and a terminal into one desktop workspace. Its companion extension verifies supported provider sessions before the app routes work to them. Local tools stay behind explicit folder and capability permissions.
+<p align="center"><strong>Download NEURAFLOK</strong></p>
+<p align="center">
+  <a href="https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Setup-x64.exe"><img src="https://img.shields.io/badge/Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows installer"></a>
+  <a href="https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-x64.AppImage"><img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux installer"></a>
+  <a href="https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-arm64.dmg"><img src="https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS installer"></a>
+</p>
 
-## Providers
+<p align="center">
+  <a href="https://github.com/Marco260104/neuraflok">Source</a> ·
+  <a href="https://github.com/Marco260104/neuraflok/releases">All releases</a> ·
+  <a href="docs/setup.md">Setup guide</a> ·
+  <a href="https://github.com/Marco260104/neuraflok/issues">Report an issue</a>
+</p>
 
-NEURAFLOK can connect to signed-in browser sessions for DeepSeek, Kimi, Qwen, and Z AI. OpenAI models use the configured OpenAI API endpoint only. OpenRouter and compatible API endpoints are also supported.
+<p align="center">
+  <a href="https://github.com/Marco260104/neuraflok/stargazers"><img src="https://img.shields.io/github/stars/Marco260104/neuraflok?style=flat-square&logo=github" alt="GitHub stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f9e75?style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-59636e?style=flat-square" alt="Windows, macOS, and Linux">
+</p>
 
-## Features
+## Downloads
 
-- Local conversations, project folders, durable history, and queued input.
-- A workspace terminal, bounded file access, file editing, and project search.
-- Browser and API conversation routes with provider-specific session checks.
-- Optional multi-agent workers, task goals, and continuation controls.
-- A browser companion for provider observation and authorized delivery.
-- Local tools run behind explicit folder and capability checks.
+The platform buttons above download the default installer from the latest stable release. The first stable release has not been published yet; the buttons will work as soon as its assets are available. You can also visit [GitHub Releases](https://github.com/Marco260104/neuraflok/releases) for release notes and every available build.
 
-## Architecture
+| Platform | Architecture | Direct download |
+| --- | --- | --- |
+| Windows 10/11 | x64 | [Installer](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Setup-x64.exe) |
+| Windows 10/11 | ARM64 | [Installer](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Setup-arm64.exe) |
+| macOS 13 or later | Apple silicon (ARM64) | [DMG](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-arm64.dmg) · [ZIP](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-arm64.zip) |
+| macOS 13 or later | Intel (x64) | [DMG](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-x64.dmg) · [ZIP](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-x64.zip) |
+| Linux | x64 | [AppImage](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-x64.AppImage) · [DEB](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-x64.deb) |
+| Linux | ARM64 | [AppImage](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-arm64.AppImage) · [DEB](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-arm64.deb) |
 
-Read [ARCHITECTURE.md](ARCHITECTURE.md) for the backend, frontend, preload boundary, extension, and persistence map. NEURAFLOK uses local durable files for sessions and settings; it does not require a database server.
+Every stable release includes `SHA256SUMS.txt` so you can verify downloaded files. Some macOS packages may not be signed or notarized; see [SECURITY.md](SECURITY.md) before installing.
+
+## What NEURAFLOK does
+
+- **Chat naturally:** keep conversations and their history on your computer, then continue them later.
+- **Work with projects:** give a project chat its selected project context and access only to approved folders and capabilities.
+- **Keep chat types separate:** a normal chat receives your instructions and relevant conversation history, not a project file tree. A project chat can use project files when you select and authorize that project.
+- **Choose a provider:** connect supported browser sessions or configure an API-compatible endpoint in the app.
+- **Use local tools deliberately:** file operations and terminal commands are checked against the current workspace permissions.
+- **Stay in control:** review tool results, delivery status, and provider availability in the conversation.
+
+## Get started
+
+1. Download the installer for your operating system and processor architecture.
+2. Install and open NEURAFLOK.
+3. In **Settings**, connect a provider or configure an API endpoint.
+4. Start a normal chat, or open a project and approve the folders and capabilities it needs.
+
+Linux may require a Secret Service keyring for secure credential storage. See the [setup and troubleshooting guide](docs/setup.md) for details.
+
+## Privacy and security
+
+NEURAFLOK runs locally and does not operate a user-account service, analytics backend, or telemetry service. Conversations, settings, recovery data, and credentials are stored on your computer; credentials use the operating system's secure storage. When you send a message, file, or activity to a connected provider, that provider receives the content through the session or API you chose and its own terms apply.
+
+Local tools run with your operating-system user permissions. Review approved folders and enabled capabilities before using them. The repository is public, so its code, issues, pull requests, discussions, and releases can be viewed or copied by others. Never publish credentials, private conversations, user files, personal paths, or unredacted logs.
+
+Read the [privacy policy](PRIVACY.md), [security policy](SECURITY.md), and [terms of use](TERMS.md). To report a vulnerability privately, follow [SECURITY.md](SECURITY.md).
 
 ## Development
 
-Requires Node.js 22 and npm. Install dependencies and start the desktop app:
+Requires Node.js 22 and npm.
 
-```powershell
+```sh
 npm ci
 npm run dev
 ```
 
-Build the app and extension bundle with:
+Run the checks locally:
 
-```powershell
+```sh
 npm run typecheck
-npm run build
+npm test
+npm run verify:ui
 ```
 
-Run the project checks with `npm test` and `npm run verify:ui`.
+For release builds, use the `dist:*` scripts in [package.json](package.json) on their target operating systems. See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request requirements and [ARCHITECTURE.md](ARCHITECTURE.md) for the module map and security boundaries.
 
-## System requirements
+## Contributing
 
-- Windows 10 or 11, macOS 13 Ventura or newer, or a current desktop Linux distribution.
-- Linux installations need a Secret Service keyring for secure credential storage.
-- Use a signed-in DeepSeek, Kimi, Qwen, or Z AI browser session, or configure the OpenAI API or another compatible API endpoint.
-- The integrated browser loads the companion automatically; no manual extension installation is required.
+Contributions are welcome through pull requests targeting `develop`. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and follow the [Code of Conduct](CODE_OF_CONDUCT.md). The repository uses CI, code-owner reviews, and branch rules; see the [repository governance guide](docs/repository-governance.md).
 
-## Permissions and privacy
+- [Open an issue](https://github.com/Marco260104/neuraflok/issues)
+- [Browse pull requests](https://github.com/Marco260104/neuraflok/pulls)
+- [View GitHub contributors](https://github.com/Marco260104/neuraflok/graphs/contributors)
 
-NEURAFLOK does not collect your personal data. Chats, settings, and credentials stay on this computer. Review [PRIVACY.md](PRIVACY.md) and [TERMS.md](TERMS.md), also available in Settings → General → Legal.
+## Credits
 
-Review approved folders and tool capabilities before using local tools. Conversation history and provider session metadata may be stored locally to support recovery. API request data is sent only to the endpoint configured for that conversation. Browser providers control their own accounts, model availability, limits, and terms.
+**Creator and maintainer:** [Marco Torres (@Marco260104)](https://github.com/Marco260104).
+
+People who contribute code are listed in the [GitHub contributors graph](https://github.com/Marco260104/neuraflok/graphs/contributors). Third-party components retain their original licenses and notices; see [NOTICE](NOTICE) and [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
 ## License
 
-NEURAFLOK is licensed under the [MIT License](LICENSE) (`SPDX-License-Identifier: MIT`).
-Copyright © 2026 NEURAFLOK contributors.
-
-Separately licensed components retain their required notices in [NOTICE](NOTICE) and [third-party notices](THIRD-PARTY-NOTICES.txt).
+NEURAFLOK application source is distributed under the [MIT License](LICENSE). Copyright © 2026 Marco Torres and contributors.

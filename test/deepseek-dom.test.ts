@@ -17,6 +17,16 @@ interface DeepseekDomApi {
   lastAnswerIdentity(): string;
   lastThink(): string;
   setValue(textarea: FakeNode, text: string): void;
+  attachFiles(files: Array<{ id?: string; name: string; mimeType: string; size?: number; chunks: string[] }>, conversationId?: string): boolean;
+  attachmentsPresent(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  attachmentUploadReady(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  prepareImageAttachmentUpload(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  removeAttachmentFiles(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  providerAttachmentsPresent(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>): boolean;
+  attachmentsRemoved(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  attachmentsConfirmed(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  confirmAttachmentsUploaded(files: Array<{ id?: string; name: string; mimeType?: string; size?: number }>, conversationId?: string): boolean;
+  clearAttachmentReceipt(conversationId?: string): boolean;
   signedIn(): boolean;
   newChat(): FakeNode | null;
   hasConversation(): boolean;
@@ -26,6 +36,7 @@ interface DeepseekDomApi {
 interface FakeNode {
   id?: string;
   name?: string;
+  disabled?: boolean;
   className: string;
   hidden: boolean;
   value: string;
@@ -39,6 +50,7 @@ interface FakeNode {
   key?: string;
   tagName: string;
   shadowRoot?: FakeNode | null;
+  files?: FakeFile[];
   getAttribute(name: string): string | null;
   querySelector(selector: string): FakeNode | null;
   querySelectorAll(selector: string): FakeNode[];
@@ -51,11 +63,29 @@ interface FakeNode {
   appendChild(child: FakeNode): FakeNode;
 }
 
+interface FakeFile { name: string; type: string; parts: Uint8Array[]; }
+
+class FakeFileTransfer {
+  private readonly selected: FakeFile[] = [];
+  readonly items = { add: (file: FakeFile) => this.selected.push(file) };
+  get files(): FakeFile[] { return this.selected; }
+}
+
+class FakeFileValue implements FakeFile {
+  readonly name: string;
+  readonly type: string;
+  readonly parts: Uint8Array[];
+  constructor(parts: Uint8Array[], name: string, options: { type: string }) {
+    this.parts = parts; this.name = name; this.type = options.type;
+  }
+}
+
 function node(tag: string, attrs: Record<string, string> = {}, children: FakeNode[] = []): FakeNode {
   const created: FakeNode = {
     tagName: tag.toUpperCase(),
     id: attrs.id,
     name: attrs.name,
+    disabled: attrs.disabled === 'true',
     className: attrs.class ?? '',
     hidden: false,
     value: '',
@@ -140,6 +170,7 @@ function matchSimple(candidate: FakeNode, selector: string): boolean {
   if (selector === '[contenteditable]') return candidate.getAttribute('contenteditable') !== null;
   if (selector === 'textarea#chat-input') return candidate.tagName === 'TEXTAREA' && candidate.id === 'chat-input';
   if (selector === 'textarea[name="search"]') return candidate.tagName === 'TEXTAREA' && candidate.name === 'search';
+  if (selector === 'input[type="file"]') return candidate.tagName === 'INPUT' && candidate.getAttribute('type') === 'file';
   if (selector === '#chat-input') return candidate.id === 'chat-input';
   if (selector === 'a[href]') return candidate.tagName === 'A' && Boolean(candidate.getAttribute('href'));
   if (selector === '[data-virtual-list-item-key]') return Boolean(candidate.key);
@@ -169,17 +200,18 @@ Object.defineProperty(HTMLTextAreaElement.prototype, 'value', {
   set(value: string) { nativeValues.set(this, String(value)); }
 });
 
-function load(body: FakeNode[], options: { composer?: boolean; composerId?: boolean; composerPlaceholder?: string; hiddenSearch?: boolean | 'aria-hidden' | 'visible'; sendRole?: boolean; title?: string; href?: string } = {}): {
+function load(body: FakeNode[], options: { composer?: boolean; composerId?: boolean; composerPlaceholder?: string; hiddenSearch?: boolean | 'aria-hidden' | 'visible'; sendRole?: boolean; title?: string; href?: string; fileInput?: boolean } = {}): {
   api: DeepseekDomApi;
   composer: FakeNode | null;
   send: FakeNode;
   attach: FakeNode;
+  fileInput: FakeNode | null;
   stop: FakeNode;
   document: { getElementById(id: string): FakeNode | null; body: FakeNode; visibilityState?: string; hidden?: boolean };
   sessionStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void };
   listeners: Array<(message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown>;
   presenceObservers: Array<{ notify(): void }>;
-  presenceMessages: Array<{ signedIn?: boolean }>;
+  presenceMessages: Array<{ signedIn?: boolean; type?: string }>;
   location: { href: string };
   context: vm.Context;
 } {
@@ -207,10 +239,11 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
     ? node('div', { role: 'button' }, [node('svg', {}, [sendPath])])
     : node('button', {}, [node('svg', {}, [sendPath])]);
   const attach = node('button', {}, [node('svg', {}, [attachPath])]);
+  const fileInput = options.fileInput ? node('input', { type: 'file', accept: '.pdf,image/*' }) : null;
   const stop = node('button', {}, [node('svg', {}, [stopPath])]);
   stop.hidden = true;
   const documentBody = node('body');
-  const roots = [...(hiddenSearch ? [hiddenSearch] : []), ...(composerRoot ? [composerRoot] : []), send, attach, stop, ...body];
+  const roots = [...(hiddenSearch ? [hiddenSearch] : []), ...(composerRoot ? [composerRoot] : []), ...(fileInput ? [fileInput] : []), send, attach, stop, ...body];
   const extras: FakeNode[] = [];
   const documentElement = node('html');
   const document = {
@@ -235,7 +268,7 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
   };
   const listeners: Array<(message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown> = [];
   const presenceObservers: Array<{ notify(): void }> = [];
-  const presenceMessages: Array<{ signedIn?: boolean }> = [];
+  const presenceMessages: Array<{ signedIn?: boolean; type?: string }> = [];
   class FakeMutationObserver {
     constructor(private readonly callback: () => void) {}
     observe() { presenceObservers.push({ notify: () => this.callback() }); }
@@ -255,12 +288,18 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
     addEventListener() {},
     Date,
     URL,
+    DataTransfer: FakeFileTransfer,
+    File: FakeFileValue,
+    atob: (value: string) => Buffer.from(value, 'base64').toString('binary'),
     location,
     sessionStorage,
     setTimeout,
     chrome: { runtime: {
       onMessage: { addListener(fn: (typeof listeners)[number]) { listeners.push(fn); } },
-      sendMessage(message: { signedIn?: boolean }) { presenceMessages.push(message); }
+      sendMessage(message: { signedIn?: boolean; type?: string }, callback?: (reply: unknown) => void) {
+        presenceMessages.push(message);
+        if (message.type === 'neuraflok-deepseek-attachment-uploaded') callback?.({ ok: true });
+      }
     } },
     globalThis: undefined as unknown
   });
@@ -273,6 +312,7 @@ function load(body: FakeNode[], options: { composer?: boolean; composerId?: bool
     composer,
     send,
     attach,
+    fileInput,
     stop,
     document,
     sessionStorage,
@@ -296,6 +336,286 @@ it('finds the composer, send, attach exclusion and last visible markdown answer'
   expect(api.stopButton()).toBeNull();
   expect(api.generating()).toBe(false);
   expect(api.lastAnswer()).toBe('visible answer');
+});
+
+it('waits for a settled DeepSeek file chip and deduplicates a retry after upload confirmation', async () => {
+  vi.useFakeTimers();
+  try {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  expect(fileInput).not.toBeNull();
+  const first = { id: 'attachment-1', name: 'first.pdf', mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([first], SESSION_ID)).toBe(true);
+  expect(fileInput?.files).toMatchObject([{ name: 'first.pdf', type: 'application/pdf' }]);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  expect(api.attachmentsPresent([first], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([first], SESSION_ID)).toBe(false);
+
+  composer!.parent!.textContent = composer!.parent!.innerText = 'first.pdf';
+  const progress = node('div', { class: 'ds-upload-progress', text: 'Uploading' });
+  composer!.parent!.appendChild(progress);
+  expect(api.attachmentUploadReady([first], SESSION_ID)).toBe(false);
+  composer!.parent!.children = composer!.parent!.children.filter(child => child !== progress);
+  composer!.parent!.appendChild(node('div', {
+    class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': '100', 'aria-valuemax': '100'
+  }));
+  expect(api.attachmentUploadReady([first], SESSION_ID)).toBe(true);
+
+  expect(api.confirmAttachmentsUploaded([first], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  expect(api.attachFiles([first], SESSION_ID)).toBe(true);
+  expect(api.attachmentsConfirmed([first], SESSION_ID)).toBe(true);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('attaches and confirms an image through DeepSeek’s native file input', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-image', name: 'diagram.png', size: 42,
+    mimeType: 'image/png', chunks: ['iVBORw=='] };
+
+  expect(api.attachFiles([image], SESSION_ID)).toBe(true);
+  expect(fileInput?.files).toMatchObject([{ name: 'diagram.png', type: 'image/png' }]);
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(true);
+
+  composer!.parent!.appendChild(node('div', { class: 'ds-file-card', text: 'diagram.png PNG 42 B' }));
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(true);
+  expect(api.confirmAttachmentsUploaded([image], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  expect(api.attachmentsConfirmed([image], SESSION_ID)).toBe(true);
+});
+
+it('records a thumbnail baseline before a main-world image attachment is staged', () => {
+  const { api, composer, fileInput, listeners } = load([], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-main-world-image', name: 'photo.png', size: 42, mimeType: 'image/png' };
+  let state: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-attachment-state', conversationId: SESSION_ID, attachments: [image]
+  }, {}, value => { state = value; });
+
+  expect(state).toEqual({ presentIds: [] });
+  expect(api.prepareImageAttachmentUpload([image], SESSION_ID)).toBe(true);
+  fileInput!.files = [{ name: image.name, type: image.mimeType, size: image.size, parts: [] } as unknown as FakeFile];
+  const preview = node('div', { class: 'ds-image-preview' }, [node('img', { src: 'blob:deepseek-image-preview', alt: 'Preview' })]);
+  const progress = node('div', { class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': '35', 'aria-valuemax': '100' });
+  composer!.parent!.appendChild(preview);
+  composer!.parent!.appendChild(progress);
+  fileInput!.files = [];
+
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  progress.hidden = true;
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(true);
+});
+
+it('uses an image staged in DeepSeek’s main world without re-injecting it from the isolated content script', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, composer, fileInput, listeners, send } = load([answer], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-main-world-send', name: 'photo.png', size: 42, mimeType: 'image/png' };
+  fileInput!.files = [{ name: image.name, type: image.mimeType, size: image.size, parts: [] } as unknown as FakeFile];
+  const attachFiles = vi.fn(() => false);
+  api.attachFiles = attachFiles;
+  const sendClick = vi.fn(() => { answer.textContent = answer.innerText = 'The image is ready.'; });
+  send.click = sendClick;
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000030',
+    conversationId: SESSION_ID, fresh: false, preStagedAttachments: true,
+    text: 'Describe this image.', attachments: [image]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'The image is ready.' }), { timeout: 2_000 });
+  expect(attachFiles).not.toHaveBeenCalled();
+  expect(composer?.value).toBe('Describe this image.');
+  expect(sendClick).toHaveBeenCalledTimes(1);
+});
+
+it('confirms a DeepSeek image thumbnail without filename text only after upload progress settles', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const image = { id: 'attachment-image-thumbnail', name: 'photo.png', size: 42,
+    mimeType: 'image/png', chunks: ['iVBORw=='] };
+  expect(api.attachFiles([image], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(false);
+  const preview = node('div', { class: 'ds-image-preview' }, [node('img', { src: 'blob:deepseek-image-preview', alt: 'Preview' })]);
+  const remove = node('button', { 'aria-label': 'Remove image' });
+  remove.click = () => { composer!.parent!.children = composer!.parent!.children.filter(child => child !== preview); };
+  preview.appendChild(remove);
+  const progress = node('div', { class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': '35', 'aria-valuemax': '100' });
+  composer!.parent!.appendChild(preview);
+  composer!.parent!.appendChild(progress);
+  expect(api.attachmentsPresent([image], SESSION_ID)).toBe(true);
+
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  progress.hidden = true;
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(false);
+  expect(api.attachmentUploadReady([image], SESSION_ID)).toBe(true);
+  expect(api.confirmAttachmentsUploaded([image], SESSION_ID)).toBe(true);
+  expect(api.removeAttachmentFiles([image], SESSION_ID)).toBe(true);
+  expect(api.attachmentsRemoved([image], SESSION_ID)).toBe(true);
+  expect(api.attachmentsConfirmed([image], SESSION_ID)).toBe(false);
+  expect(fileInput?.files).toEqual([]);
+});
+
+it('releases a completed upload as soon as the truncated DeepSeek PDF card has no active progress', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-truncated', name: 'quarterly-report-final.pdf', size: 12_800_000,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  const card = node('div', { class: 'ds-file-card', text: 'quarterly-report… PDF 12.8MB' });
+  composer!.parent!.appendChild(card);
+  const progress = node('div', { class: 'ds-upload-progress', text: 'Uploading' });
+  composer!.parent!.appendChild(progress);
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(false);
+
+  progress.hidden = true;
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+});
+
+it('recognizes DeepSeek’s truncated PDF card by its visible PDF size when the file input is cleared', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-card', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  composer!.parent!.appendChild(node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' }));
+
+  expect(api.attachmentsPresent([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+});
+
+it('finds the live upload card when DeepSeek renders it beside the composer wrapper', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-outside-input', name: 'INFORMACION CLASE SISTEMAS.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+
+  // Current DeepSeek places the card next to its `.ds-input` wrapper, not
+  // inside it. The wrapper remains in the active composer subtree.
+  const wrapper = composer!.parent!;
+  const composerArea = node('div', { class: 'ds-composer-area' }, [wrapper]);
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  const close = node('button', { 'aria-label': 'Remove file' }, [node('span', { text: '×' })]);
+  close.click = () => { close.events.push('click'); composerArea.children = composerArea.children.filter(child => child !== card); };
+  card.appendChild(close);
+  composerArea.appendChild(card);
+
+  expect(api.attachmentsPresent([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+  expect(api.removeAttachmentFiles([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentsRemoved([file], SESSION_ID)).toBe(true);
+  expect(close.events).toContain('click');
+});
+
+it('does not report a provider file as removed when its card is missing', () => {
+  const { api } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-not-found', name: 'not-present.pdf', size: 1_024,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.removeAttachmentFiles([file], SESSION_ID)).toBe(false);
+});
+
+it('treats a matching completed PDF card as uploaded when DeepSeek leaves an indeterminate progress marker', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-progress', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.attachFiles([file], SESSION_ID)).toBe(true);
+  fileInput!.files = [];
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  card.appendChild(node('div', { class: 'ds-upload-progress', role: 'progressbar', 'aria-valuenow': 'NaN' }));
+  composer!.parent!.appendChild(card);
+
+  expect(api.attachmentUploadReady([file], SESSION_ID)).toBe(true);
+});
+
+it('removes only the matching DeepSeek file card and clears its upload receipt after the card disappears', () => {
+  const { api, composer, fileInput } = load([], { fileInput: true, composerId: false });
+  const file = { id: 'attachment-remove', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  fileInput!.files = [];
+  expect(api.confirmAttachmentsUploaded([file], SESSION_ID)).toBe(true);
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  const close = node('button', { 'aria-label': 'Remove file' }, [node('span', { text: '×' })]);
+  close.click = () => {
+    close.events.push('click');
+    card.parent!.children = card.parent!.children.filter(child => child !== card);
+  };
+  card.appendChild(close);
+  composer!.parent!.appendChild(card);
+
+  expect(api.providerAttachmentsPresent([file])).toBe(true);
+  expect(api.removeAttachmentFiles([file], SESSION_ID)).toBe(true);
+  expect(close.events).toContain('click');
+  expect(api.attachmentsRemoved([file], SESSION_ID)).toBe(true);
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(false);
+});
+
+it('acknowledges a remove-only provider request after the matching DeepSeek card disappears', async () => {
+  const { api, composer, listeners, send, sessionStorage } = load([], { fileInput: true, composerId: false });
+  const file = { id: '00000000-0000-4000-8000-000000000043', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  expect(api.confirmAttachmentsUploaded([file], SESSION_ID)).toBe(true);
+  const card = node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' });
+  const close = node('button', { 'aria-label': 'Remove file' }, [node('span', { text: '×' })]);
+  close.click = () => {
+    close.events.push('click');
+    card.parent!.children = card.parent!.children.filter(child => child !== card);
+  };
+  card.appendChild(close);
+  composer!.parent!.appendChild(card);
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  let reply: unknown;
+
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000044',
+    conversationId: SESSION_ID, text: '', removeOnly: true, attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ removed: true }), { timeout: 2_000 });
+  expect(close.events).toContain('click');
+  expect(send.events).not.toContain('click');
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(false);
+});
+
+it('waits for DeepSeek to enable Send before confirming that an attached PDF finished uploading', async () => {
+  vi.useFakeTimers();
+  try {
+    const answer = node('div', { class: 'ds-markdown', text: '' });
+    const message = node('div', { key: 'pdf-answer' }, [answer]);
+    const { listeners, sessionStorage, send, presenceMessages } = load([message], { fileInput: true });
+    send.disabled = true;
+    send.click = function click() {
+      this.events.push('click');
+      answer.textContent = answer.innerText = 'DeepSeek received the synthetic PDF.';
+    };
+    sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+    setTimeout(() => { send.disabled = false; }, 30_000);
+    let reply: unknown;
+    listeners[0]!({
+      type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000019',
+      conversationId: SESSION_ID, text: 'Summarize the synthetic PDF.',
+      attachments: [{ id: '00000000-0000-4000-8000-000000000001', name: 'scan.pdf', mimeType: 'application/pdf', chunks: ['JVBERi0='] }]
+    }, {}, value => { reply = value; });
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(send.events).not.toContain('click');
+    expect(presenceMessages.some(row => row.type === 'neuraflok-deepseek-attachment-uploaded')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(send.events).toContain('click');
+    expect(presenceMessages.some(row => row.type === 'neuraflok-deepseek-attachment-uploaded')).toBe(true);
+    expect(reply).toMatchObject({ text: 'DeepSeek received the synthetic PDF.' });
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('sets the native textarea value and reports Stop while generating', () => {
@@ -881,6 +1201,154 @@ it('accepts an identical response text only after a new assistant message appear
   }, {}, value => { reply = value; });
 
   expect(reply).toMatchObject({ answer: 'Yes, it is ready.', answerIdentity: 'message:assistant-current' });
+});
+
+it('pre-uploads a file while preserving text typed during the DeepSeek upload', async () => {
+  const { api, composer, fileInput, listeners, send, sessionStorage } = load([], { fileInput: true, composerId: false });
+  const requestId = '00000000-0000-4000-8000-000000000020';
+  const file = { id: '00000000-0000-4000-8000-000000000041', name: 'INFORMACION CLASIFICADA.pdf', size: 13_421_772,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  let ready = false;
+  api.sendButton = () => ready ? send : null;
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: requestId, conversationId: SESSION_ID,
+    text: '', uploadOnly: true, fresh: true, freshPagePrepared: true, attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(reply).toBeUndefined();
+  expect(fileInput?.files).toMatchObject([{ name: 'INFORMACION CLASIFICADA.pdf' }]);
+  expect(composer?.value).toBe('');
+  expect(send.events).not.toContain('click');
+
+  composer!.value = 'Summarize this PDF';
+  ready = true;
+  composer!.parent!.appendChild(node('div', { class: 'ds-file-card', text: 'INFORMACION CLAS… PDF 12.8MB' }));
+  fileInput!.files = [];
+  await vi.waitFor(() => expect(reply).toMatchObject({ uploaded: true }), { timeout: 2_000 });
+  expect(composer?.value).toBe('Summarize this PDF');
+  expect(fileInput?.files).toHaveLength(0);
+  expect(send.events).not.toContain('click');
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(true);
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBe(SESSION_ID);
+});
+
+it('sends the first message into the same empty DeepSeek page after its PDF pre-upload', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { composer, fileInput, listeners, send, sessionStorage } = load([answer], { fileInput: true, composerId: false });
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  const file = { id: '00000000-0000-4000-8000-000000000042', name: 'sample.pdf', mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  let uploadReply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000021', conversationId: SESSION_ID,
+    text: '', uploadOnly: true, fresh: true, freshPagePrepared: true, attachments: [file]
+  }, {}, value => { uploadReply = value; });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  composer!.parent!.textContent = composer!.parent!.innerText = 'sample.pdf';
+  await vi.waitFor(() => expect(uploadReply).toMatchObject({ uploaded: true }), { timeout: 2_000 });
+  expect(fileInput).not.toBeNull();
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  expect(fileInput?.files).toHaveLength(1);
+  expect(send.events).not.toContain('click');
+
+  let retryReply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000023', conversationId: SESSION_ID,
+    text: '', uploadOnly: true, attachments: [file]
+  }, {}, value => { retryReply = value; });
+  await vi.waitFor(() => expect(retryReply).toMatchObject({ uploaded: true }), { timeout: 2_000 });
+  expect(fileInput?.events).toEqual(['input', 'change']);
+
+  send.click = function click() {
+    this.events.push('click');
+    answer.textContent = answer.innerText = 'Synthetic PDF summary.';
+  };
+  let messageReply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000022',
+    conversationId: SESSION_ID, fresh: false, preparedAttachmentPage: true,
+    text: 'Summarize the synthetic PDF.'
+  }, {}, value => { messageReply = value; });
+
+  await vi.waitFor(() => expect(messageReply).toMatchObject({ text: 'Synthetic PDF summary.' }), { timeout: 2_000 });
+  expect(composer?.value).toBe('Summarize the synthetic PDF.');
+  expect(send.events).toContain('click');
+  expect(fileInput?.files).toHaveLength(1);
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+});
+
+it('binds an unclaimed provider page before validating its pre-uploaded attachment receipt', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { composer, listeners, send, sessionStorage } = load([answer], { composerId: false });
+  sessionStorage.setItem('neuraflok.preparedAttachmentPage', SESSION_ID);
+  send.click = function click() {
+    this.events.push('click');
+    answer.textContent = answer.innerText = 'Synthetic attachment received.';
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000024',
+    conversationId: SESSION_ID, fresh: false, preparedAttachmentPage: true, text: 'Describe the synthetic PDF.'
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Synthetic attachment received.' }), { timeout: 2_000 });
+  expect(composer?.value).toBe('Describe the synthetic PDF.');
+  expect(send.events).toContain('click');
+  expect(sessionStorage.getItem('neuraflok.providerSession')).toBe(SESSION_ID);
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+});
+
+it('clears a stale attachment receipt when the prepared chat page no longer matches', async () => {
+  const { composer, listeners, send, sessionStorage } = load([]);
+  const file = { id: '00000000-0000-4000-8000-000000000045', name: 'synthetic-stale.pdf',
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  sessionStorage.setItem('neuraflok.providerSession', SESSION_ID);
+  sessionStorage.setItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`, JSON.stringify([file.id]));
+  sessionStorage.setItem('neuraflok.preparedAttachmentPage', 'ds-00000000-0000-0000-0000-000000000099');
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000026',
+    conversationId: SESSION_ID, fresh: false, preparedAttachmentPage: true,
+    text: 'Read the synthetic PDF.', attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ error: expect.stringContaining('DEEPSEEK_ATTACHMENT_STAGE_UNAVAILABLE:') }));
+  expect(composer?.value).toBe('');
+  expect(send.events).not.toContain('click');
+  expect(sessionStorage.getItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`)).toBeNull();
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+});
+
+it('clears the old provider-page upload receipt before attaching a file to a fresh chat', async () => {
+  const answer = node('div', { class: 'ds-assistant-message-main-content ds-markdown', text: '' });
+  const { api, fileInput, listeners, send, sessionStorage } = load([answer], { fileInput: true, composerId: false });
+  const file = { id: '00000000-0000-4000-8000-000000000044', name: 'synthetic-recovery.pdf', size: 8,
+    mimeType: 'application/pdf', chunks: ['JVBERi0='] };
+  sessionStorage.setItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`, JSON.stringify([file.id]));
+  sessionStorage.setItem('neuraflok.preparedAttachmentPage', SESSION_ID);
+  send.click = function click() {
+    this.events.push('click');
+    answer.textContent = answer.innerText = 'Synthetic PDF contents received.';
+  };
+
+  let reply: unknown;
+  listeners[0]!({
+    type: 'neuraflok-deepseek-complete', id: '00000000-0000-4000-8000-000000000025',
+    conversationId: SESSION_ID, fresh: true, freshPagePrepared: true,
+    text: 'Summarize the synthetic PDF.', attachments: [file]
+  }, {}, value => { reply = value; });
+
+  await vi.waitFor(() => expect(reply).toMatchObject({ text: 'Synthetic PDF contents received.' }), { timeout: 2_000 });
+  expect(fileInput?.files).toMatchObject([{ name: file.name, type: file.mimeType }]);
+  expect(fileInput?.events).toEqual(['input', 'change']);
+  expect(sessionStorage.getItem(`neuraflok.deepseekAttachmentReceipts.${SESSION_ID}`)).toBeNull();
+  expect(sessionStorage.getItem('neuraflok.preparedAttachmentPage')).toBeNull();
+  expect(api.attachmentsConfirmed([file], SESSION_ID)).toBe(false);
 });
 
 it('does not mistake a leftover spinner for active generation when Send is enabled', () => {

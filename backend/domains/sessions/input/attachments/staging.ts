@@ -8,8 +8,12 @@ import { attachmentDirectory, attachmentPath, readAttachmentImage, runAttachment
 
 const MIME_TYPES: Record<string, string> = {
   '.md': 'text/markdown', '.txt': 'text/plain', '.csv': 'text/csv', '.json': 'application/json',
-  '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mp3': 'audio/mpeg'
+  '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jpe': 'image/jpeg', '.jfif': 'image/jpeg',
+  '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
+  '.avif': 'image/avif', '.heic': 'image/heic', '.heif': 'image/heif', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+  '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 };
 
 export function stageInputAttachment(source: AttachmentSource, retained: Set<string>): Promise<InputAttachment> {
@@ -53,8 +57,8 @@ async function stageOne(source: AttachmentSource, usedBytes: number): Promise<In
   if (typeof source === 'string') size = sourceStat!.size;
   else if ('text' in source) size = Buffer.byteLength(source.text);
   else size = source.bytes.byteLength;
-  if (size > MAX_ATTACHMENT_BYTES) throw new Error('Each attachment must be 512 MB or smaller');
-  if (usedBytes + size > 2 * 1024 * 1024 * 1024) {
+  if (size > MAX_ATTACHMENT_BYTES) throw new Error('Each attachment must be 100 MB or smaller');
+  if (usedBytes + size > 5 * 1024 * 1024 * 1024) {
     throw new Error('Attachment storage is full; finish or remove pending messages first');
   }
 

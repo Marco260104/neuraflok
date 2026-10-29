@@ -175,7 +175,8 @@
       const status = pageStatus();
       return {
         ...status,
-        text: answer || think, answer, think, answerIdentity
+        text: answer || think, answer, think, answerIdentity,
+        ...(active?.attachmentsUploaded === true ? { attachmentsUploaded: true } : {})
       };
     }
 
@@ -238,16 +239,36 @@
         return { error: 'The provider send request id is invalid. Retry from NEURAFLOK.' };
       }
 
-      const bound = stored(keys.session);
+      let bound = stored(keys.session);
       let freshPagePrepared = message.freshPagePrepared === true;
       if (message.fresh === true) {
         const error = await beginFreshConversation(message, bound);
         if (error) return { error };
         freshPagePrepared = true;
+        // Attachment receipts belong to a provider page, not the durable
+        // NEURAFLOK conversation id. A freshly opened DeepSeek chat cannot
+        // reuse the previous page's receipt or it may skip the actual upload.
+        try { api.clearAttachmentReceipt?.(message.conversationId); } catch {}
+        if (keys.preparedAttachmentPage) {
+          try { sessionStorage.removeItem(keys.preparedAttachmentPage); } catch {}
+        }
       } else if (bound !== message.conversationId) {
         if (!options.bindUnclaimed && bound !== null) return { error: sessionError(message.conversationId) };
         if (!options.bindUnclaimed) return { error: sessionError(message.conversationId) };
         if (!save(keys.session, message.conversationId)) return { error: 'Could not bind the provider page to this session. No message was sent.' };
+        bound = message.conversationId;
+      }
+
+      const preparedAttachmentPage = message.preparedAttachmentPage === true &&
+        options.allowPreparedAttachmentPage === true &&
+        stored(keys.preparedAttachmentPage) === message.conversationId &&
+        bound === message.conversationId;
+      if (message.preparedAttachmentPage === true && !preparedAttachmentPage) {
+        try { api.clearAttachmentReceipt?.(message.conversationId); } catch {}
+        if (keys.preparedAttachmentPage) {
+          try { sessionStorage.removeItem(keys.preparedAttachmentPage); } catch {}
+        }
+        return { error: 'DEEPSEEK_ATTACHMENT_STAGE_UNAVAILABLE: The uploaded attachment is no longer staged in this DeepSeek chat. No message was sent.' };
       }
 
       if (stored(keys.claim) === message.id) return { pending: true, ...snapshot(), generating: generating() };
@@ -258,8 +279,67 @@
           : options.signInMessage };
       }
       if (options.verifySignIn && !signedIn()) return { error: options.signInMessage };
-      if (generating() && !await until(() => !generating(), options.idleMs)) {
+      if (message.removeOnly !== true && generating() && !await until(() => !generating(), options.idleMs)) {
         return { error: `${provider.toUpperCase()} is still generating. Wait for it to finish and retry.` };
+      }
+
+      const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+      if (message.removeOnly === true) {
+        if (!attachments.length || typeof api.removeAttachmentFiles !== 'function' ||
+            typeof api.providerAttachmentsPresent !== 'function' || typeof api.attachmentsRemoved !== 'function') {
+          return { error: `${provider.toUpperCase()} could not prepare the attachment removal.` };
+        }
+        if (!api.removeAttachmentFiles(attachments, message.conversationId)) {
+          return { error: `${provider.toUpperCase()} could not find the selected file card or its remove control.` };
+        }
+        const removed = await until(() => api.attachmentsRemoved(attachments, message.conversationId) === true,
+          options.attachmentMs ?? 120_000, 200);
+        return removed ? { removed: true } : { error: `${provider.toUpperCase()} did not confirm that the selected files were removed.` };
+      }
+      if (message.uploadOnly === true && api.attachmentsConfirmed?.(attachments, message.conversationId) === true) {
+        if (freshPagePrepared && options.allowPreparedAttachmentPage === true && keys.preparedAttachmentPage &&
+            !save(keys.preparedAttachmentPage, message.conversationId)) {
+          return { error: 'DeepSeek uploaded the file, but NeuraFlok could not keep the prepared chat binding.' };
+        }
+        return { uploaded: true, ...(freshPagePrepared ? { freshPagePrepared: true } : {}) };
+      }
+      const attachmentDeadline = attachments.length
+        ? Date.now() + (options.attachmentMs ?? 120_000)
+        : null;
+      if (attachments.length) {
+        if (message.preStagedAttachments !== true &&
+            (typeof api.attachFiles !== 'function' || !api.attachFiles(attachments, message.conversationId))) {
+          return { error: `${provider.toUpperCase()} could not attach the selected files.` };
+        }
+        const attached = await until(() => api.attachmentsPresent?.(attachments, message.conversationId) === true,
+          Math.max(0, attachmentDeadline - Date.now()), 250);
+        if (!attached) return { error: `${provider.toUpperCase()} did not confirm the selected files.` };
+      }
+
+      // Pre-upload a composer attachment without sending chat text. A native
+      // file input proves selection only; wait for the provider's settled
+      // attachment chip before returning an upload receipt.
+      if (message.uploadOnly === true) {
+        if (!attachments.length) return { error: `${provider.toUpperCase()} received an empty file upload request.` };
+        const uploadReady = await until(() => {
+          // Uploading a file is independent of the user's draft text. The
+          // composer remains editable while the provider processes the file;
+          // waiting for it to be empty leaves the attachment spinner stuck as
+          // soon as the user starts typing during the upload.
+          if (!api.composer()) return null;
+          const confirmed = typeof api.attachmentUploadReady === 'function'
+            ? api.attachmentUploadReady(attachments, message.conversationId) === true
+            : api.attachmentsPresent?.(attachments, message.conversationId) === true && Boolean(api.sendButton());
+          return confirmed ? true : null;
+        }, Math.max(0, attachmentDeadline - Date.now()), 250);
+        if (!uploadReady) return { error: `${provider.toUpperCase()} did not confirm that the selected files finished uploading.` };
+        if (freshPagePrepared && options.allowPreparedAttachmentPage === true && keys.preparedAttachmentPage) {
+          if (!save(keys.preparedAttachmentPage, message.conversationId)) {
+            return { error: 'DeepSeek uploaded the file, but NeuraFlok could not keep the prepared chat binding.' };
+          }
+        }
+        try { api.confirmAttachmentsUploaded?.(attachments, message.conversationId); } catch {}
+        return { uploaded: true, ...(freshPagePrepared ? { freshPagePrepared: true } : {}) };
       }
 
       const sent = typeof message.text === 'string' ? message.text : '';
@@ -276,7 +356,7 @@
       const beforeIdentity = message.fresh === true
         ? previous.beforeIdentity
         : typeof message.beforeIdentity === 'string' ? message.beforeIdentity : previous.beforeIdentity;
-      active = { sent, before, beforeThink, beforeIdentity };
+      active = { sent, before, beforeThink, beforeIdentity, attachmentsUploaded: false };
       api.setValue(composer, sent);
       let lastInsertionTarget = composer;
       let lastInsertionAt = Date.now();
@@ -300,14 +380,26 @@
         return null;
       }, options.insertMs);
       if (!accepted) return { error: `${provider.toUpperCase()} did not accept the message in its composer.` };
-      const send = await until(() => api.sendButton(), options.sendMs);
-      if (!send) return { error: `${provider.toUpperCase()} send control was not found. Reload the provider page and retry.` };
+      const sendWait = attachmentDeadline === null ? options.sendMs : Math.max(0, attachmentDeadline - Date.now());
+      const send = await until(() => api.sendButton(), sendWait);
+      if (!send) return { error: attachments.length
+        ? `${provider.toUpperCase()} did not confirm that the selected files finished uploading.`
+        : `${provider.toUpperCase()} send control was not found. Reload the provider page and retry.` };
+      if (attachments.length) {
+        active.attachmentsUploaded = true;
+        if (typeof options.reportAttachmentsUploaded === 'function') {
+          try { await options.reportAttachmentsUploaded({ id: message.id, conversationId: message.conversationId }); } catch {}
+        }
+      }
       if (!save(keys.claim, message.id)) return { error: 'Could not record the send claim. No message was sent.' };
       try {
         send.focus?.();
         send.click();
       } catch {
         return { error: `${provider.toUpperCase()} send could not be dispatched. Check this conversation before retrying.` };
+      }
+      if (preparedAttachmentPage && keys.preparedAttachmentPage) {
+        try { sessionStorage.removeItem(keys.preparedAttachmentPage); } catch {}
       }
       const publicNow = () => publicAnswer(sent, before, beforeIdentity, lastAnswerIdentity());
       const ackRepeat = (text) => isAck(text) && isAck(before) && !identityProvesNewAnswer(beforeIdentity, lastAnswerIdentity());
@@ -407,6 +499,19 @@
         }
         if (message.type === `${namespace}-snapshot`) {
           sendResponse({ ...pageStatus(), ...snapshot() });
+          return;
+        }
+        if (message.type === `${namespace}-attachment-state`) {
+          const attachments = Array.isArray(message.attachments) ? message.attachments.slice(0, 50) : [];
+          const presentIds = attachments.filter(file => typeof file?.id === 'string' && (
+            api.attachmentsConfirmed?.([file], message.conversationId) === true ||
+            api.attachmentsPresent?.([file], message.conversationId) === true
+          )).map(file => file.id);
+          const present = new Set(presentIds);
+          const missingImages = attachments.filter(file => typeof file?.id === 'string' &&
+            !present.has(file.id) && String(file?.mimeType || '').startsWith('image/'));
+          try { api.prepareImageAttachmentUpload?.(missingImages, message.conversationId); } catch {}
+          sendResponse({ presentIds });
           return;
         }
         if (message.type === `${namespace}-read`) {

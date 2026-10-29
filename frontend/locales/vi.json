@@ -611,6 +611,9 @@
   "Attach up to 20 files and 512 MB per message": "Đính kèm tối đa 20 tệp và 512 MB mỗi tin nhắn",
   "Files": "Tệp",
   "Attach up to 20 files per message": "Đính kèm tối đa 20 tệp mỗi tin nhắn",
+  "Attach up to 50 files per message": "Đính kèm tối đa 50 tệp mỗi tin nhắn",
+  "Each attachment must be 100 MB or smaller": "Mỗi tệp phải có dung lượng tối đa 100 MB",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "Định dạng tệp không được hỗ trợ. DeepSeek chấp nhận PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, hình ảnh, văn bản và mã nguồn.",
   "Handoff copied": "Đã sao chép Handoff",
   "Run cleared — every worker ended": "Đã xóa lần chạy — mọi worker đã kết thúc",
   "{0} cleared — its slot is free": "Đã xóa {0} — slot của nó đã trống",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "Đang tải lên…",
+  "Uploaded": "Đã tải lên",
+  "Upload failed": "Không thể tải lên",
+  "NEURAFLOK community links": "Liên kết cộng đồng NEURAFLOK",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

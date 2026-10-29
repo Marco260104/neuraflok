@@ -357,7 +357,7 @@ describe('NEURAFLOK browser companion', () => {
     })));
 
     expect(h.local.data.webProviderTabs).toMatchObject({
-      [conversationId]: { provider: 'deepseek', tab: 8, url: conversationUrl }
+      [conversationId]: { provider: 'deepseek', tab: 7, url: conversationUrl }
     });
   });
 
@@ -380,7 +380,7 @@ describe('NEURAFLOK browser companion', () => {
     expect(h.createBrowserTab).toHaveBeenCalledWith(conversationUrl, false);
     expect(h.tabReply).toHaveBeenCalledWith(8, expect.objectContaining({
       type: 'neuraflok-deepseek-complete', text: 'Continue yesterday’s task', fresh: false
-    }), undefined, 100_000);
+    }), undefined, 360_000);
     expect(h.local.data.webProviderTabs).toMatchObject({
       [conversationId]: { provider: 'deepseek', tab: 8, url: conversationUrl }
     });

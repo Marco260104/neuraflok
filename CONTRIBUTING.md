@@ -25,7 +25,7 @@ Use `npm run verify:ui` for interface changes. Build installers on the target op
 
 ## Pull requests
 
-Open a pull request against `develop`. Keep one topic per PR. Turn on **Allow edits by maintainers**.
+Open a pull request against `develop`. Keep one topic per PR. Turn on **Allow edits by maintainers**. Do not push directly to `main` or `develop`; those branches are intended to accept reviewed pull requests. The repository owner is the code owner for all files, so the recommended GitHub rules require the owner's approval before a pull request can merge. The owner configures those remote rules in [repository governance](docs/repository-governance.md).
 
 Fill in the pull request template. CI rejects a PR that is missing these sections:
 

@@ -617,6 +617,9 @@
   "Attach up to 20 files and 512 MB per message": "Anexe até 20 ficheiros e 512 MB por mensagem",
   "Files": "Ficheiros",
   "Attach up to 20 files per message": "Anexe até 20 ficheiros por mensagem",
+  "Attach up to 50 files per message": "Anexe até 50 ficheiros por mensagem",
+  "Each attachment must be 100 MB or smaller": "Cada ficheiro deve ter no máximo 100 MB",
+  "Unsupported file format. DeepSeek accepts PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, images, text, and code files.": "Formato não suportado. O DeepSeek aceita PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, imagens, texto e ficheiros de código.",
   "Handoff copied": "Handoff copiado",
   "Run cleared — every worker ended": "Execução limpa — todos os workers terminaram",
   "{0} cleared — its slot is free": "{0} limpo — o respetivo lugar está livre",
@@ -2236,5 +2239,11 @@
   "Polygon": "Polygon",
   "Plasma": "Plasma",
   "Arbitrum": "Arbitrum",
-  "QR": "QR"
+  "QR": "QR",
+  "Uploading…": "A carregar…",
+  "Uploaded": "Carregado",
+  "Upload failed": "Não foi possível carregar",
+  "NEURAFLOK community links": "Ligações da comunidade NEURAFLOK",
+  "GitHub": "GitHub",
+  "Telegram": "Telegram"
 }

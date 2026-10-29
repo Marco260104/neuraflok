@@ -30,8 +30,8 @@ export function createWorkspaceDocks(host: HTMLElement) {
   expandToggle.hidden = true;
   const controls = el('div', 'header-dock-controls'); controls.append(expandToggle, bottomToggle, rightToggle);
   // The layout toggles live at the right end of the title bar. Where the system's own caption buttons share that end (Windows), the bar's right padding reserves their width (env(titlebar-area-*)); a divider then keeps the two groups apart. Electron's windowControlsOverlay reports no geometry, so the padding the CSS resolved is the source.
-  const topbar = document.querySelector<HTMLElement>('.app-topbar')!;
-  topbar.append(controls);
+    const topbar = document.querySelector<HTMLElement>('.app-topbar')!;
+    topbar.querySelector<HTMLElement>('.app-topbar-trailing')!.append(controls);
   const markCaption = (): void => {
     controls.classList.toggle('is-beside-caption', parseFloat(window.getComputedStyle(topbar).paddingRight) > 24);
   };

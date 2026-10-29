@@ -263,7 +263,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           lastProgressAt = Date.now();
           void call('/provider/page/progress', {
             method: 'POST',
-            body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true })
+            body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true, attachmentsUploaded: snap?.attachmentsUploaded === true })
           }).catch(() => undefined);
         }
         stableText = completeText;

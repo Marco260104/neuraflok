@@ -22,8 +22,8 @@ it('keeps disk paths batched while transporting pathless clipboard bytes one at 
   expect(invoke).toHaveBeenNthCalledWith(2, 'sessions:dropFiles', { files: [{ name: 'clipboard.png', bytes }] });
   expect(arrayBuffer).toHaveBeenCalledOnce();
   invoke.mockClear(); arrayBuffer.mockClear();
-  expect(await api.dropFiles([{ name: 'huge.png', size: 12 * 1024 * 1024 + 1, arrayBuffer }])).toMatchObject({ ok: false });
-  expect(await api.dropFiles(Array(21).fill({ name: 'clipboard.png', size: 3, arrayBuffer }))).toMatchObject({ ok: false });
+  expect(await api.dropFiles([{ name: 'huge.png', size: 100 * 1024 * 1024 + 1, arrayBuffer }])).toMatchObject({ ok: false });
+  expect(await api.dropFiles(Array(51).fill({ name: 'clipboard.png', size: 3, arrayBuffer }))).toMatchObject({ ok: false });
   expect(arrayBuffer).not.toHaveBeenCalled();
   expect(invoke).not.toHaveBeenCalled();
   await api.getProjectGitSnapshot('project-id');

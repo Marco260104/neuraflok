@@ -10,24 +10,58 @@
 .app > .notices, .app > main { grid-column: 2; }
 .app.is-sidebar-collapsed { grid-template-columns: minmax(0, 0px) minmax(0, 1fr); }
 .app-topbar {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   height: max(40px, env(titlebar-area-height, 40px)); gap: 8px;
   padding-inline: max(12px, calc(env(titlebar-area-x, 0px) + 7px)) max(12px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
   border-bottom: 1px solid transparent; background: var(--sidebar-color, var(--page));
   box-shadow: 0 1px 0 var(--line);
 }
-.app-topbar > .btn {
+.app-topbar-leading { grid-column: 1; display: flex; min-width: 0; align-items: center; gap: 6px; }
+.app-topbar-leading > .btn {
   width: 32px; min-width: 32px; height: 32px; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint);
   transition-property: background-color, color, transform; transition-duration: 150ms; transition-timing-function: var(--ease-out);
 }
-.app-topbar > .btn:focus-visible { border-color: transparent; background: var(--hover); color: var(--ink); }
+.app-topbar-leading > .btn:focus-visible { border-color: transparent; background: var(--hover); color: var(--ink); }
 @media (hover: hover) and (pointer: fine) {
-  .app-topbar > .btn:hover { border-color: transparent; background: var(--hover); color: var(--ink); }
+  .app-topbar-leading > .btn:hover { border-color: transparent; background: var(--hover); color: var(--ink); }
 }
+.app-topbar-leading .app-topbar-identity { flex: 1; }
 .app-topbar-identity { display: flex; min-width: 0; align-items: center; gap: 9px; margin-left: 8px; color: var(--soft); font-size: calc(13px * var(--text-scale, 1)); font-weight: 550; }
 .app-topbar-product, .app-topbar-divider { display: none; }
 .app-topbar-page { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-topbar-connection { margin-left: auto; -webkit-app-region: no-drag; }
-.app-topbar > .header-dock-controls { margin-left: 12px; }
+.app-topbar-connection { display: none; }
+.app-topbar-trailing { display: flex; min-width: 0; align-items: center; justify-content: flex-end; }
+.app-topbar-trailing { grid-column: 3; }
+.app-topbar-social-links {
+  position: absolute; left: 50vw; top: 50%; translate: -50% -50%; z-index: 2;
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px;
+  pointer-events: auto; -webkit-app-region: no-drag;
+}
+.app-topbar-social-link {
+  position: relative; z-index: 1; display: grid; width: 20px; height: 20px; place-items: center; padding: 0;
+  border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; appearance: none;
+  cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag;
+  transition: transform 150ms var(--ease-out), filter 150ms var(--ease-out);
+}
+.app-topbar-social-link img { display: block; width: 16px; height: 16px; object-fit: contain; pointer-events: none; -webkit-app-region: no-drag; }
+.app-topbar-social-link-github img { filter: brightness(0) invert(1); }
+.app-topbar-social-link-telegram img { width: 18px; height: 18px; }
+.app-topbar-social-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.app-topbar-social-link-github:focus-visible img { filter: brightness(0) invert(1) drop-shadow(0 0 4px #fff9); }
+.app-topbar-social-link-telegram:focus-visible img { filter: drop-shadow(0 0 5px #26a5e4); }
+.app-topbar-social-link:active { transform: scale(.96); }
+@media (hover: hover) and (pointer: fine) {
+  .app-topbar-social-link:hover { transform: scale(1.08); }
+  .app-topbar-social-link-github:hover img { filter: brightness(0) invert(1) drop-shadow(0 0 4px #fff9); }
+  .app-topbar-social-link-telegram:hover img { filter: drop-shadow(0 0 5px #26a5e4); }
+}
+@media (max-width: 620px) {
+  .app-topbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 3px; }
+  .app-topbar-leading { gap: 2px; }
+  .app-topbar-leading .app-topbar-identity { display: none; }
+  .app-topbar-social-links { gap: 6px; }
+  .app-topbar-social-link { width: 20px; height: 20px; }
+}
 .app-topbar .sidebar-connection {
   height: 30px; min-width: 34px; grid-template-columns: 8px auto; column-gap: 8px;
   padding: 0 12px; border: 1px solid transparent; border-radius: var(--pill); background: var(--card); font-size: calc(11.5px * var(--text-scale, 1));
@@ -301,10 +335,19 @@
 }
 .web-model-loading[hidden] { display: none; }
 .web-model-loading-card {
+  position: relative;
   display: grid; justify-items: center; gap: 12px; width: min(420px, calc(100vw - 48px));
   padding: 28px 24px 22px; border: 1px solid var(--line); border-radius: var(--r-xl, 20px);
   background: var(--card); box-shadow: 0 18px 50px #0006; text-align: center;
 }
+.web-model-loading-close {
+  position: absolute; top: 10px; right: 10px; display: grid; place-items: center;
+  width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 9px;
+  color: var(--soft); background: transparent; cursor: pointer;
+}
+.web-model-loading-close:hover { color: var(--ink); border-color: var(--line); background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.web-model-loading-close:focus-visible { outline: 2px solid var(--focus, var(--ink)); outline-offset: 2px; }
+.web-model-loading-close .ico { font-size: 16px; }
 .web-model-loading-spinner {
   width: 28px; height: 28px; border: 2px solid color-mix(in srgb, var(--ink) 14%, transparent);
   border-top-color: var(--ink); border-radius: 50%;
