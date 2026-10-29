@@ -11,6 +11,7 @@ import {
   incompletePlanToolNotice,
   parseWebChatTools,
   stripWebChatTools,
+  containsUnwrappedApplyPatch,
   webPlainChatInstructions,
   webProjectPlanToolGuide,
   webToolGuide,
@@ -125,6 +126,25 @@ function emptyAssistantReply(language: UiLanguage | undefined): string {
     ko: '제공업체가 응답을 반환하지 않았습니다. 다시 시도해 주세요.',
     'zh-CN': '提供商没有返回回复，请重试。',
     'zh-TW': '供應商未傳回回覆，請再試一次。'
+  };
+  return replies[language ?? 'en'];
+}
+
+function unwrappedPatchRecoveryFailure(language: UiLanguage | undefined): string {
+  const replies: Record<UiLanguage, string> = {
+    en: 'I could not safely finish the project task in this turn. Existing project changes were preserved; send a follow-up to continue from the current state.',
+    de: 'Ich konnte die Projektaufgabe in diesem Zug nicht sicher abschließen. Vorhandene Änderungen wurden beibehalten; sende eine weitere Nachricht, um mit dem aktuellen Stand fortzufahren.',
+    es: 'No pude completar de forma segura la tarea del proyecto en este turno. Se conservaron los cambios existentes; envía otro mensaje para continuar desde el estado actual.',
+    fr: 'Je n’ai pas pu terminer la tâche du projet en toute sécurité pendant ce tour. Les modifications existantes ont été conservées ; envoyez un autre message pour reprendre à partir de l’état actuel.',
+    'pt-BR': 'Não consegui concluir a tarefa do projeto com segurança nesta rodada. As alterações existentes foram preservadas; envie outra mensagem para continuar do estado atual.',
+    'pt-PT': 'Não consegui concluir a tarefa do projeto com segurança nesta interação. As alterações existentes foram preservadas; envie outra mensagem para continuar a partir do estado atual.',
+    ru: 'Не удалось безопасно завершить задачу проекта за этот ход. Существующие изменения сохранены; отправьте ещё одно сообщение, чтобы продолжить с текущего состояния.',
+    tr: 'Proje görevini bu turda güvenli şekilde tamamlayamadım. Mevcut değişiklikler korundu; geçerli durumdan devam etmek için yeni bir mesaj gönderin.',
+    vi: 'Tôi chưa thể hoàn thành an toàn tác vụ dự án trong lượt này. Các thay đổi hiện có đã được giữ lại; hãy gửi tin nhắn tiếp theo để tiếp tục từ trạng thái hiện tại.',
+    ja: 'このターンではプロジェクト作業を安全に完了できませんでした。既存の変更は保持されています。現在の状態から続けるには、もう一度メッセージを送信してください。',
+    ko: '이번 응답에서 프로젝트 작업을 안전하게 완료하지 못했습니다. 기존 변경 사항은 보존되었습니다. 현재 상태에서 계속하려면 후속 메시지를 보내 주세요.',
+    'zh-CN': '本轮未能安全完成项目任务。现有更改已保留；请发送后续消息，从当前状态继续。',
+    'zh-TW': '本回合未能安全完成專案工作。現有變更已保留；請傳送後續訊息，從目前狀態繼續。'
   };
   return replies[language ?? 'en'];
 }
@@ -655,6 +675,9 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     let pageText = `${preparedText}\n\n${reminder}`;
     let assistantText = '';
     let incompleteTries = 0;
+    let unwrappedPatchRetries = 0;
+    let unwrappedPatchFinalizationRequested = false;
+    let planReplyUsable = true;
     let assistantMessageId = randomUUID();
     let lastObservedClean = '';
     let idleRecoveries = 0;
@@ -673,6 +696,22 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         await updateDeliveredInputAttachmentStatus(acceptedInput, 'ready');
       }
       const clean = stripWebChatTools(progress.text);
+      if (projectChat && containsUnwrappedApplyPatch(clean)) {
+        if (lastObservedClean) {
+          lastObservedClean = '';
+          await observe(ownedConversation, [{
+            kind: 'assistant_message',
+            time: now(),
+            messageId: assistantMessageId,
+            text: '',
+            turnId,
+            final: false,
+            state: 'streaming',
+            activeNow: true
+          }]);
+        }
+        return;
+      }
       if (clean && clean !== lastObservedClean) {
         lastObservedClean = clean;
         await observe(ownedConversation, [{
@@ -847,6 +886,48 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
           : { role: 'assistant', content: assistantContent }]);
         await persistWebProviderThread(thread, provider);
         if (!calls.length) {
+          if (projectChat && containsUnwrappedApplyPatch(raw)) {
+            // Keep malformed diffs out of both the user timeline and future
+            // reconstructed prompts. The provider already saw this output;
+            // record only that it was suppressed and ask it to inspect the
+            // current project before trying the remaining work again.
+            const previous = thread.messages.at(-1);
+            if (previous?.role === 'assistant' && previous.content === assistantContent) {
+              previous.content = '[NeuraFlok suppressed an unwrapped patch response; no changes from that text were applied.]';
+            }
+            if (unwrappedPatchRetries < 2) {
+              unwrappedPatchRetries++;
+              pageText = projectPlanReadOnly
+                ? 'RECOVERY: The previous assistant response exposed raw apply_patch diff text. That text was not executed. Do not change files while the plan is read-only. Inspect the project with read/find if needed, then provide only a concise, natural plan in the configured reply language. Do not print a patch or tool transcript.'
+                : 'RECOVERY: The previous assistant response exposed raw apply_patch diff text instead of an executable tool call. That text was not executed. Inspect the current project state first; do not repeat changes that are already present. If work remains, use complete neuraflok-tool calls for read/apply_patch/commands as required. When finished, answer naturally and directly in the configured reply language; never print raw patch syntax.';
+              thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: pageText }]);
+              await persistWebProviderThread(thread, provider);
+              if (lastObservedClean) {
+                lastObservedClean = '';
+                await observe(ownedConversation, [{
+                  kind: 'assistant_message',
+                  time: now(),
+                  messageId: assistantMessageId,
+                  text: '',
+                  turnId,
+                  final: false,
+                  state: 'streaming',
+                  activeNow: true
+                }]);
+              }
+              continue;
+            }
+            if (!unwrappedPatchFinalizationRequested) {
+              unwrappedPatchFinalizationRequested = true;
+              pageText = 'FINAL RECOVERY: Do not emit tools, patch syntax, or code. Give a brief, natural status in the configured reply language. State what is complete and, if project work remains, say clearly that it is not complete and can be continued. Do not invent verification.';
+              thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: pageText }]);
+              await persistWebProviderThread(thread, provider);
+              continue;
+            }
+            assistantText = unwrappedPatchRecoveryFailure(guideCtx.language);
+            planReplyUsable = false;
+            break;
+          }
           if (incompleteWebChatTool(raw) && incompleteTries < MAX_INCOMPLETE_TOOL) {
             incompleteTries++;
             pageText = projectPlanReadOnly ? incompletePlanToolNotice() : incompleteToolNotice(guideCtx);
@@ -895,7 +976,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         pageText = webProviderRoundFollowup(entry, results, reminder, round === MAX_TOOL_ROUNDS - 1);
       }
       if (!assistantText) assistantText = emptyAssistantReply(guideCtx.language);
-      const usablePlanReply = assistantText !== emptyAssistantReply(guideCtx.language) &&
+      const usablePlanReply = planReplyUsable && assistantText !== emptyAssistantReply(guideCtx.language) &&
         !/could not prepare a safe read-only plan/i.test(assistantText);
       if (projectChat && usablePlanReply) {
         if (planStage === 'draft') {

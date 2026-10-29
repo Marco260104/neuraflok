@@ -436,6 +436,12 @@ export function incompleteWebChatTool(text: string): boolean {
   return parseWebChatTools(source).length < opens;
 }
 
+/** True when a model exposes a raw apply_patch diff instead of a NeuraFlok tool call. */
+export function containsUnwrappedApplyPatch(text: string): boolean {
+  const source = text ?? '';
+  return /^\s*\*{3}\s*Begin Patch\b/im.test(source);
+}
+
 export function formatWebChatResult(name: string, content: string): string {
   return `\`\`\`neuraflok-result\n${JSON.stringify({ name, content })}\n\`\`\``;
 }
