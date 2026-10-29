@@ -7,7 +7,7 @@ import type { ProgressStatus } from './chat-progress-status.js';
 import {
   composerWarmupKey,
   composerWarmupState,
-  retrySelectedChatWarmup,
+  ensureSelectedChatWarmup,
   shouldSuppressWarmupActivity,
   visibleWarmupPhase
 } from './chat-composer-ready.js';
@@ -38,12 +38,8 @@ export function createChatTurnProgress(
   turnNowSpinner.setAttribute('aria-hidden', 'true');
   const turnNowText = el('span', 'turn-now-text');
   const turnNowTime = el('span', 'turn-now-time');
-  const turnNowRetry = el('button', 'turn-now-retry') as HTMLButtonElement;
-  turnNowRetry.type = 'button';
-  turnNowRetry.hidden = true;
-  turnNowRetry.addEventListener('click', () => retrySelectedChatWarmup());
   const turnNowBody = el('span', 'turn-now-body');
-  turnNowBody.append(turnNowText, turnNowTime, turnNowRetry);
+  turnNowBody.append(turnNowText, turnNowTime);
   turnNow.append(turnNowIcon, turnNowBody);
   turnNow.hidden = true;
   let runningTools: RunningToolActivity[] = [];
@@ -153,7 +149,7 @@ export function createChatTurnProgress(
   } | null {
     const warmup = preparation();
     const preparationPhase = visibleWarmupPhase(warmup?.phase ?? null, hasPendingAuthoredMessage());
-    if (preparationPhase === 'failed') return { text: t('Chat context not verified'), icon: '', working: false };
+    if (preparationPhase === 'failed') return { text: t('Thinking…'), icon: 'thinking', working: false };
     const deferred = deferredProgress();
     if (preparationPhase === 'opening') return { text: t('Thinking…'), icon: 'thinking', working: false };
     if (deferred === 'thinking') return { text: t('Thinking…'), icon: 'thinking', working: false };
@@ -213,6 +209,7 @@ export function createChatTurnProgress(
     const isWorking = selectedTurnIsWorking();
     const hasPending = hasSelectedAuthoredInputPending() || deferredProgress() !== null;
     const warmup = preparation();
+    if (warmup?.phase === 'failed' && hasPendingAuthoredMessage()) ensureSelectedChatWarmup();
     const suppressWarmupActivity = suppressWarmupWithoutPendingMessage() ||
       shouldSuppressWarmupActivity(warmup, hasPendingAuthoredMessage());
     const now = suppressWarmupActivity ? null : isWorking || hasPending ? liveActivity() : null;
@@ -226,10 +223,6 @@ export function createChatTurnProgress(
     }
     turnNow.classList.toggle('is-thinking', now?.icon === 'thinking');
     turnNow.classList.toggle('is-executing', now !== null && now.working);
-    const showWarmupError = visibleWarmupPhase(warmup?.phase === 'failed' ? 'failed' : null, hasPendingAuthoredMessage()) === 'failed';
-    turnNow.classList.toggle('is-error', showWarmupError);
-    turnNowRetry.hidden = !showWarmupError;
-    ui(turnNowRetry, 'textContent', () => t('Retry'));
     if (turnNow.dataset.text !== text) {
       turnNow.dataset.text = text;
       turnNowText.textContent = text;

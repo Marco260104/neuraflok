@@ -1,8 +1,9 @@
 import {
   WEB_PROVIDERS,
   WEB_PROVIDER_IDS,
-  isWebProviderId,
+  isSelectableWebProvider,
   providerForConversationId,
+  selectableWebProviderOrDefault,
   type WebProviderId,
 } from '../../../contracts/web-providers.js';
 import { isApiConversationId } from '../../../contracts/chat-protocol.js';
@@ -20,9 +21,7 @@ interface Runtime {
 
 export function createChatProviderPicker(runtime: Runtime) {
   function applyWebProviders(state: AppState, previous?: Config): void {
-    const configuredProvider = isWebProviderId(state.config.ui.webProvider)
-      ? state.config.ui.webProvider
-      : 'deepseek';
+    const configuredProvider = selectableWebProviderOrDefault(state.config.ui.webProvider);
     const selectedConversation = runtime.selectedId
       ? (runtime.sessions.find((session) => session.id === runtime.selectedId)
           ?.conversationId ?? null)
@@ -41,37 +40,54 @@ export function createChatProviderPicker(runtime: Runtime) {
       configuredProvider,
       previous?.ui.webProvider,
     );
+    for (const selectId of ['webProvider', 'browserWebProvider']) {
+      const group = $<HTMLSelectElement>(selectId).querySelector<HTMLOptGroupElement>('optgroup');
+      if (group) group.label = t('Coming soon');
+    }
+    for (const label of document.querySelectorAll<HTMLElement>('[data-coming-soon-label]')) {
+      label.textContent = t('Coming soon');
+    }
 
     const presence = state.bridge.webProviders;
     let activeCount = 0;
     for (const id of WEB_PROVIDER_IDS) {
       const row = presence?.[id] ?? null;
+      const selectable = isSelectableWebProvider(id);
       const signedIn = row?.signedIn === true;
       const open = row?.open === true;
-      if (signedIn) activeCount += 1;
+      if (selectable && signedIn) activeCount += 1;
 
       for (const selectId of ['webProvider', 'browserWebProvider']) {
         const select = $<HTMLSelectElement>(selectId);
         const candidate = [...select.options].find((item) => item.value === id);
-        if (candidate) candidate.disabled = !signedIn;
+        if (candidate) {
+          candidate.disabled = !selectable;
+          candidate.textContent = selectable
+            ? WEB_PROVIDERS[id].label
+            : `${WEB_PROVIDERS[id].label} · ${t('Coming soon')}`;
+        }
       }
 
       const card = document.querySelector<HTMLElement>(
         `[data-provider-card="${id}"]`,
       );
       if (card) {
-        card.dataset.state = signedIn
+        card.dataset.state = !selectable
+          ? 'coming-soon'
+          : signedIn
           ? 'ready'
           : open
             ? row?.signedIn === false
               ? 'login'
               : 'checking'
             : 'off';
-        card.dataset.selected = String(provider === id);
+        card.dataset.selected = String(selectable && provider === id);
         const status = $<HTMLElement>(
           `providerStatus${id[0]!.toUpperCase()}${id.slice(1)}`,
         );
-        status.textContent = signedIn
+        status.textContent = !selectable
+          ? t('Coming soon')
+          : signedIn
           ? t('Session active')
           : open
             ? row?.signedIn === false
@@ -81,18 +97,26 @@ export function createChatProviderPicker(runtime: Runtime) {
         const use = card.querySelector<HTMLButtonElement>(
           '[data-select-provider]',
         );
-        if (use) use.disabled = !signedIn;
+        if (use) {
+          use.disabled = !selectable || !signedIn;
+          if (!selectable) use.textContent = t('Coming soon');
+        }
         const openButton = card.querySelector<HTMLButtonElement>(
           '[data-open-provider]',
         );
         if (openButton) {
-          openButton.textContent = signedIn ? t('Open') : t('Connect');
-          openButton.dataset.mode = signedIn ? 'activate' : 'connect';
+          openButton.textContent = !selectable
+            ? t('Coming soon')
+            : signedIn
+              ? t('Open')
+              : t('Connect');
+          openButton.dataset.mode = selectable ? signedIn ? 'activate' : 'connect' : 'coming-soon';
+          openButton.disabled = !selectable;
         }
         const disconnect = card.querySelector<HTMLButtonElement>(
           '[data-disconnect-provider]',
         );
-        if (disconnect) disconnect.hidden = !signedIn;
+        if (disconnect) disconnect.hidden = !selectable || !signedIn;
       }
     }
     const label = WEB_PROVIDERS[provider].label;
@@ -192,19 +216,22 @@ export function createChatProviderPicker(runtime: Runtime) {
     webOptions.textContent = '';
     for (const id of WEB_PROVIDER_IDS) {
       const presence = state.bridge.webProviders?.[id] ?? null;
+      const selectable = isSelectableWebProvider(id);
       const signedIn = presence?.signedIn === true;
       const isCurrent = executor === 'web' && selectedWebProvider === id;
       const item = el('div', 'model-picker-item');
       const choose = el('button', 'model-picker-choice') as HTMLButtonElement;
       choose.type = 'button';
       choose.dataset.modelPickWeb = id;
-      choose.disabled = !signedIn;
+      choose.disabled = !selectable || !signedIn;
       if (isCurrent) choose.dataset.selected = 'true';
       const icon = providerMark(id);
       icon.classList.add('model-picker-provider-mark');
       const text = el('span', 'model-picker-choice-text');
       text.append(el('b', '', `${WEB_PROVIDERS[id].label} Web`));
-      const statusText = signedIn
+      const statusText = !selectable
+        ? t('Coming soon')
+        : signedIn
         ? t('Connected')
         : presence?.open && presence.signedIn === false
           ? t('Sign in required')
@@ -217,11 +244,13 @@ export function createChatProviderPicker(runtime: Runtime) {
       const action = el('button', 'model-picker-connect') as HTMLButtonElement;
       action.type = 'button';
       action.dataset.modelConnect = id;
-      action.dataset.mode = signedIn ? 'activate' : 'connect';
-      action.textContent = signedIn ? t('Open') : t('Connect');
-      action.disabled = false;
+      action.dataset.mode = selectable ? signedIn ? 'activate' : 'connect' : 'coming-soon';
+      action.textContent = selectable
+        ? signedIn ? t('Open') : t('Connect')
+        : t('Coming soon');
+      action.disabled = !selectable;
       item.append(action);
-      if (signedIn) {
+      if (selectable && signedIn) {
         const disconnect = el(
           'button',
           'model-picker-disconnect',
@@ -290,7 +319,7 @@ export function createChatProviderPicker(runtime: Runtime) {
         ? ready
           ? 'connected'
           : 'offline'
-        : state.bridge.webProviders?.[selectedWebProvider]?.signedIn === true
+        : isSelectableWebProvider(selectedWebProvider) && state.bridge.webProviders?.[selectedWebProvider]?.signedIn === true
           ? 'connected'
           : 'offline';
     $('chatModelPicker').dataset.locked = 'false';

@@ -80,6 +80,7 @@ export function initWorkspaceNavigation(dependencies: WorkspaceNavigationDepende
     if ((event.target as HTMLElement).closest('[data-id], [data-new-project]')) showTab('chat');
   }, { capture: true });
   $('newChat').addEventListener('click', () => showTab('chat'));
+  $('newChatInChats')?.addEventListener('click', () => showTab('chat'));
   $('sidebarSkills').addEventListener('click', () => showTab('skills'));
   $('supportProject').addEventListener('click', () => showTab('donation'));
   $('addProject').addEventListener('click', () => showTab('chat'));

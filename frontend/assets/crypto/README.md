@@ -10,8 +10,11 @@ Upstream source records:
 - Litecoin: https://litecoin-foundation.org/litecoin-branding-guidelines/
 - Dogecoin: https://cryptologos.cc/dogecoin
 - Solana: https://solana.com/branding
+- Hyperliquid: https://hyperliquid.gitbook.io/hyperliquid-docs/brand-kit
+- BNB Chain: https://www.bnbchain.org/en/brand-guidelines
 - XRP: https://xrpl.org
+- TRON: https://tron.network/resources/
 - Zcash: https://z.cash
 - Monero: https://www.getmonero.org/press-kit
 
-HYPE and TRX use ticker monograms because Simple Icons did not provide matching entries at download time. Brand names and marks remain the property of their respective owners.
+The HYPE mark is `Hyperliquid_Blob_Green.svg` from Hyperliquid's official SVG brand kit. The TRX mark is the official TRON icon asset served from `tron.network`. The BNB Chain mark is the yellow symbol from BNB Chain's official brand guidelines. These are kept locally so the donation UI does not depend on an external image host. Brand names and marks remain the property of their respective owners and are used only to identify the supported currency.

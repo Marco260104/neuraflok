@@ -1,5 +1,5 @@
 import { usesApiProvider } from '../../../contracts/chat-protocol.js';
-import { isWebProviderId, providerForConversationId, type WebProviderId } from '../../../contracts/web-providers.js';
+import { providerForConversationId, selectableWebProviderOrDefault, type WebProviderId } from '../../../contracts/web-providers.js';
 import type { AppState } from '../../../contracts/types.js';
 import type { SessionEvent } from '../../../contracts/session.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
@@ -18,6 +18,9 @@ import {
 
 export const WEB_CHAT_WARMUP_TEXT = 'NEURAFLOK_WARMUP';
 const POLL_INTERVAL_MS = 750;
+const RETRY_BASE_DELAY_MS = 1_000;
+const RETRY_MAX_DELAY_MS = 30_000;
+const IDLE_RETRIES_BEFORE_PAUSE = 3;
 // Keep the renderer waiting long enough for the backend's bounded, progress-aware
 // provider handshake to finish and record its final state.
 export const WEB_CHAT_PREPARATION_TIMEOUT_MS = 6 * 60_000;
@@ -81,9 +84,11 @@ export interface WebChatWarmupRuntime {
   paintPreparationStatus: () => void;
 }
 
-export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: () => void; retry: () => void } {
+export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: () => void; retry: () => void; dispose: () => void } {
   let inflightKey: string | null = null;
   const verifiedSessions = new Map<string, { provider: WebProviderId; conversationId: string; generation: number }>();
+  const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const retryAttempts = new Map<string, number>();
 
   function selectedProjectId(): string | null {
     return runtime.selectedId
@@ -97,6 +102,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const candidates = [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs];
     return candidates.some(entry => {
       if (entry.warmup || entry.purpose === 'decision' || ['failed', 'cancelled'].includes(entry.state)) return false;
+      if (entry.warmupDeferred) return false;
       if (runtime.selectedId) {
         if ((entry.sessionId ?? entry.deliveredSessionId) !== runtime.selectedId) return false;
       } else if (!pendingNewInput || pendingNewInput.generation !== runtime.selectionGeneration || pendingNewInput.id !== entry.id) {
@@ -119,7 +125,63 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
   }
 
   function currentProvider(app: AppState): WebProviderId {
-    return isWebProviderId(app.config.ui.webProvider) ? app.config.ui.webProvider : 'deepseek';
+    return selectableWebProviderOrDefault(app.config.ui.webProvider);
+  }
+
+  function hasPendingAuthoredMessage(sessionId: string | null, generation: number): boolean {
+    const pendingNew = runtime.pendingNewInput;
+    return [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs].some(entry => {
+      if (entry.warmup || entry.purpose === 'decision' || ['failed', 'cancelled'].includes(entry.state)) return false;
+      const owner = entry.sessionId ?? entry.deliveredSessionId ?? null;
+      const belongs = sessionId
+        ? owner === sessionId
+        : owner === null && (pendingNew?.generation === generation && pendingNew.id === entry.id ||
+          runtime.selectionGeneration === generation && runtime.newChatSelected);
+      if (!belongs) return false;
+      if (entry.state === 'queued' || entry.state === 'browser') return true;
+      if (entry.state !== 'sent') return false;
+      const user = runtime.events.find(event => event.kind === 'user_message' && event.inputId === entry.id);
+      if (!user) return true;
+      return !runtime.events.some(event => event.seq > user.seq && (
+        (event.kind === 'turn_end' && event.outcome !== 'unknown') ||
+        (event.kind === 'assistant_message' && (event.final === true || event.state === 'final')) ||
+        event.kind === 'chat_error'
+      ));
+    });
+  }
+
+  function scheduleInternalRetry(key: string, provider: WebProviderId, sessionId: string | null,
+    projectId: string | null, generation: number): void {
+    if (retryTimers.has(key)) return;
+    const previousAttempts = retryAttempts.get(key) ?? 0;
+    const pendingMessage = hasPendingAuthoredMessage(sessionId, generation);
+    if (!pendingMessage && previousAttempts >= IDLE_RETRIES_BEFORE_PAUSE) {
+      retryAttempts.delete(key);
+      markComposerWarmupFailed(key, 'Internal context preparation will resume when this chat is used.', generation);
+      runtime.paintPreparationStatus();
+      return;
+    }
+    const attempt = previousAttempts + 1;
+    retryAttempts.set(key, attempt);
+    const delay = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** Math.min(attempt - 1, 5));
+    retryTimers.set(key, setTimeout(() => {
+      retryTimers.delete(key);
+      const selectionStillOwns = runtime.selectionGeneration === generation &&
+        (runtime.selectedId === sessionId || (sessionId === null && runtime.selectedId === null && runtime.newChatSelected));
+      if (!hasPendingAuthoredMessage(sessionId, generation) && !selectionStillOwns) {
+        retryAttempts.delete(key);
+        clearComposerWarmup(key);
+        runtime.paintPreparationStatus();
+        return;
+      }
+      if (inflightKey !== null) {
+        scheduleInternalRetry(key, provider, sessionId, projectId, generation);
+        return;
+      }
+      if (!composerWarmupState(key)) markComposerWarmupOpening(key, generation);
+      inflightKey = key;
+      void start(key, provider, sessionId, projectId, generation);
+    }, delay));
   }
 
   function cachedReady(sessionId: string, provider: WebProviderId, conversationId: string, generation: number): boolean {
@@ -249,6 +311,12 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
         conversationId: ready.conversationId,
         generation: runtime.selectedId === boundId ? runtime.selectionGeneration : generation
       });
+      for (const retryKey of new Set([key, boundId])) {
+        const timer = retryTimers.get(retryKey);
+        if (timer) clearTimeout(timer);
+        retryTimers.delete(retryKey);
+        retryAttempts.delete(retryKey);
+      }
       // Keep the internal-preparation gate in place until Stop is reconciled
       // with the turn that exists after the acknowledgement. The controls
       // fetched when the old chat opened can still describe its previous
@@ -257,8 +325,7 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       clearComposerWarmup(key);
       clearComposerWarmup(boundId);
       runtime.paintPreparationStatus();
-    } catch (error) {
-      const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
+    } catch {
       const failedKey = boundId ?? key;
       if (failedKey !== key) clearComposerWarmup(key);
       // The provider flight for a failed warmup is internal preparation, not
@@ -267,10 +334,15 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
       if (runtime.selectedId === boundId) {
         try { await runtime.refreshSessionControls(); } catch { /* Preserve the original preparation error. */ }
       }
-      markComposerWarmupFailed(failedKey, message,
+      // Context verification is internal preparation. Keep the queued user
+      // input and preparation gate intact while retrying; a transient provider
+      // handoff must not be presented as a failed user message.
+      markComposerWarmupOpening(failedKey,
         runtime.selectedId === boundId ? runtime.selectionGeneration : generation);
       if (runtime.pendingNewInput?.id === id && runtime.pendingNewInput.generation === generation)
         runtime.setPendingNewInput(null);
+      scheduleInternalRetry(failedKey, provider, boundId, projectId,
+        runtime.selectedId === boundId ? runtime.selectionGeneration : generation);
       runtime.paintPreparationStatus();
     } finally {
       runtime.startingInputs.delete(id);
@@ -294,7 +366,14 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
     const status = composerWarmupState(key);
     const conversationId = session?.conversationId ?? null;
     const projectScoped = Boolean(session?.projectId ?? runtime.selectedProjectId);
-    if (status?.phase === 'failed' && status.generation === runtime.selectionGeneration) return;
+    if (retryTimers.has(key)) return;
+    if (status?.phase === 'failed' && status.generation === runtime.selectionGeneration) {
+      markComposerWarmupOpening(key, runtime.selectionGeneration, runtime.turnWorking());
+      scheduleInternalRetry(key, provider, runtime.selectedId, session?.projectId ?? runtime.selectedProjectId,
+        runtime.selectionGeneration);
+      runtime.paintPreparationStatus();
+      return;
+    }
     if (status?.phase === 'failed') clearComposerWarmup(key);
     if (inflightKey === key) return;
     if (runtime.selectedId && conversationId && cachedReady(runtime.selectedId, provider, conversationId, runtime.selectionGeneration)) {
@@ -343,11 +422,21 @@ export function createWebChatWarmup(runtime: WebChatWarmupRuntime): { ensure: ()
 
   function retry(): void {
     const key = currentSelectionKey();
+    const timer = retryTimers.get(key);
+    if (timer) clearTimeout(timer);
+    retryTimers.delete(key);
+    retryAttempts.delete(key);
     clearComposerWarmup(key);
     if (runtime.selectedId) verifiedSessions.delete(runtime.selectedId);
     ensure();
   }
 
+  function dispose(): void {
+    for (const timer of retryTimers.values()) clearTimeout(timer);
+    retryTimers.clear();
+    retryAttempts.clear();
+  }
+
   setComposerWarmupHandlers({ ensure, retry });
-  return { ensure, retry };
+  return { ensure, retry, dispose };
 }

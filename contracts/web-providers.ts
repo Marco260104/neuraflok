@@ -49,6 +49,18 @@ export function isWebProviderId(value: unknown): value is WebProviderId {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(WEB_PROVIDERS, value);
 }
 
+/** Providers exposed for new chats. The other integrations stay recognized so their saved conversations can still be restored. */
+export const SELECTABLE_WEB_PROVIDER_IDS = ['deepseek'] as const satisfies readonly WebProviderId[];
+export type SelectableWebProviderId = (typeof SELECTABLE_WEB_PROVIDER_IDS)[number];
+
+export function isSelectableWebProvider(value: unknown): value is SelectableWebProviderId {
+  return (SELECTABLE_WEB_PROVIDER_IDS as readonly unknown[]).includes(value);
+}
+
+export function selectableWebProviderOrDefault(value: unknown): SelectableWebProviderId {
+  return isSelectableWebProvider(value) ? value : 'deepseek';
+}
+
 export function webProviderForUrl(value: string): WebProviderId | null {
   try {
     const url = new URL(value);

@@ -54,6 +54,7 @@
   .provider-card:hover { box-shadow: var(--shadow-border-hover); }
 }
 .provider-card[data-selected='true'] { background: var(--accent-wash); box-shadow: 0 0 0 1px var(--accent-edge), var(--lift); }
+.provider-card[data-state='coming-soon'] { opacity: .76; }
 .provider-card-title { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .provider-code {
   display: grid; width: 36px; height: 36px; flex: none; place-items: center;
@@ -108,6 +109,7 @@
 .browser-provider-row { display: grid; grid-template-columns: 10px minmax(75px, .7fr) minmax(100px, 1fr) auto; align-items: center; gap: 11px; min-height: 46px; padding: 6px 14px; background: var(--card); font-size: calc(12.5px * var(--text-scale, 1)); }
 .browser-provider-row > span:nth-child(3) { color: var(--soft); }
 .browser-provider-row[data-state='ready'] > span:nth-child(3) { color: var(--green); }
+.browser-provider-row[data-state='coming-soon'] > span:nth-child(3) { color: var(--faint); }
 .browser-provider-row[data-state='ready'] .provider-state-dot::after { position: absolute; inset: -3px; border: 1px solid color-mix(in srgb, var(--green) 50%, transparent); border-radius: 50%; content: ''; animation: os-status-ring 2.4s ease-out infinite; }
 .browser-provider-row > .btn { min-height: 32px; padding: 4px 12px; border-radius: var(--r-sm); }
 .provider-logo { display: inline-flex; width: 28px; height: 28px; flex: none; align-items: center; justify-content: center; }

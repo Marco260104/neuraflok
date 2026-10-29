@@ -17,6 +17,9 @@
                   <button class="donation-coin" type="button" data-donation-coin="ETH" aria-pressed="false">
                     <img class="donation-coin-logo" src="./assets/crypto/eth.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">Ethereum</span><span class="donation-coin-ticker">ETH</span>
                   </button>
+                  <button class="donation-coin" type="button" data-donation-coin="BNB" aria-pressed="false">
+                    <img class="donation-coin-logo" src="./assets/crypto/bnb.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">BNB</span><span class="donation-coin-ticker">BNB</span>
+                  </button>
                   <button class="donation-coin" type="button" data-donation-coin="USDT" aria-pressed="false">
                     <img class="donation-coin-logo" src="./assets/crypto/usdt.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">Tether</span><span class="donation-coin-ticker">USDT</span>
                   </button>
@@ -30,13 +33,13 @@
                     <img class="donation-coin-logo" src="./assets/crypto/sol.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">Solana</span><span class="donation-coin-ticker">SOL</span>
                   </button>
                   <button class="donation-coin" type="button" data-donation-coin="HYPE" aria-pressed="false">
-                    <span class="donation-coin-logo donation-coin-monogram" aria-hidden="true">H</span><span class="donation-coin-name">Hyperliquid</span><span class="donation-coin-ticker">HYPE</span>
+                    <img class="donation-coin-logo" src="./assets/crypto/hype.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">Hyperliquid</span><span class="donation-coin-ticker">HYPE</span>
                   </button>
                   <button class="donation-coin" type="button" data-donation-coin="XRP" aria-pressed="false">
                     <img class="donation-coin-logo" src="./assets/crypto/xrp.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">XRP</span><span class="donation-coin-ticker">XRP</span>
                   </button>
                   <button class="donation-coin" type="button" data-donation-coin="TRX" aria-pressed="false">
-                    <span class="donation-coin-logo donation-coin-monogram" aria-hidden="true">T</span><span class="donation-coin-name">TRON</span><span class="donation-coin-ticker">TRX</span>
+                    <img class="donation-coin-logo" src="./assets/crypto/trx.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">TRON</span><span class="donation-coin-ticker">TRX</span>
                   </button>
                   <button class="donation-coin" type="button" data-donation-coin="ZEC" aria-pressed="false">
                     <img class="donation-coin-logo" src="./assets/crypto/zec.svg" alt="" aria-hidden="true" /><span class="donation-coin-name">Zcash</span><span class="donation-coin-ticker">ZEC</span>
@@ -52,22 +55,22 @@
                   <label class="donation-network-field" id="donationNetworkField" hidden>
                     <span>Network</span>
                     <select id="donationNetwork" aria-label="USDT network">
-                      <option value="TRC20">TRC20</option><option value="BEP20">BEP20</option><option value="ERC20">ERC20</option><option value="HYPE">HYPE · HyperEVM</option><option value="Polygon">Polygon</option><option value="Plasma">Plasma</option><option value="Arbitrum">Arbitrum</option>
+                      <option value="TRC20">TRC20 · TRON</option><option value="BEP20">BEP20 · BNB Smart Chain</option><option value="ERC20">ERC20 · Ethereum</option><option value="HYPE">HYPE · HyperEVM</option><option value="Polygon">Polygon</option><option value="Plasma">Plasma</option><option value="Arbitrum">Arbitrum</option>
                     </select>
                   </label>
                   <span class="donation-native-network" id="donationNativeNetwork">Native network</span>
                 </header>
                 <div class="donation-wallet-body">
-                  <div class="donation-qr-placeholder" aria-hidden="true"><i class="ico ph ph-qr-code"></i><span>QR</span></div>
+                  <div class="donation-qr-frame"><img class="donation-qr-code" id="donationQrCode" alt="" aria-hidden="true" hidden /></div>
                   <div class="donation-wallet-copy">
                     <span class="donation-label">Wallet address</span>
-                    <strong id="donationAddressStatus">Address will be added later</strong>
-                    <p id="donationAddressDetail">Wallet details are being prepared. The address and scannable QR code will appear here when they are configured.</p>
+                    <strong class="donation-address" id="donationAddressStatus" aria-live="polite"></strong>
+                    <p id="donationAddressDetail">Check the selected network before sending.</p>
                   </div>
                 </div>
-                <div class="donation-wallet-foot"><span><i class="ico ph ph-info" aria-hidden="true"></i>Verify the selected network before sending.</span><button class="btn donation-copy" type="button" disabled><i class="ico ph ph-copy" aria-hidden="true"></i>Copy address</button></div>
+                <div class="donation-wallet-foot"><span><i class="ico ph ph-info" aria-hidden="true"></i>Verify the selected network before sending.</span><button class="btn donation-copy" type="button"><i class="ico ph ph-copy" aria-hidden="true"></i>Copy address</button></div>
               </section>
             </div>
-            <p class="donation-note"><i class="ico ph ph-shield-check" aria-hidden="true"></i>No wallet address is active yet. This page will not show an address or QR until one is configured.</p>
+            <p class="donation-note"><i class="ico ph ph-shield-check" aria-hidden="true"></i>Use the exact asset and network shown. EVM networks share an address, but funds remain on the network used to send them.</p>
           </div>
         </section>

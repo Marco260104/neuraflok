@@ -1,7 +1,7 @@
 import type { AppearanceSettings } from '../../../contracts/appearance-settings.js';
 import type { BrowserBridgePort } from '../../../contracts/browser/bridge.js';
 import type { AppApi, SettingsPatch } from '../../../backend/preload/index.js';
-import { isWebProviderId, type WebProviderId } from '../../../contracts/web-providers.js';
+import { selectableWebProviderOrDefault } from '../../../contracts/web-providers.js';
 import type { AppState, Capability, ChatBrowser } from '../../../contracts/types.js';
 import { DESKTOP_CAPABILITIES, WRITE_CAPABILITIES } from '../../../contracts/types.js';
 import { $, run, toast } from '../../shared/dom.js';
@@ -57,9 +57,7 @@ export function createSettingsPersistence(runtime: Runtime) {
         backgroundChats: $<HTMLInputElement>('backgroundChats').checked,
         browserBridgePort: (selectedBridgePort === 'auto' ? 'auto' : Number(selectedBridgePort)) as BrowserBridgePort,
         chatExecutor: $<HTMLSelectElement>('chatExecutor').value === 'api' ? 'api' : 'web',
-        webProvider: isWebProviderId($<HTMLSelectElement>('webProvider').value)
-          ? $<HTMLSelectElement>('webProvider').value as WebProviderId
-          : 'deepseek',
+        webProvider: selectableWebProviderOrDefault($<HTMLSelectElement>('webProvider').value),
         autoContinue: $<HTMLInputElement>('autoContinue').checked,
         browserOnly: $<HTMLInputElement>('browserOnly').checked,
         autoSelectSkills: $<HTMLInputElement>('autoSelectSkills').checked,
