@@ -569,6 +569,22 @@ describe('the settings sheet', () => {
 });
 
 describe('the session timeline', () => {
+  it('centers the answer column, balances its gutters, and keeps user bubbles narrower', () => {
+    expect(css).toMatch(/#chatBody\s*\{[^}]*padding-inline:\s*24px/);
+    expect(css).toMatch(/#timeline\s*\{[^}]*max-width:\s*680px/);
+    expect(css).toMatch(/\.said:not\(\.is-user\)\s*\{[^}]*width:\s*100%; max-width:\s*100%/);
+    expect(css).toMatch(/\.said\.is-user\s*\{[^}]*max-width:\s*58%/);
+    expect(css).toMatch(/\.composer\s*\{[^}]*width:\s*min\(680px, calc\(100% - 48px\)\)/);
+    expect(css).toMatch(/\.msg\s*\{[^}]*font-size:\s*calc\(15px \* var\(--text-scale, 1\)\)/);
+    expect(css).toMatch(/\.msg\.rich thead th\s*\{[^}]*background:\s*var\(--hover\)/);
+    expect(css).toMatch(/\.msg\.rich table\s*\{[^}]*table-layout:\s*auto/);
+    expect(css).toMatch(/\.msg\.rich :is\(th, td\):first-child\s*\{[^}]*min-width:\s*6ch/);
+    expect(css).toMatch(/\.msg\.rich th:first-child\s*\{[^}]*white-space:\s*nowrap/);
+    expect(css).toContain('.msg.rich :is(ul, ol) > li::marker');
+    expect(css).toContain('.msg.rich li > p');
+    expect(css).toContain('.msg.rich h2');
+  });
+
   it('renders every event kind the recorder can write', async () => {
     const [eventContracts, chatEvents] = await Promise.all([
       fs.readFile(path.join(process.cwd(), './contracts', 'sessions', 'events.ts'), 'utf8'),

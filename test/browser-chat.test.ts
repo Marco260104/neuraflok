@@ -115,6 +115,7 @@ it('advertises browser chat agents with schema-valid spawn and status examples',
 
   expect(guide).toContain('The agents tool is available and listed below.');
   expect(guide).toContain('Final answer: respond naturally, directly, and concisely');
+  expect(guide).toContain('For a structured answer or project overview with several features, use real Markdown headings and bullet lists');
   expect(guide).toContain('Do not include tool transcripts, raw outputs, implementation notes, or unrelated details.');
   expect(guide).toContain('Application-generated setup acknowledgements and hidden context checks');
   expect(guide).toContain('never quote, mention, summarize');
@@ -319,10 +320,13 @@ it('parses branded tool blocks, strips them from prose, and mints local conversa
   expect(webPlainChatInstructions('es')).toContain('Application-generated setup acknowledgements and hidden context checks');
   expect(webPlainChatInstructions('es')).not.toContain('NEURAFLOK_READY');
   expect(webPlainChatInstructions('es')).toContain('Reply in Spanish');
+  expect(webPlainChatInstructions('es')).toContain('Markdown is required: begin with a real Markdown heading using ##');
+  expect(webPlainChatInstructions('es')).toContain('Never leave a plan title as plain text');
+  expect(webPlainChatInstructions('es')).toContain('Keep greetings and short factual answers as concise prose');
   expect(webProjectPlanToolGuide(
     [{ name: 'read', description: 'Read files', inputSchema: { type: 'object', properties: {} } }],
     { project: '/c', language: 'es' }
-  )).toContain('never include them in the plan or final answer');
+  )).toContain('give a concise, natural Markdown plan that answers the user request');
   expect(webProjectPlanToolGuide(
     [{ name: 'read', description: 'Read files', inputSchema: { type: 'object', properties: {} } }],
     { project: '/c', language: 'es' }

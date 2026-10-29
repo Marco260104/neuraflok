@@ -90,8 +90,8 @@
 .chat-head > #chatTitle { color: var(--ink); font-size: calc(13.5px * var(--text-scale, 1)); font-weight: 560; }
 .chat-head > .state { margin-left: auto; }
 .card.is-session { --composer-edge: var(--line); }
-#chatBody { padding-inline: max(28px, calc((100% - 780px) / 2)); }
-#timeline { width: 100%; max-width: 780px; margin-inline: auto; }
+#chatBody { padding-inline: 24px; }
+#timeline { width: 100%; max-width: 680px; margin-inline: auto; }
 .ev { padding-block: 7px; }
 .said { line-height: 1.55; }
 .said.is-user > .user-message-text { border-radius: calc(var(--r-md) + 4px); }
@@ -150,8 +150,8 @@
   .app { grid-template-columns: minmax(0, min(var(--sidebar-width, 220px), 32vw)) minmax(0, 1fr); }
   .app.is-sidebar-collapsed { grid-template-columns: minmax(0, 0px) minmax(0, 1fr); }
   .chat-head { padding-inline: 22px; }
-  #chatBody { padding-inline: 22px; }
-  .composer { width: calc(100% - 32px); }
+  #chatBody { padding-inline: 24px; }
+  .composer { width: calc(100% - 48px); }
   .composer-dock { width: calc(100% - 56px); }
 }
 @container chat-session (max-width: 520px) {

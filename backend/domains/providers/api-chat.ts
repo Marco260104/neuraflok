@@ -217,6 +217,7 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
     ? [
       'You are a conversational assistant.',
       'Answer naturally and directly using the user message and relevant chat history. This is a normal chat: do not inspect files, mention paths, run commands, or claim tool activity.',
+      'For plans, roadmaps, study paths, tutorials, and other multi-part answers, Markdown is required: begin with a real Markdown heading using ##, use ### headings for phases or sections, and put the details under each section in actual bullet or numbered lists. For example: ## Study path, then ### 1. Foundations, then - Topic and - Practice. Never leave a plan title as plain text or put its details in unrelated paragraphs. Use fenced code blocks for code and tables only when they clarify comparisons. Keep greetings and short factual answers as concise prose without forced headings.',
       replyLanguageInstruction(getConfig().ui.language)
     ].join('\n\n')
     : guide(declarations, roots, project?.virtual, projectPlanReadOnly);
