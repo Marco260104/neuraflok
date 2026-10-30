@@ -303,7 +303,10 @@ describe('cross-platform packaging targets', () => {
     expect(builder.deb.depends).toContain('libatspi2.0-0 | libatspi2.0-0t64');
     expect(builder.linux.syncDesktopName).toBe(true);
     expect(pkg.license).toBe('MIT');
-    expect(pkg.author).toBe('NEURAFLOK contributors');
+    expect(pkg.author).toEqual({
+      name: 'NEURAFLOK contributors',
+      email: 'noreply@github.com',
+    });
     expect(pkg.desktopName).toBe('com.neuraflok.desktop');
     expect(pkg.homepage).toBeUndefined();
     expect(iconScript).toContain("build', 'icon.png'), pngFor(1024)");

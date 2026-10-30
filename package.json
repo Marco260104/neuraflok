@@ -1,9 +1,12 @@
 {
   "name": "neuraflok",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A desktop coding workspace for signed-in DeepSeek, Kimi, Qwen, and Z AI sessions with approved local tools.",
   "license": "MIT",
-  "author": "NEURAFLOK contributors",
+  "author": {
+    "name": "NEURAFLOK contributors",
+    "email": "noreply@github.com"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MARCO260104/neuraflok.git"
