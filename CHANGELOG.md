@@ -6,6 +6,13 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-30
+
+### Fixed
+
+- Kept macOS bundle build versions aligned with the public release version in CircleCI.
+- Added explicit Linux installer smoke-test diagnostics so a failed package or app launch includes its captured output.
+
 ## [0.1.4] - 2026-10-29
 
 ### Fixed

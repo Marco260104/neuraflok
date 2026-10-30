@@ -109,6 +109,10 @@ jobs:
       - run:
           name: Build, inspect, and smoke-test macOS ARM64
           command: |
+            # CircleCI's build number makes electron-builder append an extra
+            # component to CFBundleVersion. Keep the shipped version aligned
+            # with the public semantic version used by the release tag.
+            unset CIRCLE_BUILD_NUM
             npm run dist:mac:arm64
             mkdir -p ci-artifacts/darwin-arm64
             cp release/NEURAFLOK-macOS-arm64.dmg release/NEURAFLOK-macOS-arm64.zip ci-artifacts/darwin-arm64/
@@ -119,6 +123,7 @@ jobs:
             - run:
                 name: Cross-build, inspect, and smoke-test macOS Intel
                 command: |
+                  unset CIRCLE_BUILD_NUM
                   npm run dist:mac:x64
                   mkdir -p ci-artifacts/darwin-x64
                   cp release/NEURAFLOK-macOS-x64.dmg release/NEURAFLOK-macOS-x64.zip ci-artifacts/darwin-x64/

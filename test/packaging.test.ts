@@ -201,6 +201,7 @@ describe('cross-platform packaging targets', () => {
     expect(JSON.stringify(circle.jobs.verify.steps)).toContain('npm run verify:ci');
     expect(circle.jobs['build-windows'].executor.name).toBe('win/server-2022');
     expect(circle.jobs['build-macos'].resource_class).toBe('m4pro.medium');
+    expect(JSON.stringify(circle.jobs['build-macos'].steps)).toContain('unset CIRCLE_BUILD_NUM');
     expect(circle.jobs['build-linux-arm64'].resource_class).toBe('arm.medium');
     expect(names).toEqual(expect.arrayContaining([
       'validate-release', 'build-windows-all', 'build-macos-all', 'build-linux-x64',
@@ -356,6 +357,8 @@ describe('cross-platform packaging targets', () => {
     expect(linuxSmoke).toContain('xvfb-run -a /usr/bin/neuraflok');
     expect(linuxSmoke).toContain('dpkg-deb --field "$deb" Architecture');
     expect(linuxSmoke).toContain('dpkg-query -S "$installed_executable"');
+    expect(linuxSmoke).toContain('assert_gui_stays_ready');
+    expect(linuxSmoke).toContain('Captured output:');
     expect(linuxSmoke).toContain('fake_bin/unshare');
     expect(linuxSmoke).not.toContain('ELECTRON_RUN_AS_NODE');
     expect(macSmoke).toContain('hdiutil verify "$dmg"');
