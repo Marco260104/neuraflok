@@ -29,6 +29,7 @@ function jsonResponse(status: number, data: unknown): JsonResponse {
 
 function harness(status = 200, unavailableSocket = false) {
   const sockets: WakeSocket[] = [];
+  let socketUnavailable = unavailableSocket;
   const saved: Record<string, unknown> = {
     port: 8765,
     token: 'paired-secret',
@@ -55,14 +56,14 @@ function harness(status = 200, unavailableSocket = false) {
     throw new Error(`Unexpected route ${url.pathname}`);
   });
   class Socket extends WakeSocket {
-    constructor(url: string) { super(url, sockets, unavailableSocket); }
+    constructor(url: string) { super(url, sockets, socketUnavailable); }
   }
   vi.stubGlobal('fetch', fetch);
   vi.stubGlobal('WebSocket', Socket);
   const client = createBridgeClient(chrome as never);
   const wake = vi.fn();
   client.setWakeHandler(wake);
-  return { client, fetch, sockets, wake };
+  return { client, fetch, sockets, wake, setSocketAvailable: (available: boolean) => { socketUnavailable = !available; } };
 }
 
 afterEach(() => {
@@ -102,7 +103,21 @@ it('does not treat failed HTTP as proof that the wake channel is ready', async (
 });
 
 it('preserves a successful HTTP response when WebSocket construction is unavailable', async () => {
+  vi.useFakeTimers();
   const h = harness(200, true);
   await expect(h.client.request('/events')).resolves.toMatchObject({ ok: true, status: 200 });
   expect(h.sockets).toHaveLength(0);
+  h.setSocketAvailable(true);
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(h.sockets).toHaveLength(1);
+});
+
+it('reconnects after a socket error even when the browser omits its close event', async () => {
+  vi.useFakeTimers();
+  const h = harness();
+  await expect(h.client.request('/events')).resolves.toMatchObject({ ok: true, status: 200 });
+  expect(h.sockets).toHaveLength(1);
+  h.sockets[0]!.onerror?.();
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(h.sockets).toHaveLength(2);
 });

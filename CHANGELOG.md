@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 - Queue new messages behind an active turn without replacing its Stop control or showing a duplicate sent message.
 - Hide provider-idle diagnostics behind a same-chat Continue action after safe automatic recovery attempts are exhausted.
 - Refresh the provider connection immediately when returning to an already-open DeepSeek tab, and check that active tab before older chat tabs.
+- Automatically retry the browser wake channel after socket creation, heartbeat, or send failures instead of waiting for another user action.
 - Correct the enlarged desktop icon and social-link hit targets.
 
 ## [0.1.15] - 2026-10-30

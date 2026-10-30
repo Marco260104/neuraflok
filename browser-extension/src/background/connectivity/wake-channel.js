@@ -29,6 +29,18 @@ export function createWakeChannel(readConnection) {
     }, RECONNECT_DELAY_MS);
   }
 
+  function retryAfterFailure(current) {
+    if (socket !== current) return;
+    socket = null;
+    try {
+      current.close();
+    } catch {}
+    // Do not depend on a browser firing `close` after `error` (or after a
+    // synchronous send failure). A lost wake channel must always get another
+    // chance to reconnect while the saved app pairing is still valid.
+    scheduleReconnect();
+  }
+
   function connect() {
     const connection = currentConnection();
     const WebSocketApi = globalThis.WebSocket;
@@ -47,6 +59,7 @@ export function createWakeChannel(readConnection) {
     try {
       next = new WebSocketApi(address);
     } catch {
+      scheduleReconnect();
       return;
     }
     socket = next;
@@ -56,12 +69,20 @@ export function createWakeChannel(readConnection) {
         next.close();
         return;
       }
-      next.send(latest.token);
+      try {
+        next.send(latest.token);
+      } catch {
+        retryAfterFailure(next);
+      }
     };
     next.onmessage = event => {
       if (socket !== next) return;
       if (event.data === 'ping') {
-        next.send('pong');
+        try {
+          next.send('pong');
+        } catch {
+          retryAfterFailure(next);
+        }
         return;
       }
       if (event.data !== 'wake' && event.data !== 'browser-control') return;
@@ -70,11 +91,7 @@ export function createWakeChannel(readConnection) {
       } catch {}
     };
     next.onerror = () => {
-      try {
-        next.close();
-      } catch {
-        next.onclose?.();
-      }
+      retryAfterFailure(next);
     };
     next.onclose = () => {
       if (socket !== next) return;
