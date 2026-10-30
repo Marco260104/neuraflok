@@ -9,12 +9,12 @@
 
 <p align="center"><strong>Download NEURAFLOK</strong></p>
 <p align="center">
-  <a href="https://github.com/Marco260104/neuraflok/releases"><img src="https://img.shields.io/badge/Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows downloads"></a>
-  <a href="https://github.com/Marco260104/neuraflok/releases"><img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux downloads"></a>
-  <a href="https://github.com/Marco260104/neuraflok/releases"><img src="https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS downloads"></a>
+  <a href="https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Setup-x64.exe"><img src="https://img.shields.io/badge/Windows_x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows x64 installer"></a>
+  <a href="https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-arm64.dmg"><img src="https://img.shields.io/badge/macOS_ARM64-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Apple silicon installer"></a>
+  <a href="https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-x64.AppImage"><img src="https://img.shields.io/badge/Linux_x64-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux x64 AppImage"></a>
 </p>
 
-<p align="center">Installers will appear here after the first CircleCI release is published.</p>
+<p align="center">Each button downloads the latest stable installer. More architectures are listed below.</p>
 
 <p align="center">
   <a href="https://github.com/Marco260104/neuraflok">Source</a> ·
@@ -31,18 +31,18 @@
 
 ## Downloads
 
-The platform buttons above open the [GitHub Releases page](https://github.com/Marco260104/neuraflok/releases). No installers have been published yet, so direct `latest/download` links would return a 404. Once CircleCI publishes the first stable release, that page will list the available installers and the direct links below can be enabled.
+The platform buttons above download the default installer for Windows x64, macOS Apple silicon, or Linux x64. Every stable release is built and verified by CircleCI before it is published.
 
 | Platform | Architecture | Direct download |
 | --- | --- | --- |
-| Windows 10/11 | x64 | [See available downloads](https://github.com/Marco260104/neuraflok/releases) |
-| Windows 10/11 | ARM64 | [See available downloads](https://github.com/Marco260104/neuraflok/releases) |
-| macOS 13 Ventura or newer | Apple silicon (ARM64) | [See available downloads](https://github.com/Marco260104/neuraflok/releases) |
-| macOS 13 Ventura or newer | Intel (x64) | [See available downloads](https://github.com/Marco260104/neuraflok/releases) |
-| Linux | x64 | [See available downloads](https://github.com/Marco260104/neuraflok/releases) |
-| Linux | ARM64 | [See available downloads](https://github.com/Marco260104/neuraflok/releases) |
+| Windows 10/11 | x64 | [Installer](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Setup-x64.exe) |
+| Windows 10/11 | ARM64 | [Installer](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Setup-arm64.exe) |
+| macOS 13 Ventura or newer | Apple silicon (ARM64) | [DMG](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-arm64.dmg) · [ZIP](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-arm64.zip) |
+| macOS 13 Ventura or newer | Intel (x64) | [DMG](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-x64.dmg) · [ZIP](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-macOS-x64.zip) |
+| Linux | x64 | [AppImage](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-x64.AppImage) · [DEB](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-x64.deb) |
+| Linux | ARM64 | [AppImage](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-arm64.AppImage) · [DEB](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Linux-arm64.deb) |
 
-Every stable release includes `SHA256SUMS.txt` so you can verify downloaded files. Some macOS packages may not be signed or notarized; see [SECURITY.md](SECURITY.md) before installing.
+Every stable release includes [SHA256SUMS.txt](https://github.com/Marco260104/neuraflok/releases/latest/download/SHA256SUMS.txt) so you can verify downloaded files. You can also download the [provider extension](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Provider-Extension.zip) and [native source archive](https://github.com/Marco260104/neuraflok/releases/latest/download/NEURAFLOK-Native-Sources.tar.gz). Some macOS packages may not be signed or notarized; see [SECURITY.md](SECURITY.md) before installing.
 
 ## What NEURAFLOK does
 

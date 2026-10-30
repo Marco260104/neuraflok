@@ -6,6 +6,17 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-10-29
+
+### Added
+
+- CircleCI release automation for Windows, macOS, and Linux installers across supported processor architectures.
+- Direct links to the latest stable installers and SHA-256 checksums.
+
+### Changed
+
+- Prepared the first public installer release with aligned desktop, extension, and package versions.
+
 ## [0.1.1] - 2026-10-29
 
 ### Added
