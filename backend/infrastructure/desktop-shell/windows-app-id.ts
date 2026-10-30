@@ -17,9 +17,9 @@ export function unpackagedWindowsIcoPath(developmentRoot: string): string {
   return path.join(developmentRoot, 'build', 'icon.ico');
 }
 
-/** Taskbar uses the Start Menu shortcut for this AppUserModelId, not BrowserWindow.setIcon (that only feeds Alt-Tab). */
-export function applyUnpackagedWindowsTaskbar(window: BrowserWindow, iconPath: string): void {
-  if (process.platform !== 'win32' || packagedRuntime(app.isPackaged, process.execPath) || !existsSync(iconPath)) return;
+/** Pair every Windows window with the same AppUserModelId and ICO as its Start Menu app. */
+export function applyWindowsTaskbar(window: BrowserWindow, iconPath: string): void {
+  if (process.platform !== 'win32' || !existsSync(iconPath)) return;
   try {
     const appId = windowsAppUserModelId();
     app.setAppUserModelId(appId);
@@ -29,8 +29,8 @@ export function applyUnpackagedWindowsTaskbar(window: BrowserWindow, iconPath: s
   }
 }
 
-function writeDevShortcut(iconPath: string): void {
-  if (packagedRuntime(app.isPackaged, process.execPath) || !existsSync(iconPath)) return;
+function writeStartMenuShortcut(fileName: string, appId: string, iconPath: string): void {
+  if (!existsSync(iconPath)) return;
   try {
     const shortcut = path.join(
       app.getPath('appData'),
@@ -38,12 +38,12 @@ function writeDevShortcut(iconPath: string): void {
       'Windows',
       'Start Menu',
       'Programs',
-      'NEURAFLOK Dev.lnk'
+      fileName
     );
     const details = {
       target: process.execPath,
       cwd: path.dirname(process.execPath),
-      appUserModelId: WINDOWS_DEV_APP_USER_MODEL_ID,
+      appUserModelId: appId,
       icon: iconPath,
       iconIndex: 0,
       description: 'NEURAFLOK'
@@ -56,12 +56,25 @@ function writeDevShortcut(iconPath: string): void {
   }
 }
 
+function writeDevShortcut(iconPath: string): void {
+  if (packagedRuntime(app.isPackaged, process.execPath)) return;
+  writeStartMenuShortcut('NEURAFLOK Dev.lnk', WINDOWS_DEV_APP_USER_MODEL_ID, iconPath);
+}
+
+function writeInstalledShortcut(iconPath: string): void {
+  if (!packagedRuntime(app.isPackaged, process.execPath)) return;
+  writeStartMenuShortcut('NEURAFLOK.lnk', WINDOWS_APP_USER_MODEL_ID, iconPath);
+}
+
 if (process.platform === 'win32') {
   const apply = () => app.setAppUserModelId(windowsAppUserModelId());
   apply();
   app.once('ready', () => {
     apply();
-    if (packagedRuntime(app.isPackaged, process.execPath)) return;
+    if (packagedRuntime(app.isPackaged, process.execPath)) {
+      writeInstalledShortcut(path.join(process.resourcesPath, 'app-icon.ico'));
+      return;
+    }
     const root = unpackagedIconRoot(app.getAppPath(), path.join(__dirname, '../..'));
     writeDevShortcut(unpackagedWindowsIcoPath(root));
   });

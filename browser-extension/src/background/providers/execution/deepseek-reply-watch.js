@@ -157,16 +157,17 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
       completeText = publicAnswer || (isDeepseekAck(lastText) && !isDeepseekAck(before) ? lastText : '');
 
       // A spinner alone is not evidence of progress: DeepSeek can leave its
-      // generating flag set after the answer and private reasoning stop moving.
-      // Keep long replies alive while observable text changes, but recover a
-      // genuinely stalled generation instead of extending the page lease forever.
-      // Private reasoning can move for a long time without any visible answer or
-      // project work. It is not progress the user can verify and must not keep a
-      // provider request alive indefinitely.
-      const observableActivity = publicAnswer;
-      if (publicAnswer && observableActivity !== lastObservableActivity) {
-        lastObservableActivity = observableActivity;
+      // generating flag set after the answer and reasoning stop moving. A
+      // changing private-reasoning snapshot is still useful as an internal
+      // liveness signal when DeepSeek temporarily reports generating=false.
+      // Never publish that private text; progress events below carry only the
+      // public answer (which may be empty).
+      const publicAnswerChanged = Boolean(publicAnswer && publicAnswer !== lastObservableActivity);
+      if (publicAnswerChanged) lastObservableActivity = publicAnswer;
+      if (publicAnswerChanged || thinkChanged) {
         lastObservableProgressAt = Date.now();
+        deadline = Date.now() + DEEPSEEK_WATCH_MS;
+        emptySince = null;
       }
       if (snap?.generating === true && Date.now() - lastObservableProgressAt >= DEEPSEEK_STALLED_GENERATION_MS) {
         let stopConfirmed = false;
@@ -224,6 +225,14 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           }, undefined, DEEPSEEK_READ_MS).catch(() => null);
           if (continued?.continued === true) {
             deadline = Date.now() + DEEPSEEK_WATCH_MS;
+            // Continue starts a new provider activity window. Carrying the
+            // previous idle/stall timestamps across the click can immediately
+            // classify the resumed generation as stopped before DeepSeek has
+            // time to render its next answer chunk.
+            lastObservableActivity = '';
+            lastObservableProgressAt = Date.now();
+            lastGenerationActive = false;
+            emptySince = null;
             quietText = '';
             quietIdle = 0;
             stableText = '';
@@ -256,7 +265,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
         quietIdle = 0;
       }
 
-      if (snap?.generating === true) {
+      if (snap?.generating === true || thinkChanged) {
         deadline = Date.now() + DEEPSEEK_WATCH_MS;
         if (lastText !== reportedText || thinkChanged || Date.now() - lastProgressAt > 15_000) {
           reportedText = lastText;
@@ -266,9 +275,12 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
             body: JSON.stringify({ id: offer.id, provider: 'deepseek', conversationId: offer.conversationId, text: lastText, generating: true, attachmentsUploaded: snap?.attachmentsUploaded === true })
           }).catch(() => undefined);
         }
-        stableText = completeText;
-        stableIdle = 0;
-      } else if (!completeText && lastText && isDeepseekAck(lastText) && !isDeepseekAck(before)) {
+        if (snap?.generating === true) {
+          stableText = completeText;
+          stableIdle = 0;
+        }
+      }
+      if (snap?.generating !== true && !thinkChanged && !completeText && lastText && isDeepseekAck(lastText) && !isDeepseekAck(before)) {
         if (lastText === stableText) {
           stableIdle++;
           if (stableIdle >= 15 && await postDeepseekPage(offer, { text: lastText }, tabId)) return;
@@ -276,7 +288,7 @@ export function createDeepseekReplyWatcher({ stoppedProviderOffers, call, tabRep
           stableText = lastText;
           stableIdle = 0;
         }
-      } else {
+      } else if (snap?.generating !== true && !thinkChanged) {
         stableText = lastText;
         stableIdle = 0;
       }

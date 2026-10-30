@@ -7,6 +7,7 @@ import { structureTimeline, type RoundPart } from './timeline-rounds.js';
 import { createTimelineCompaction, type TimelineItem } from './timeline-compaction.js';
 import type { InputImage } from '../../../contracts/input.js';
 import type { SessionSummary } from '../../../contracts/session.js';
+import type { ChatEventContext } from './chat-event-renderer.js';
 export type { CompactionBlock, TimelineItem } from './timeline-compaction.js';
 
 // Builds reusable timeline rows, compaction cards, and round groupings.
@@ -24,7 +25,7 @@ export interface TimelinePresentationRuntime {
   openTools: Set<string>;
   rowEvents: WeakMap<HTMLElement, SessionEvent>;
   turnNow: HTMLElement;
-  eventBody: (event: SessionEvent) => HTMLElement;
+  eventBody: (event: SessionEvent, context?: ChatEventContext) => HTMLElement;
   retainedInputImages: (event: Extract<SessionEvent, { kind: 'user_message' }>, sessionId: string | null) => InputImage[];
   showWorkers: (ids: string[], focus: boolean) => void;
   readTimeline: () => void;
@@ -72,7 +73,7 @@ export function createTimelinePresentation(runtime: TimelinePresentationRuntime)
     receipt.hidden = hasLaterModelActivity(item.event.time);
     receipt.parentElement?.classList.toggle('has-input-receipt', !receipt.hidden);
   }
-  function eventRow(event: SessionEvent): HTMLElement {
+  function eventRow(event: SessionEvent, context?: ChatEventContext): HTMLElement {
     const row = el('div', `ev ev-${event.kind}`);
     // App-authored recovery note, not a provider progress caption.
     if (event.kind === 'progress' && event.source === 'app') row.dataset.appNote = '';
@@ -87,7 +88,7 @@ export function createTimelinePresentation(runtime: TimelinePresentationRuntime)
     if (event.agent && event.agent !== 'prime' && !(currentWorker?.kind === 'worker' && currentWorker.agentId === event.agent)) {
       body.append(el('span', 'chip', event.agent));
     }
-    body.append(eventBody(event));
+    body.append(eventBody(event, context));
     // A refused call from a chat Compact & Resume already replaced is not a placement failure: its request id proved exactly which chat it came from, and that chat's stopped turn simply kept calling from OpenAI's side. Say so beside the row, or a full Unattributed bucket of these reads as the attribution chain having broken.
     if (event.kind === 'tool_call' && event.call.attributionMethod === 'superseded') {
       body.append(

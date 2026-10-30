@@ -14,6 +14,7 @@ export interface ChatProgressRuntime {
   controlledSessionId: string | null;
   controlledSelection: number;
   controlledTurnId: string | null;
+  locallyStoppedTurn: { sessionId: string; turnId: string; stoppedAt: number } | null;
   goalWaitView: GoalWait | null;
   events: SessionEvent[];
   startingInputs: Map<string, InputEntry>;

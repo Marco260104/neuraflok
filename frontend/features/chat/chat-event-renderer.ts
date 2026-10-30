@@ -86,6 +86,65 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
     await runtime.loadDetail();
   }
 
+  function interruptedRequestForError(history: readonly SessionEvent[], failed: Extract<SessionEvent, { kind: 'chat_error' }>): string {
+    if (!failed.inputId) return '';
+    const question = history.find((row): row is Extract<SessionEvent, { kind: 'user_message' }> =>
+      row.kind === 'user_message' && row.inputId === failed.inputId && row.seq < failed.seq);
+    if (!question) return '';
+    return (question.authoredText?.trim() || userPromptText(question.message.text) || question.message.text).trim();
+  }
+
+  function canContinueProviderError(failed: Extract<SessionEvent, { kind: 'chat_error' }>, context: ChatEventContext): boolean {
+    const history = runtime.selectedId === context.id ? runtime.events : context.history;
+    if (!failed.continueAvailable || !context.current() || runtime.selectedId !== context.id ||
+        chatErrorPresentation(failed, history).resolved) return false;
+    const session = runtime.sessions.find(row => row.id === context.id);
+    if (!session?.conversationId || providerForConversationId(session.conversationId) !== 'deepseek' ||
+        !interruptedRequestForError(history, failed)) return false;
+    if (history.some(row => row.kind === 'user_message' && row.seq > failed.seq && row.inputId !== failed.inputId)) return false;
+    return !runtime.pendingComposerInputs.some(row => row.sessionId === context.id &&
+      ['queued', 'browser', 'tool'].includes(row.state));
+  }
+
+  async function continueProviderError(failed: Extract<SessionEvent, { kind: 'chat_error' }>, context: ChatEventContext,
+    button: HTMLButtonElement): Promise<void> {
+    if (button.disabled || !canContinueProviderError(failed, context)) return;
+    const session = runtime.sessions.find(row => row.id === context.id);
+    const history = runtime.selectedId === context.id ? runtime.events : context.history;
+    const question = interruptedRequestForError(history, failed);
+    if (!session || !question) return;
+    button.disabled = true;
+    const text = session.projectId
+      ? recoveryMessage(question)
+      : 'Continue the unfinished response in this conversation, without repeating completed parts. Answer naturally in the configured language.';
+    let accepted = false;
+    try {
+      const result = await run(api.sendInput({
+        id: crypto.randomUUID(),
+        sessionId: session.id,
+        projectId: session.projectId ?? null,
+        text,
+        authoredSource: 'text',
+        mode: 'auto',
+        dueAt: Date.now(),
+        model: null,
+        reasoningEffort: null
+      }));
+      if (!result) {
+        button.disabled = false;
+        return;
+      }
+      accepted = true;
+      await Promise.all([
+        Promise.resolve(runtime.refreshInputQueue()).catch(() => undefined),
+        Promise.resolve(runtime.loadDetail()).catch(() => undefined)
+      ]);
+    } catch {
+      // Keep the interruption quiet and let the user try the explicit Continue action again.
+      if (!accepted) button.disabled = false;
+    }
+  }
+
   function attachmentUploadStatus(status?: 'uploading' | 'ready' | 'failed', includeIndicator = true): HTMLElement | null {
     if (!status) return null;
     const label = status === 'uploading' ? t('Uploading…') : status === 'ready' ? t('Uploaded') : t('Upload failed');
@@ -303,6 +362,21 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
         return line;
       }
       case 'chat_error': {
+        if (event.continueAvailable) {
+          const line = el('p', 'meta is-progress thinking-line turn-stopped chat-continue-notice');
+          line.setAttribute('role', 'status');
+          const history = context && runtime.selectedId === context.id ? runtime.events : context?.history ?? runtime.events;
+          const presentation = chatErrorPresentation(event, history);
+          if (presentation.resolved) {
+            line.append(el('span', '', () => t('This turn later completed. You can continue with a new message.')));
+          } else if (context && canContinueProviderError(event, context)) {
+            const resume = el('button', 'turn-stopped-continue', () => t('Continue')) as HTMLButtonElement;
+            resume.type = 'button';
+            resume.onclick = () => { void continueProviderError(event, context, resume); };
+            line.append(resume);
+          }
+          return line;
+        }
         const notice = el('div', 'chat-error-notice');
         notice.setAttribute('role', 'status');
         const presentation = () => chatErrorPresentation(event, context?.history ?? runtime.events);

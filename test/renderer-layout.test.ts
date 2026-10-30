@@ -121,10 +121,10 @@ it('centers the colored GitHub and Telegram links in the title bar beside each o
   expect(document.querySelector('.app-topbar-trailing')?.contains(document.querySelector('.app-topbar-social-links'))).toBe(false);
   expect(document.querySelector('.app-topbar-social-links')?.nextElementSibling?.classList.contains('app-topbar-trailing')).toBe(true);
   expect(document.querySelector('.donation-panel .donation-social-links')).toBeNull();
-  expect(rule('.app-topbar-social-links')).toContain('position: absolute');
-  expect(rule('.app-topbar-social-links')).toContain('left: 50vw');
-  expect(rule('.app-topbar-social-links')).toContain('top: 50%');
-  expect(rule('.app-topbar-social-links')).toContain('translate: -50% -50%');
+  expect(rule('.app-topbar-social-links')).toContain('grid-column: 2');
+  expect(rule('.app-topbar-social-links')).toContain('grid-row: 1');
+  expect(rule('.app-topbar-social-links')).toContain('justify-self: center');
+  expect(rule('.app-topbar-social-links')).toContain('align-self: center');
   expect(rule('.app-topbar-social-links')).toContain('z-index: 2');
   expect(rule('.app-topbar-social-links')).toContain('pointer-events: auto');
   expect(rule('.app-topbar-social-links')).toContain('flex-direction: row');
@@ -135,8 +135,11 @@ it('centers the colored GitHub and Telegram links in the title bar beside each o
   expect(rule('.app-topbar-social-link')).toContain('background: transparent');
   expect(rule('.app-topbar-social-link')).toContain('cursor: pointer');
   expect(rule('.app-topbar-social-link')).toContain('-webkit-app-region: no-drag');
-  expect(rule('.app-topbar-social-link')).toContain('width: 20px');
-  expect(rule('.app-topbar-social-link')).toContain('height: 20px');
+  expect(rule('.app-topbar-social-link')).toContain('flex: 0 0 36px');
+  expect(rule('.app-topbar-social-link')).toContain('width: 36px');
+  expect(rule('.app-topbar-social-link')).toContain('min-width: 36px');
+  expect(rule('.app-topbar-social-link')).toContain('height: 36px');
+  expect(css).toContain('.app-topbar-social-link { flex-basis: 32px; width: 32px; min-width: 32px; height: 32px; }');
   expect(rule('.app-topbar-social-link')).not.toContain('box-shadow');
   expect(css).toContain('.app-topbar-social-link:hover { transform: scale(1.08); }');
   expect(css).toContain('.app-topbar-social-link-github:hover img');

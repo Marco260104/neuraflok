@@ -158,7 +158,7 @@ export function initializeChatControllers(bindings: ChatInitializationBindings):
     openTools: bindings.openTools,
     rowEvents: bindings.rowEvents,
     turnNow: bindings.chatProgress.turnNow,
-    eventBody: event => bindings.eventBody(event),
+    eventBody: (event, context) => bindings.eventBody(event, context),
     retainedInputImages: (event, sessionId) => bindings.retainedInputImages(event, sessionId),
     showWorkers: (ids, focus) => {
       bindings.agentPanel?.showWorkers(ids, focus);

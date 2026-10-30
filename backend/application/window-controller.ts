@@ -6,8 +6,8 @@ import { getConfig, logError, logInfo } from '../infrastructure/settings/index.j
 import { freshDevelopmentRendererUrl, loadFreshDevelopmentRenderer } from './window-load.js';
 import {
   UI_BASE_ZOOM, windowLayoutForDisplays, windowPlacementWasMaximized, titleBarOverlayForTheme, windowBackgroundForTheme,
-  trackNormalWindowBounds, browserWindowIconPath, unpackagedIconRoot, unpackagedWindowsIcoPath,
-  applyUnpackagedWindowsTaskbar, editContextMenuTemplate, packagedRuntime,
+  trackNormalWindowBounds, browserWindowIconPath, unpackagedIconRoot, windowsTaskbarIconPath,
+  applyWindowsTaskbar, editContextMenuTemplate, packagedRuntime,
   type WindowPlacement
 } from '../infrastructure/desktop-shell/index.js';
 
@@ -70,8 +70,14 @@ export function createMainWindowController(options: {
     if (process.platform === 'win32') window.removeMenu();
     const owner = window;
     if (icon && process.platform !== 'darwin') owner.setIcon(icon);
-    if (process.platform === 'win32' && !packaged) {
-      applyUnpackagedWindowsTaskbar(owner, unpackagedWindowsIcoPath(developmentRoot));
+    if (process.platform === 'win32') {
+      const taskbarIcon = windowsTaskbarIconPath(
+        process.platform,
+        packaged,
+        process.resourcesPath,
+        developmentRoot
+      );
+      if (taskbarIcon) applyWindowsTaskbar(owner, taskbarIcon);
     }
 
     window.once('ready-to-show', () => {

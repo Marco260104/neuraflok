@@ -99,6 +99,8 @@ export interface ChatObservation {
   goalEligible?: boolean;
   /** chat_error only: explicit recovery authority from a transport failure or app watchdog. */
   recoverable?: boolean;
+  /** chat_error only: the provider is confirmed idle, so the user can safely send a continuation. */
+  continueAvailable?: boolean;
   /** chat_error only: the DOM classifier identified a provider access limit, in any language. */
   blocking?: boolean;
   /** tool_evidence only: the connector requests this turn's message model holds. */

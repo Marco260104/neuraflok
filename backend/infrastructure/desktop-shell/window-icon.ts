@@ -21,3 +21,16 @@ export function unpackagedIconRoot(appPath: string, compiledMainRoot: string): s
   if (existsSync(path.join(appPath, 'brand', 'LogotipoSN.png'))) return appPath;
   return compiledMainRoot;
 }
+
+/** Use a real multi-size ICO for Windows shell surfaces; keep the PNG for the window's client icon. */
+export function windowsTaskbarIconPath(
+  platform: NodeJS.Platform,
+  packaged: boolean,
+  resourcesPath: string,
+  developmentRoot?: string
+): string | undefined {
+  if (platform !== 'win32') return undefined;
+  if (packaged) return path.join(resourcesPath, 'app-icon.ico');
+  if (!developmentRoot) return undefined;
+  return path.join(developmentRoot, 'build', 'icon.ico');
+}

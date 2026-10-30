@@ -175,6 +175,7 @@ describe('cross-platform packaging targets', () => {
   it('grants sandbox read access only to the Windows install tree and fails on ACL errors', () => {
     const config = yamlFile('electron-builder.yml');
     const installer = readFileSync(path.join(root, 'scripts/windows-installer-acl.nsh'), 'utf8');
+    expect(config.win.extraResources).toContainEqual({ from: 'build/icon.ico', to: 'app-icon.ico' });
     expect(config.nsis.license).toBe('LICENSE');
     expect(config.nsis.include).toBe('scripts/windows-installer-acl.nsh');
     expect(installer).toContain('!macro customInit');

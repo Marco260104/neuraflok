@@ -617,6 +617,7 @@ export const chatRuntimeBindings = createChatRuntimeBindings(
     controlsGeneration: liveBinding(() => chatTaskRuntime.controlsGeneration, value => { chatTaskRuntime.controlsGeneration = value; }),
     controlledSessionId: liveBinding(() => chatTaskRuntime.controlledSessionId, value => { chatTaskRuntime.controlledSessionId = value; }),
     controlledTurnId: liveBinding(() => chatTaskRuntime.controlledTurnId, value => { chatTaskRuntime.controlledTurnId = value; }),
+    locallyStoppedTurn: liveBinding(() => chatTaskRuntime.locallyStoppedTurn, value => { chatTaskRuntime.locallyStoppedTurn = value; }),
     controlledSelection: liveBinding(() => chatTaskRuntime.controlledSelection, value => { chatTaskRuntime.controlledSelection = value; }),
     controlledStopPending: liveBinding(() => chatTaskRuntime.controlledStopPending, value => { chatTaskRuntime.controlledStopPending = value; }),
     controlledFinishWaiting: liveBinding(() => chatTaskRuntime.controlledFinishWaiting, value => { chatTaskRuntime.controlledFinishWaiting = value; }),

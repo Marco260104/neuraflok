@@ -3,6 +3,7 @@ import { TURN_OUTCOME_LABELS, type ReasoningEffort, type SessionEvent, type Sess
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import type { AppState } from '../../../contracts/types.js';
 import type { LocalProject } from '../../../contracts/workspace/projects.js';
+import type { ChatEventContext } from './chat-event-renderer.js';
 import { optimisticProjectInputEvents, optimisticWarmupEvents, withoutInternalWarmupEvents, type PendingNewProjectInput } from './chat-warmup-inputs.js';
 import { foldAgentCommunication, participatingWorkers } from '../agents/agent-communication.js';
 import { $, compactNumber } from '../../shared/dom.js';
@@ -51,7 +52,7 @@ export interface ChatDetailRendererRuntime {
   paintInputReceipt: (row: HTMLElement, item: TimelineItem) => void;
   rowEvents: WeakMap<HTMLElement, SessionEvent>;
   compactionRow: (block: CompactionBlock, previous?: HTMLElement) => HTMLElement;
-  eventRow: (event: SessionEvent) => HTMLElement;
+  eventRow: (event: SessionEvent, context?: ChatEventContext) => HTMLElement;
   answerActions: (turnId: string) => HTMLElement;
   placeTurnLines: (rows: HTMLElement[], workedSeconds: ReadonlyMap<number, number>) => void;
   reconcileChildren: (parent: Element, children: HTMLElement[]) => void;
@@ -75,6 +76,7 @@ export function createChatDetailRenderer(runtime: Runtime) {
     const {
       sessions,
       selectedId,
+      selectionGeneration,
       startingInputs,
       pendingComposerInputs,
       events,
@@ -128,6 +130,11 @@ export function createChatDetailRenderer(runtime: Runtime) {
         runtime.selectionGeneration, runtime.pendingNewInput, completedThrough),
     ];
     const shown = foldAgentCommunication([...filtered, ...optimistic]);
+    const selectedContext: ChatEventContext | undefined = selectedId === null ? undefined : {
+      id: selectedId,
+      current: () => runtime.selectedId === selectedId && runtime.selectionGeneration === selectionGeneration,
+      history: visibleHistory
+    };
     const pane = $('chatBody');
     const restoreViewport = preserveTimelineViewport(pane, $('timelineContent'), followBottom && !runtime.readingAfterSend,
       runtime.followOutput() ? runtime.readerAtEnd : undefined);
@@ -175,6 +182,9 @@ export function createChatDetailRenderer(runtime: Runtime) {
         anchors.get(item.event.turnId) === item.event.seq ? item.event.turnId : null;
       const sig = runtime.itemSignature(item) + (item.kind === 'event' && item.event.kind === 'chat_error'
         ? JSON.stringify(chatErrorPresentation(item.event, visibleHistory)) : '') + (answerTurn ? '\u0000answer' : '') +
+        (item.kind === 'event' && item.event.kind === 'chat_error' && item.event.continueAvailable
+          ? `\u0000continue:${events.length}:${pendingComposerInputs.filter(input => input.sessionId === selectedId &&
+            ['queued', 'browser', 'tool'].includes(input.state)).map(input => `${input.id}:${input.state}`).join(',')}` : '') +
         (item.kind === 'event' && runtime.stoppedTurnEnd(item.event, visibleHistory) ? '\u0000stopped' : '');
       keep.add(key);
       const cached = rowCache.get(key);
@@ -189,7 +199,7 @@ export function createChatDetailRenderer(runtime: Runtime) {
         timelineRows.push(cached.row);
         continue;
       }
-      const row = item.kind === 'compaction' ? runtime.compactionRow(item.block, cached?.row) : runtime.eventRow(item.event);
+      const row = item.kind === 'compaction' ? runtime.compactionRow(item.block, cached?.row) : runtime.eventRow(item.event, selectedContext);
       if (answerTurn) row.querySelector('.said')?.append(runtime.answerActions(answerTurn));
       row.dataset.timelineKey = key;
       row.dataset.workerSessions = workerIds;

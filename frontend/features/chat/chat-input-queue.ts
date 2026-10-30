@@ -67,7 +67,8 @@ export function visibleStartingComposerInputs(
   existingIds: ReadonlySet<string>,
 ): InputEntry[] {
   return [...startingInputs].filter(entry =>
-    !isWarmupInput(entry) && !entry.warmupDeferred && belongsToSelection(entry) && !existingIds.has(entry.id));
+    !isWarmupInput(entry) && !entry.warmupDeferred && !queuedFollowup(entry) &&
+    belongsToSelection(entry) && !existingIds.has(entry.id));
 }
 
 // Owns pending delivery rows, queued follow-ups, retries, and queue reconciliation.

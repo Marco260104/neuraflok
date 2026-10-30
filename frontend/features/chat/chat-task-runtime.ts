@@ -24,6 +24,7 @@ export function createChatTaskRuntime(dependencies: Dependencies) {
   let controlsGeneration = 0;
   let controlledSessionId: string | null = null;
   let controlledTurnId: string | null = null;
+  let locallyStoppedTurn: { sessionId: string; turnId: string; stoppedAt: number } | null = null;
   let controlledSelection = -1;
   let controlledStopPending = false;
   let controlledFinishWaiting = false;
@@ -143,7 +144,9 @@ export function createChatTaskRuntime(dependencies: Dependencies) {
     controlledStopPending = true;
     paintDeliveryControls();
     try {
-      await run(dependencies.api.stopSessionTurn(id, turnId));
+      const stopped = await run(dependencies.api.stopSessionTurn(id, turnId));
+      if (stopped !== null && dependencies.selectedId === id && dependencies.selectionGeneration === generation)
+        locallyStoppedTurn = { sessionId: id, turnId, stoppedAt: Date.now() };
     } finally {
       if (dependencies.selectedId === id && dependencies.selectionGeneration === generation) {
         controlledStopPending = false;
@@ -161,6 +164,8 @@ export function createChatTaskRuntime(dependencies: Dependencies) {
     set controlledSessionId(value: string | null) { controlledSessionId = value; },
     get controlledTurnId() { return controlledTurnId; },
     set controlledTurnId(value: string | null) { controlledTurnId = value; },
+    get locallyStoppedTurn() { return locallyStoppedTurn; },
+    set locallyStoppedTurn(value: typeof locallyStoppedTurn) { locallyStoppedTurn = value; },
     get controlledSelection() { return controlledSelection; },
     set controlledSelection(value: number) { controlledSelection = value; },
     get controlledStopPending() { return controlledStopPending; },

@@ -117,6 +117,7 @@ export function createChatComposerComposition(bindings: ChatRuntimeBindings, dep
     get controlledTurnId() { return bindings.controlledTurnId; },
     get controlledQueueAtFinish() { return bindings.controlledQueueAtFinish; },
     get controlledCanInject() { return bindings.controlledCanInject; },
+    turnWorking: dependencies.turnWorking,
     refreshSessionControls: bindings.refreshSessionControls,
     stopCurrentTurn: bindings.stopCurrentTurn,
     pendingComposerInput: () => chatInputQueue.pendingComposerInput(),

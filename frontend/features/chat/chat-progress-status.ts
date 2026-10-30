@@ -1,7 +1,9 @@
 import type { AgentState } from '../../../contracts/session.js';
+import { queuedFollowup } from '../../../contracts/input.js';
 import { t } from '../../shared/i18n.js';
 import type { ChatProgressRuntime } from './chat-progress-types.js';
 import { chatSelectionStartedAt, hasRecentTurnActivity, internalWarmupTurnIds, isInternalWarmupQuestionText } from './chat-turn-state.js';
+import { selectedAuthoredInputPending } from './chat-warmup-inputs.js';
 import { WEB_CHAT_WARMUP_TEXT } from './chat-web-warmup.js';
 
 export interface ProgressStatus {
@@ -31,6 +33,7 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
   // was reopened. Confirm that work belongs to this selection before showing
   // a live caption, then retain that confirmation during quiet reasoning.
   let confirmedSelectionTurn: string | null = null;
+  let latchedSelectionTurn: { sessionId: string; generation: number; turnId: string } | null = null;
   const RECENT_AUTHORED_TURN_MS = 15_000;
 
   function turnConfirmedForSelection(turnId: string): boolean {
@@ -104,6 +107,43 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
         summary.lastTurnEndAt ?? Number.NEGATIVE_INFINITY,
       );
       const completedLatestTurn = latestExplicitCompletion > latestRequestAt;
+      const activeInputs = [...runtime.startingInputs.values(), ...runtime.pendingComposerInputs]
+        .filter(entry => {
+          const owner = entry.sessionId ?? entry.deliveredSessionId ?? null;
+          return owner === runtime.selectedId &&
+            !entry.warmup && !entry.warmupDeferred && entry.purpose !== 'decision' &&
+            entry.authoredSource !== 'none' &&
+            ['queued', 'browser', 'tool', 'sent'].includes(entry.state) &&
+            entry.dueAt <= Date.now();
+        });
+      const queuedFollowupWaiting = activeInputs.some(entry => queuedFollowup(entry) &&
+        ['queued', 'browser', 'tool'].includes(entry.state));
+      const recentUnstartedQuestion = [...runtime.events].reverse().find(event =>
+        event.kind === 'user_message' && event.internalWarmup !== true &&
+        !isInternalWarmupQuestionText(event.message.text, WEB_CHAT_WARMUP_TEXT) &&
+        event.time > latestExplicitCompletion);
+      const authoredInputWaiting = selectedAuthoredInputPending(
+        activeInputs,
+        runtime.selectedId,
+        runtime.selectionGeneration,
+        null,
+        runtime.events,
+        Date.now(),
+        latestExplicitCompletion,
+      );
+      const handoffWaiting = queuedFollowupWaiting || authoredInputWaiting ||
+        (recentUnstartedQuestion?.kind === 'user_message' &&
+          Date.now() - recentUnstartedQuestion.time < RECENT_AUTHORED_TURN_MS);
+      const stoppedTurn = runtime.locallyStoppedTurn;
+      const stoppedQuestionStillLatest = stoppedTurn?.sessionId === runtime.selectedId &&
+        !runtime.events.some(event => event.time > stoppedTurn.stoppedAt && (
+          event.kind === 'turn_start' && event.turnId !== stoppedTurn.turnId ||
+          event.kind === 'user_message' && event.internalWarmup !== true &&
+            !isInternalWarmupQuestionText(event.message.text, WEB_CHAT_WARMUP_TEXT)
+        ));
+      const activeHandoffWaiting = handoffWaiting && !(stoppedQuestionStillLatest &&
+        recentUnstartedQuestion?.kind === 'user_message' && recentUnstartedQuestion.time <= stoppedTurn.stoppedAt &&
+        !queuedFollowupWaiting && !authoredInputWaiting);
       const controlledTurn =
         runtime.controlledSessionId === runtime.selectedId &&
         runtime.controlledSelection === runtime.selectionGeneration
@@ -111,27 +151,57 @@ export function createChatProgressStatus(runtime: ChatProgressRuntime) {
           : null;
       const turnHasEnded = (turnId: string | null | undefined): boolean => {
         if (!turnId) return false;
+        const locallyStopped = runtime.locallyStoppedTurn;
+        if (locallyStopped?.sessionId === runtime.selectedId && locallyStopped.turnId === turnId &&
+            !runtime.events.some(event => event.kind === 'turn_start' && event.turnId === turnId && event.time > locallyStopped.stoppedAt))
+          return true;
         if (runtime.events.some(event => (event.kind === 'turn_end' && event.turnId === turnId && event.outcome !== 'unknown') ||
           (event.kind === 'chat_error' && event.turnId === turnId))) return true;
-        const latestFinalMessageAt = Math.max(...runtime.events.flatMap(event =>
-          event.kind === 'assistant_message' && event.turnId === turnId && (event.final === true || event.state === 'final')
-            ? [event.time]
-            : []), Number.NEGATIVE_INFINITY);
-        if (!Number.isFinite(latestFinalMessageAt) || Date.now() - latestFinalMessageAt < PROVIDER_SILENCE_MS) return false;
-        const laterActivity = runtime.events.some(event => event.turnId === turnId && event.time > latestFinalMessageAt &&
-          (event.kind === 'assistant_message' || event.kind === 'tool_call' || event.kind === 'page_tool' || event.kind === 'progress'));
-        return !laterActivity && !(summary.lastToolCallAt !== null && summary.lastToolCallAt > latestFinalMessageAt);
+        // An assistant message can be marked final between steps of a long
+        // provider task. Only an explicit turn boundary or error ends its
+        // selection-confirmed work state; silence must not make it disappear.
+        return false;
       };
       // A stale active-turn control must not keep the UI spinning after that
-      // turn has an explicit end, error, or an old final message with no later work.
+      // turn has an explicit end or error.
       const controlledTurnEnded = turnHasEnded(controlledTurn);
       const summaryTurnEnded = turnHasEnded(summary.activeTurnId);
-      // Assistant messages can be finalized between steps of one provider turn.
-      // An explicit turn end or error closes the active control; a final message
-      // alone does not when the selected session still reports that same turn.
-      const candidateActive = controlledTurnEnded || completedLatestTurn ? null : controlledTurn;
+      if (latchedSelectionTurn && (latchedSelectionTurn.sessionId !== runtime.selectedId ||
+          latchedSelectionTurn.generation !== runtime.selectionGeneration)) {
+        latchedSelectionTurn = null;
+        confirmedSelectionTurn = null;
+      }
+      const latchedTurnEnded = latchedSelectionTurn ? turnHasEnded(latchedSelectionTurn.turnId) : false;
+      const laterTurnActivity = runtime.events.some(event => event.time > latestExplicitCompletion &&
+        (event.kind === 'assistant_message' || event.kind === 'tool_call' || event.kind === 'page_tool' || event.kind === 'progress')) ||
+        (summary.lastToolCallAt !== null && summary.lastToolCallAt > latestExplicitCompletion);
+      // DeepSeek may publish intermediate finals or briefly omit the control
+      // snapshot while the same long request is still running. Preserve the
+      // last selection-confirmed turn until a real end/error boundary arrives.
+      const candidateActive = !completedLatestTurn || laterTurnActivity || activeHandoffWaiting
+        ? controlledTurn && !controlledTurnEnded
+        ? controlledTurn
+        : summary.activeTurnId && !summaryTurnEnded
+          ? summary.activeTurnId
+          : latchedSelectionTurn && !latchedTurnEnded
+            ? latchedSelectionTurn.turnId
+            : null
+        : null;
       const active = candidateActive && turnConfirmedForSelection(candidateActive) ? candidateActive : null;
-      if (!candidateActive || controlledTurnEnded || completedLatestTurn) confirmedSelectionTurn = null;
+      if (active) latchedSelectionTurn = {
+        sessionId: runtime.selectedId!,
+        generation: runtime.selectionGeneration,
+        turnId: active,
+      };
+      if (!candidateActive || (candidateActive && turnHasEnded(candidateActive))) {
+        confirmedSelectionTurn = null;
+        latchedSelectionTurn = null;
+      }
+      // Keep the single live work state through the handoff between a finished
+      // provider turn and its already-queued follow-up. The queued row is the
+      // durable source of truth until the next user event/turn takes over.
+      if (!active && activeHandoffWaiting)
+        return { text: t('Working…'), tone: 'is-live', working: true, ticking: true };
       if (!active && lastBoundary?.kind === 'turn_end' &&
           lastBoundary.outcome !== 'completed' && lastBoundary.outcome !== 'unknown') {
         return { text: '', tone: '' };

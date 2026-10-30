@@ -236,6 +236,7 @@ export async function recordChatObservationsNow(
             ...(item.inputId ? { inputId: item.inputId } : {}),
             ...(item.reason === 'thinking_failed' || item.reason === 'stream_gone' ? { reason: item.reason } : {}),
             ...(typeof item.recoverable === 'boolean' ? { recoverable: item.recoverable } : {}),
+            ...(typeof item.continueAvailable === 'boolean' ? { continueAvailable: item.continueAvailable } : {}),
             ...(typeof item.blocking === 'boolean' ? { blocking: item.blocking } : {}),
             message: await storeText(sessionId, item.text ?? '', 2000)
           });

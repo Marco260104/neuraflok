@@ -9,6 +9,9 @@ it('queues every user delivery behind the required project preparation', () => {
   expect(composerInputMode('finish', true, true)).toBe('after-turn');
   expect(composerInputMode('auto', false, false)).toBe('auto');
   expect(composerInputMode('after-turn', false, true)).toBe('finish');
+  expect(composerInputMode('auto', false, false, true)).toBe('after-turn');
+  expect(composerInputMode('tool', false, false, true)).toBe('after-turn');
+  expect(composerInputMode('finish', false, true, true)).toBe('finish');
 });
 
 it('keeps the composer usable and shows preparation outside its input surface', async () => {

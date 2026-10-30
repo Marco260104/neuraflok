@@ -59,6 +59,60 @@ it('renders one legacy interrupted-response card across reloads and updates it a
   expect(w.document.querySelector('.chat-error-notice')!.textContent).toContain('Work continued');
 });
 
+it.each([
+  { name: 'normal chat', project: false },
+  { name: 'project chat', project: true }
+])('continues a verified stopped DeepSeek response in the same $name', async ({ project: withProject }) => {
+  const project = { id: '33333333-3333-4333-8333-333333333333', name: 'Workspace', path: '/workspace', createdAt: T0 };
+  const request = 'Finish the inventory page and explain the changes.';
+  const events: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'input:failed', inputId: 'failed-input', authoredText: request, message: text(request) },
+    { seq: 2, time: T0 + 2, source: 'extension', kind: 'chat_error', inputId: 'failed-input', continueAvailable: true, recoverable: false, message: text('internal provider timeout details') },
+    { seq: 3, time: T0 + 3, source: 'extension', kind: 'turn_end', outcome: 'failed', detail: 'provider idle' }
+  ];
+  const session = { ...summary(events), conversationId: 'ds-00000000-0000-4000-8000-000000000002', ...(withProject ? { projectId: project.id } : {}) };
+  const { w, live } = await boot(events, true, [], withProject ? [project] : [], { sessions: [session] });
+  const notice = w.document.querySelector('.chat-continue-notice')!;
+  expect(notice).not.toBeNull();
+  expect(notice.textContent).not.toContain('internal provider timeout details');
+  const button = notice.querySelector('button') as HTMLButtonElement;
+  expect(button?.textContent).toBe('Continue');
+  button.click();
+  await settle();
+
+  expect(live.sent).toHaveLength(1);
+  expect(live.sent[0]).toMatchObject({
+    sessionId: session.id,
+    projectId: withProject ? project.id : null,
+    authoredSource: 'text',
+    mode: 'auto'
+  });
+  if (withProject) {
+    expect(live.sent[0]!.text).toContain('Original user request still in progress');
+    expect(live.sent[0]!.text).toContain(request);
+  } else {
+    expect(live.sent[0]!.text).toContain('Continue the unfinished response');
+    expect(live.sent[0]!.text).not.toContain('/workspace');
+  }
+  button.click();
+  await settle();
+  expect(live.sent).toHaveLength(1);
+});
+
+it('does not offer a duplicate Continue when a newer user message already exists', async () => {
+  const request = 'Complete the first task.';
+  const events: SessionEvent[] = [
+    { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'input:first', inputId: 'first', authoredText: request, message: text(request) },
+    { seq: 2, time: T0 + 2, source: 'extension', kind: 'chat_error', inputId: 'first', continueAvailable: true, recoverable: false, message: text('internal timeout') },
+    { seq: 3, time: T0 + 3, source: 'extension', kind: 'turn_end', outcome: 'failed' },
+    { seq: 4, time: T0 + 4, source: 'app', kind: 'user_message', messageId: 'input:second', inputId: 'second', authoredText: 'A newer request is already waiting.', message: text('A newer request is already waiting.') }
+  ];
+  const session = { ...summary(events), conversationId: 'ds-00000000-0000-4000-8000-000000000003' };
+  const { w } = await boot(events, true, [], [], { sessions: [session] });
+  expect(w.document.querySelector('.chat-error-notice')).toBeNull();
+  expect(w.document.querySelector('.chat-continue-notice button')).toBeNull();
+});
+
 it('explicitly queues an image injection before the first MCP call without choosing browser delivery', async () => {
   const app = await boot([]);
   const api = (app.w as any).api;
@@ -380,7 +434,7 @@ it('keeps actual-turn Stop through two authored sends and stops only the capture
     expect(send.dataset.action).toBe('stop');
   }
   expect(live.sent.map(row => row.text)).toEqual(['First new direction', 'Second new direction']);
-  expect(live.sent.every(row => row.sessionId === '2026-09-02-test0001' && row.mode === 'auto')).toBe(true);
+  expect(live.sent.every(row => row.sessionId === '2026-09-02-test0001' && row.mode === 'after-turn')).toBe(true);
   // A queued follow-up does not replace the real active turn as Stop's authority.
   send.click();
   await settle();

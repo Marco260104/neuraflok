@@ -6,6 +6,16 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.16] - 2026-10-30
+
+### Fixed
+
+- Reset DeepSeek's idle and stall detection after its Continue control is activated, giving resumed answers a full generation window to appear.
+- Keep the working indicator attached to the active long-running turn through intermediate replies and delayed provider snapshots.
+- Queue new messages behind an active turn without replacing its Stop control or showing a duplicate sent message.
+- Hide provider-idle diagnostics behind a same-chat Continue action after safe automatic recovery attempts are exhausted.
+- Correct the enlarged desktop icon and social-link hit targets.
+
 ## [0.1.15] - 2026-10-30
 
 ### Changed

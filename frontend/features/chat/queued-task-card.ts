@@ -13,6 +13,7 @@ export interface QueuedTaskCardOptions {
   taskList: HTMLElement;
   queuedTasks: InputEntry[];
   projected: boolean;
+  optimistic?: boolean;
   reorder: Reorder;
 }
 
@@ -21,7 +22,7 @@ export function createQueuedTaskCard(
   entry: InputEntry,
   options: QueuedTaskCardOptions,
 ): HTMLElement {
-  const { queueSession, selection, taskList, queuedTasks, projected, reorder } = options;
+  const { queueSession, selection, taskList, queuedTasks, projected, optimistic = false, reorder } = options;
   const card = el('div', 'queued-input');
   card.dataset.inputId = entry.id;
   if (projected)
@@ -41,6 +42,11 @@ export function createQueuedTaskCard(
       : t('Awaiting receipt')} · ${entry.text}`);
   label.dir = 'auto';
   card.append(icon(entry.recovery ? 'i-pulse' : 'i-clock'), label);
+  if (optimistic) {
+    card.classList.add('is-pending-admission');
+    card.append(el('span', 'queue-pending', () => t('Queued')));
+    return card;
+  }
   if (entry.state !== 'queued') return card;
 
   const retireCard = () => {

@@ -28,7 +28,6 @@ import {
 import type { ProviderPageAttachment, ProviderPageAttachmentSource } from './provider-page.js';
 import { logInfo, logWarn } from '../../infrastructure/settings/logger.js';
 import { getConfig } from '../../infrastructure/settings/config.js';
-import { recoveryMessage } from '../../../contracts/recovery.js';
 import type { UiLanguage } from '../../../contracts/ui-language.js';
 import {
   persistWebProviderThread,
@@ -80,7 +79,12 @@ import {
 
 const MAX_TOOL_ROUNDS = 64;
 const MAX_INCOMPLETE_TOOL = 3;
-const MAX_DEEPSEEK_IDLE_RECOVERIES = 2;
+// Long project turns can be interrupted several times while the provider is
+// idle between tool rounds. Only retry failures the page explicitly confirms
+// are idle; allow a long task several recoveries without allowing a broken
+// provider to keep an unfinished turn alive indefinitely.
+const MAX_DEEPSEEK_IDLE_RECOVERIES = 12;
+const MAX_INTERNAL_ACK_FINAL_RECOVERIES = 2;
 const MAX_TOOL_RESULT_CONTEXT_CHARS = 64_000;
 const MAX_ACTIVE_REQUEST_CHARS = 4_000;
 const MAX_PROVIDER_PAGE_CHARS = 96_000;
@@ -359,6 +363,30 @@ function webProviderCompletionReview(entry: InputEntry): string {
     `ACTIVE REQUEST: ${activeRequest}`,
     'If any requested deliverable or verification is missing, continue working with the available tools now. Preserve successful work, avoid repeating completed edits, and do not stop at a status report. If everything is complete, give a concise, natural, direct final response that answers only the user’s request, in the configured language. Include concrete verification evidence only when it directly answers the request. Never claim an unverified result.'
   ].join('\n\n');
+}
+
+function webProviderIdleRecovery(entry: InputEntry, historySummary: string, reminder: string): string {
+  const summary = boundedText(historySummary.trim(), MAX_ACTIVE_REQUEST_CHARS);
+  const latestMessage = boundedText(entry.text.trim(), MAX_ACTIVE_REQUEST_CHARS);
+  return [
+    'PROVIDER INTERRUPTION RECOVERY: DeepSeek stopped before providing a final answer. Resume the latest user-authored task using this chat history and the current project state. This recovery note is not a new task.',
+    summary ? `RECENT CONVERSATION SUMMARY:\n${summary}` : '',
+    latestMessage ? `LATEST USER MESSAGE:\n${latestMessage}` : '',
+    'Interpret brief follow-ups using the earlier conversation and completed tool results. Inspect the current state before repeating work, finish what remains, and then give a concise, natural final answer in the configured language. Do not return an internal readiness acknowledgement as the final answer.',
+    reminder
+  ].filter(Boolean).join('\n\n');
+}
+
+function webInternalAckFinalRecovery(entry: InputEntry, projectPlanReadOnly: boolean, reminder: string): string {
+  const activeRequest = boundedText(entry.text.trim(), MAX_ACTIVE_REQUEST_CHARS);
+  return [
+    'FINAL ANSWER RECOVERY: The previous assistant output was only an internal setup acknowledgement, not a response to the user. Never output NEURAFLOK_READY or NEURAL_JAM_READY as the answer.',
+    `ACTIVE REQUEST: ${activeRequest}`,
+    projectPlanReadOnly
+      ? 'Finish the current read-only planning request. Read relevant project files if needed, do not edit files or run commands, and present the plan naturally in the configured language.'
+      : 'Continue from the real work already done. Use available project tools only for unfinished work. Then give a concise, natural final answer in the configured language, stating clearly if anything remains incomplete. Do not invent completed work or checks.',
+    reminder
+  ].filter(Boolean).join('\n\n');
 }
 
 function rememberDeepseekContext(sessionId: string, conversationId: string): void {
@@ -665,7 +693,13 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       await observe(ownedConversation, [{ kind: 'turn_end', time: now(), turnId, outcome: 'completed', final: true, ...internalWarmup }]);
       return turnId;
     }
-    if (provider === 'deepseek' && hasPriorAuthoredContext && !hasRecentDeepseekContext(sessionId, ownedConversation)) {
+    // A failed DeepSeek turn may still have a Continue control on the bound
+    // provider page. Do not insert a separate context-check message ahead of
+    // the user's resume request; send the actual follow-up with the saved local
+    // summary and let normal delivery/recovery verify or restore the same chat.
+    const resumingFailedTurn = session?.lastTurnOutcome === 'failed';
+    if (provider === 'deepseek' && hasPriorAuthoredContext && !resumingFailedTurn &&
+        !hasRecentDeepseekContext(sessionId, ownedConversation)) {
       await acknowledgeWarmup(entry, provider, sessionId, ownedConversation, system, priorMessages, abort.signal,
         Date.now() + webChatReadinessMaxDurationMs, turnId);
     }
@@ -681,6 +715,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
     let assistantMessageId = randomUUID();
     let lastObservedClean = '';
     let idleRecoveries = 0;
+    let internalAckFinalRecoveries = 0;
     let plainTextRetries = 0;
     let prohibitedPlanRetries = 0;
     let planDecisionRetries = 0;
@@ -759,7 +794,7 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
             if (canContinue) {
               idleRecoveries++;
               if (attachmentUploadConfirmed) pageAttachments = [];
-              requestText = `${recoveryMessage(entry.text)}\n\n${reminder}`;
+              requestText = webProviderIdleRecovery(entry, historySummary, reminder);
               thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: requestText }]);
               await persistWebProviderThread(thread, provider);
               continue;
@@ -805,6 +840,36 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
         const raw = completion.text ?? '';
         const calls = parseWebChatTools(raw);
         const assistantContent = stripWebChatTools(raw);
+        if (!calls.length && validBootstrapReply(raw)) {
+          thread.messages = trimWebProviderThread([...thread.messages, { role: 'assistant', content: raw }]);
+          if (internalAckFinalRecoveries >= MAX_INTERNAL_ACK_FINAL_RECOVERIES || round >= MAX_TOOL_ROUNDS) {
+            await persistWebProviderThread(thread, provider);
+            throw Object.assign(
+              new Error('DeepSeek returned only an internal setup acknowledgement instead of a user-facing final answer.'),
+              { providerIdle: true }
+            );
+          }
+
+          internalAckFinalRecoveries++;
+          pageText = webInternalAckFinalRecovery(entry, projectPlanReadOnly, reminder);
+          thread.messages = trimWebProviderThread([...thread.messages, { role: 'user', content: pageText }]);
+          await persistWebProviderThread(thread, provider);
+          if (lastObservedClean) {
+            await observe(ownedConversation, [{
+              kind: 'assistant_message',
+              time: now(),
+              messageId: assistantMessageId,
+              text: '',
+              turnId,
+              final: false,
+              state: 'streaming',
+              activeNow: true
+            }]);
+          }
+          assistantMessageId = randomUUID();
+          lastObservedClean = '';
+          continue;
+        }
         const decisionCalls = calls.filter(call => isWebChatPlanDecisionToolName(call.function.name));
         if (decisionCalls.length) {
           const decisionCall = decisionCalls[0]!;
@@ -1016,9 +1081,10 @@ export async function runWebProviderInput(entry: InputEntry, provider: WebProvid
       return null;
     }
     const detail = (error as Error).message.replace(/^DEEPSEEK_(?:CONTEXT_UNAVAILABLE|ATTACHMENT_STAGE_UNAVAILABLE):\s*/, '').slice(0, 500);
+    const continueAvailable = provider === 'deepseek' && !entry.warmup && isVerifiedIdleProviderFailure(error);
     logWarn(`${provider}: session ${sessionId} failed: ${detail}`);
     await observe(ownedConversation, [
-      { kind: 'chat_error', time: now(), turnId, inputId: entry.id, text: detail, recoverable: false, ...internalWarmup },
+      { kind: 'chat_error', time: now(), turnId, inputId: entry.id, text: detail, recoverable: false, ...(continueAvailable ? { continueAvailable: true } : {}), ...internalWarmup },
       { kind: 'turn_end', time: now(), turnId, outcome: 'failed', detail, ...internalWarmup }
     ]).catch(() => undefined);
     return null;

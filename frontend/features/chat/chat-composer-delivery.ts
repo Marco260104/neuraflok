@@ -24,6 +24,7 @@ export interface ChatComposerDeliveryRuntime {
   controlledTurnId: string | null;
   controlledQueueAtFinish: boolean;
   controlledCanInject: boolean;
+  turnWorking: () => boolean;
   refreshSessionControls: () => Promise<void>;
   stopCurrentTurn: () => Promise<void>;
   pendingComposerInput: () => InputEntry | undefined;
@@ -52,8 +53,8 @@ export interface ChatComposerDeliveryRuntime {
 
 type Runtime = ChatComposerDeliveryRuntime;
 
-export function composerInputMode(chosenMode: string, preparationPending: boolean, queueAtFinish: boolean): string {
-  if (preparationPending) return 'after-turn';
+export function composerInputMode(chosenMode: string, preparationPending: boolean, queueAtFinish: boolean, turnWorking = false): string {
+  if (preparationPending || (turnWorking && chosenMode !== 'finish')) return 'after-turn';
   if (chosenMode === 'tool') return 'auto';
   if (chosenMode === 'after-turn' && queueAtFinish) return 'finish';
   return chosenMode;
@@ -152,9 +153,14 @@ export function createChatComposerDelivery(runtime: Runtime) {
     const waitForOpening = sessionId === null && pendingOpeningId !== null;
     const chosenMode = projectPlan ? 'auto' : delivery ?? $<HTMLSelectElement>('sendMode').value;
     const preparationPending = composerWarmupState(composerWarmupKey(sessionId, generation)) !== null;
+    const activeTurn = sessionId !== null &&
+      runtime.controlledSessionId === sessionId &&
+      runtime.controlledSelection === generation &&
+      runtime.controlledTurnId !== null &&
+      runtime.turnWorking();
     const queueAtFinish = runtime.controlledSessionId === runtime.selectedId &&
       runtime.controlledSelection === runtime.selectionGeneration && runtime.controlledQueueAtFinish;
-    const mode = composerInputMode(chosenMode, preparationPending, queueAtFinish);
+    const mode = composerInputMode(chosenMode, preparationPending, queueAtFinish, activeTurn);
     const dueAt = Date.now();
     const id = crypto.randomUUID();
     const authoredDraft = runtime.authoredComposerText();

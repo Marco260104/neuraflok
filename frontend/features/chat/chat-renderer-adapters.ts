@@ -38,8 +38,8 @@ export function createChatRendererAdapters(
     itemSignature(item: TimelineItem): string {
       return timelineView().itemSignature(item);
     },
-    eventRow(event: SessionEvent): HTMLElement {
-      return timelineView().eventRow(event);
+    eventRow(event: SessionEvent, context?: ChatEventContext): HTMLElement {
+      return timelineView().eventRow(event, context);
     },
     compactionRow(block: CompactionBlock, previous?: HTMLElement): HTMLElement {
       return timelineView().compactionRow(block, previous);

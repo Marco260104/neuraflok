@@ -194,6 +194,7 @@ export type ControlApiEvent = {
   detail?: string;
   reason?: string;
   recoverable?: boolean;
+  continueAvailable?: boolean;
   blocking?: boolean;
   /** `page_tool`. */
   label?: string;

@@ -26,7 +26,6 @@ export function createChatTurnProgress(
   getStateLine: () => ProgressStatus,
 ) {
   const turnStatusLine = turnLine('turn-worked turn-status');
-  let turnWorking = false;
 
   // Keeps the current activity beside the turn that owns it.
   const turnNow = el('div', 'meta is-progress thinking-line turn-now');
@@ -111,13 +110,9 @@ export function createChatTurnProgress(
   }
 
   function selectedTurnIsWorking(): boolean {
-    // The row is presentation state and can outlive the provider snapshot
-    // during navigation. Never let that stale class keep a Thinking indicator
-    // alive after the selected chat no longer has a confirmed active turn.
-    return getStateLine().working === true &&
-      turnStatusLine.classList.contains('is-working') &&
-      turnStatusLine.dataset.sessionId === (runtime.selectedId ?? '') &&
-      turnStatusLine.dataset.selectionGeneration === String(runtime.selectionGeneration);
+    // Resolve from the current session evidence instead of the last painted
+    // DOM class. A stale visual frame must not make a live turn look idle.
+    return getStateLine().working === true;
   }
 
   function deferredProgress() {
@@ -152,7 +147,12 @@ export function createChatTurnProgress(
     if (preparationPhase === 'failed') return { text: t('Thinking…'), icon: 'thinking', working: false };
     const deferred = deferredProgress();
     if (preparationPhase === 'opening') return { text: t('Thinking…'), icon: 'thinking', working: false };
-    if (deferred === 'thinking') return { text: t('Thinking…'), icon: 'thinking', working: false };
+    const confirmedWorking = selectedTurnIsWorking();
+    // A queued follow-up may be waiting behind the current provider turn.
+    // Keep showing the current tool activity first; the queue must not replace
+    // it with a generic thinking state for a few seconds.
+    if (deferred === 'thinking' && !confirmedWorking)
+      return { text: t('Thinking…'), icon: 'thinking', working: false };
     const call =
       runningToolsFor === runtime.selectedId ? runningTools.at(-1) : undefined;
     if (call)
@@ -192,7 +192,8 @@ export function createChatTurnProgress(
     // replaced by the generic Thinking label when the provider or control
     // snapshot is late to clear its active-turn state.
     if (latestTerminalAt !== Number.NEGATIVE_INFINITY &&
-        (!newest || latestTerminalAt >= newest.time)) return null;
+        (!newest || latestTerminalAt >= newest.time))
+      return confirmedWorking ? thinking : deferred === 'thinking' ? thinking : null;
     if (newest?.kind === 'assistant_message' && proseMoving(newest))
       return null;
     if (newest?.kind === 'page_tool' && NATIVE_STEP_NOW.test(newest.label))
@@ -212,7 +213,11 @@ export function createChatTurnProgress(
     if (warmup?.phase === 'failed' && hasPendingAuthoredMessage()) ensureSelectedChatWarmup();
     const suppressWarmupActivity = suppressWarmupWithoutPendingMessage() ||
       shouldSuppressWarmupActivity(warmup, hasPendingAuthoredMessage());
-    const now = suppressWarmupActivity ? null : isWorking || hasPending ? liveActivity() : null;
+    const now = suppressWarmupActivity
+      ? null
+      : isWorking || hasPending
+        ? liveActivity() ?? { text: t('Thinking…'), icon: 'thinking', working: false }
+        : null;
     const text = now?.text ?? '';
     const cue = now?.icon ?? '';
     if (now && turnNowIcon.dataset.icon !== cue) {
@@ -260,7 +265,7 @@ export function createChatTurnProgress(
     runningToolsEvents = runtime.events.length;
     const conversationIds = [
       ...new Set(
-        [summary.conversationId, ...summary.chatIds].filter(
+        [summary.conversationId, ...(Array.isArray(summary.chatIds) ? summary.chatIds : [])].filter(
           (id): id is string => !!id,
         ),
       ),
@@ -334,7 +339,6 @@ export function createChatTurnProgress(
       ? null
       : getStateLine();
     const working = status?.working === true;
-    turnWorking = working;
     const suppressWarmup = suppressWarmupWithoutPendingMessage() ||
       shouldSuppressWarmupActivity(preparation(), hasPendingAuthoredMessage());
     const deferred = deferredProgress();
@@ -344,19 +348,18 @@ export function createChatTurnProgress(
         (entry) =>
           entry.row.matches('.ev-user_message') && Number.isFinite(entry.asked),
       );
-    const pending = hasSelectedAuthoredInputPending() || deferredProgress() !== null;
     const used = new Set<string>();
     // Insert rows from the end to preserve earlier indices.
     for (let i = asks.length - 1; i >= 0; i--) {
       const { index, asked } = asks[i]!;
       const latest = i === asks.length - 1;
-      if (latest && deferred) {
-        rows.splice(index + 1, 0, turnNow);
-        continue;
-      }
-      if (latest && working && !pending && !suppressWarmup) {
+      if (latest && working && !suppressWarmup) {
         rows.splice(index + 1, 0, turnStatusLine);
         rows.push(turnNow);
+        continue;
+      }
+      if (latest && deferred) {
+        rows.splice(index + 1, 0, turnNow);
         continue;
       }
       const seconds = workedSeconds.get(asked);
@@ -385,7 +388,6 @@ export function createChatTurnProgress(
       turnStatusLine.classList.remove('is-working');
       delete turnStatusLine.dataset.sessionId;
       delete turnStatusLine.dataset.selectionGeneration;
-      turnWorking = false;
       if (pending) {
         const latestMessage = runtime.detailFor === runtime.selectedId && runtime.selectedId !== null
           ? [...$('timeline').querySelectorAll<HTMLElement>('.ev-user_message')].at(-1)
@@ -404,7 +406,7 @@ export function createChatTurnProgress(
       paintTurnNow();
       return;
     }
-    if (deferred) {
+    if (deferred && !working) {
       turnStatusLine.remove();
       const latestMessage = runtime.detailFor === runtime.selectedId && runtime.selectedId !== null
         ? [...$('timeline').querySelectorAll<HTMLElement>('.ev-user_message')].at(-1)
@@ -432,7 +434,7 @@ export function createChatTurnProgress(
             ...$('timeline').querySelectorAll<HTMLElement>('.ev-user_message'),
           ].at(-1)
         : undefined;
-    if (working && !pending && latestMessage) {
+    if (working && latestMessage) {
       latestMessage.after(turnStatusLine);
       $('timeline').append(turnNow);
     } else if (working || pending)
@@ -465,7 +467,7 @@ export function createChatTurnProgress(
       return turnNow;
     },
     get turnWorking() {
-      return turnWorking;
+      return getStateLine().working === true;
     },
     parkTurnStatus,
     placeTurnLines,

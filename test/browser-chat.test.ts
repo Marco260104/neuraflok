@@ -14,6 +14,7 @@ import { defaultConfig, initConfigPath, saveConfig } from '../backend/infrastruc
 import { initDurableStore, flushDurable, resetDurableForTests } from '../backend/persistence/durable.js';
 import {
   initSessionStore,
+  appendEvent,
   createSession,
   getSession,
   readEvents,
@@ -1085,13 +1086,13 @@ it('sends instructions and a bounded prior-history summary on a DeepSeek follow-
   expect(fresh).toEqual([false, false]);
 });
 
-it('continues a task in the same DeepSeek chat through repeated verified idle failures', async () => {
+it('continues a long task in the same DeepSeek chat through repeated verified idle failures', async () => {
   const pages: string[] = [];
   let call = 0;
   configureDeepseekForTests({
     complete: async (text) => {
       pages.push(text);
-      if (call++ < 2) throw Object.assign(new Error('DeepSeek did not finish this reply in time.'), { providerIdle: true });
+      if (call++ < 10) throw Object.assign(new Error('DeepSeek did not finish this reply in time.'), { providerIdle: true });
       return { text: 'Continued the existing work and completed the request.' };
     }
   });
@@ -1102,16 +1103,39 @@ it('continues a task in the same DeepSeek chat through repeated verified idle fa
   const turnId = await runDeepseekInput(input);
 
   expect(turnId).toBeTruthy();
-  expect(pages).toHaveLength(3);
-  expect(pages[1]).toContain('Original user request still in progress');
+  expect(pages).toHaveLength(11);
+  expect(pages[1]).toContain('PROVIDER INTERRUPTION RECOVERY');
+  expect(pages[1]).toContain('LATEST USER MESSAGE:');
   expect(pages[1]).toContain(input.text);
-  expect(pages[2]).toContain('Original user request still in progress');
+  expect(pages[2]).toContain('PROVIDER INTERRUPTION RECOVERY');
   expect(pages[2]).toContain(input.text);
+  expect(pages[3]).toContain('PROVIDER INTERRUPTION RECOVERY');
+  expect(pages.slice(4).every(page => page.includes('PROVIDER INTERRUPTION RECOVERY'))).toBe(true);
   await flushRecorder();
   const events = await readEvents(input.id);
   expect(events.filter(event => event.kind === 'user_message' && event.inputId === input.id)).toHaveLength(1);
   expect(events.some(event => event.kind === 'assistant_message' && event.message.text.includes('completed the request'))).toBe(true);
+  expect(events.some(event => event.kind === 'chat_error')).toBe(false);
   expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(true);
+});
+
+it('offers a manual continuation after verified DeepSeek idle recovery is exhausted', async () => {
+  let calls = 0;
+  configureDeepseekForTests({ complete: async () => {
+    calls++;
+    throw Object.assign(new Error('DeepSeek stopped without returning a reply.'), { providerIdle: true });
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Finish the long task and summarize the result.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekInput(input)).resolves.toBeNull();
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  const failure = events.find(event => event.kind === 'chat_error');
+  expect(calls).toBe(13);
+  expect(failure).toMatchObject({ kind: 'chat_error', recoverable: false, continueAvailable: true, inputId: input.id });
+  expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'failed')).toBe(true);
 });
 
 it('rebuilds a lost DeepSeek page from the saved local transcript', async () => {
@@ -1720,6 +1744,100 @@ it('records a simple greeting reply without calling a Core tool', async () => {
   expect(events.filter(event => event.kind === 'tool_call')).toHaveLength(0);
 });
 
+it('recovers a project task when DeepSeek returns only its internal readiness acknowledgement', async () => {
+  const pages: string[] = [];
+  let reply = 0;
+  configureDeepseekForTests({ complete: async text => {
+    pages.push(text);
+    return { text: reply++ === 0
+      ? 'NEURAFLOK_READY'
+      : 'El proyecto organiza el catálogo y registra las ventas.' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, projectId,
+    text: 'Revisa el proyecto y dime qué hace.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await runDeepseekProjectInput(input);
+  await flushRecorder();
+
+  expect(pages).toHaveLength(2);
+  expect(pages[1]).toContain('FINAL ANSWER RECOVERY');
+  expect(pages[1]).toContain('ACTIVE REQUEST: Revisa el proyecto y dime qué hace.');
+  const events = await readEvents(input.id);
+  expect(events.filter(event => event.kind === 'user_message' && event.inputId === input.id)).toHaveLength(1);
+  expect(events.some(event => event.kind === 'assistant_message' && event.final &&
+    event.message.text === 'El proyecto organiza el catálogo y registra las ventas.')).toBe(true);
+  expect(events.some(event => event.kind === 'assistant_message' && event.final &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(false);
+  expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(true);
+  expect(events.some(event => event.kind === 'chat_error')).toBe(false);
+});
+
+it('offers same-chat continuation instead of completing with an internal acknowledgement', async () => {
+  let replies = 0;
+  configureDeepseekForTests({ complete: async () => {
+    replies++;
+    return { text: 'NEURAFLOK_READY' };
+  } });
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, projectId,
+    text: 'Termina la actualización del proyecto y resume los cambios.', mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+
+  await expect(runDeepseekProjectInput(input)).resolves.toBeNull();
+  await flushRecorder();
+
+  expect(replies).toBe(3);
+  const events = await readEvents(input.id);
+  const failure = events.find(event => event.kind === 'chat_error');
+  expect(failure).toMatchObject({ kind: 'chat_error', recoverable: false, continueAvailable: true, inputId: input.id });
+  expect(events.some(event => event.kind === 'assistant_message' && event.final &&
+    event.message.text === 'NEURAFLOK_READY')).toBe(false);
+  expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'failed')).toBe(true);
+  expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(false);
+});
+
+it('resumes a failed project chat from its saved summary without sending a readiness probe', async () => {
+  const pages: string[] = [];
+  const originalRequest = 'Review the library project, fix its navigation, and verify the result.';
+  configureDeepseekForTests({ complete: async () => ({ text: 'I reviewed the library project and its navigation.' }) });
+  const first = await enqueueInput({
+    id: randomUUID(), sessionId: null, projectId, text: originalRequest,
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekProjectInput(first);
+  await flushRecorder();
+
+  await appendEvent(first.id, {
+    kind: 'turn_end', source: 'extension', time: Date.now() + 1, turnId: randomUUID(), outcome: 'failed',
+    detail: 'DeepSeek stopped without returning a reply.'
+  });
+  await flushRecorder();
+  expect((await getSession(first.id))?.lastTurnOutcome).toBe('failed');
+
+  resetBrowserChatForTests();
+  configureDeepseekForTests({ complete: async text => {
+    pages.push(text);
+    return { text: 'Retomé el trabajo, terminé la navegación y verifiqué el resultado.' };
+  } });
+  const followup = await enqueueInput({
+    id: randomUUID(), sessionId: first.id, projectId, text: 'continua',
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null
+  });
+  await runDeepseekProjectInput(followup);
+  await flushRecorder();
+
+  expect(pages).toHaveLength(1);
+  expect(pages[0]).not.toContain('NEURAFLOK_CONTEXT_CHECK');
+  expect(pages[0]).toContain('RECENT CONVERSATION SUMMARY');
+  expect(pages[0]).toContain(originalRequest);
+  expect(pages[0]).toContain('USER MESSAGE:\ncontinua');
+  const events = await readEvents(first.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.final &&
+    event.message.text.includes('Retomé el trabajo'))).toBe(true);
+});
+
 it('delivers a very long ordinary question once without adding project context or tool instructions', async () => {
   const pages: string[] = [];
   const request = `NF_LONG_START ${'synthetic ordinary chat text '.repeat(900)} NF_LONG_END`;
@@ -1866,6 +1984,7 @@ it('records a chat_error after accept when the page refuses, without replaying t
   await flushRecorder();
   const events = await readEvents(input.id);
   expect(events.some(event => event.kind === 'chat_error' && event.message.text.includes('Sign in to DeepSeek'))).toBe(true);
+  expect(events.some(event => event.kind === 'chat_error' && event.continueAvailable === true)).toBe(false);
   expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'failed')).toBe(true);
 });
 

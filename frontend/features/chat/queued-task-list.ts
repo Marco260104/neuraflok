@@ -26,6 +26,23 @@ export interface QueuedTaskListRuntime {
 
 type Runtime = QueuedTaskListRuntime;
 
+export function visibleStartingQueuedInputs(
+  startingInputs: Iterable<InputEntry>,
+  existingIds: ReadonlySet<string>,
+  belongsToSelection: (entry: InputEntry) => boolean,
+): InputEntry[] {
+  return [...startingInputs].filter(entry =>
+    !existingIds.has(entry.id) &&
+    belongsToSelection(entry) &&
+    !entry.warmup &&
+    !entry.warmupDeferred &&
+    !entry.finishOwner &&
+    entry.purpose !== 'decision' &&
+    (entry.mode === 'after-turn' || entry.afterTurn === true) &&
+    queuedFollowup(entry) &&
+    entry.state === 'queued');
+}
+
 // Owns the visual queue for follow-up tasks and paused helper deliveries.
 export function createQueuedTaskList(runtime: Runtime) {
   function paint(
@@ -54,6 +71,13 @@ export function createQueuedTaskList(runtime: Runtime) {
         queuedFollowup(entry) &&
         ['queued', 'tool', 'browser'].includes(entry.state),
     );
+    const optimisticQueuedTasks = visibleStartingQueuedInputs(
+      runtime.startingInputs.values(),
+      new Set(all.map(entry => entry.id)),
+      belongsToSelection,
+    );
+    queuedTasks.push(...optimisticQueuedTasks);
+    const optimisticQueuedIds = new Set(optimisticQueuedTasks.map(entry => entry.id));
     // Keep every accepted plan stage visible until its durable queue row appears.
     const staged = [
       ...all,
@@ -86,7 +110,7 @@ export function createQueuedTaskList(runtime: Runtime) {
     const reorder = async (from: string, to: string, after: boolean) => {
       if (!queueSession || runtime.selectedId !== queueSession) return;
       const ids = queuedTasks
-        .filter((row) => row.state === 'queued' && !row.recovery)
+        .filter((row) => row.state === 'queued' && !row.recovery && !optimisticQueuedIds.has(row.id))
         .map((row) => row.id);
       if (from === to || !ids.includes(from) || !ids.includes(to)) return;
       ids.splice(ids.indexOf(from), 1);
@@ -124,6 +148,7 @@ export function createQueuedTaskList(runtime: Runtime) {
           taskList,
           queuedTasks,
           projected: projectedIds.has(entry.id),
+          optimistic: optimisticQueuedIds.has(entry.id),
           reorder,
         });
       }),

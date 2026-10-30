@@ -33,12 +33,12 @@
 .app-topbar-trailing { display: flex; min-width: 0; align-items: center; justify-content: flex-end; }
 .app-topbar-trailing { grid-column: 3; }
 .app-topbar-social-links {
-  position: absolute; left: 50vw; top: 50%; translate: -50% -50%; z-index: 2;
+  grid-column: 2; grid-row: 1; justify-self: center; align-self: center; z-index: 2;
   display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px;
   pointer-events: auto; -webkit-app-region: no-drag;
 }
 .app-topbar-social-link {
-  position: relative; z-index: 1; display: grid; width: 20px; height: 20px; place-items: center; padding: 0;
+  position: relative; z-index: 1; display: grid; flex: 0 0 36px; width: 36px; min-width: 36px; height: 36px; place-items: center; padding: 0;
   border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; appearance: none;
   cursor: pointer; pointer-events: auto; -webkit-app-region: no-drag;
   transition: transform 150ms var(--ease-out), filter 150ms var(--ease-out);
@@ -60,7 +60,7 @@
   .app-topbar-leading { gap: 2px; }
   .app-topbar-leading .app-topbar-identity { display: none; }
   .app-topbar-social-links { gap: 6px; }
-  .app-topbar-social-link { width: 20px; height: 20px; }
+  .app-topbar-social-link { flex-basis: 32px; width: 32px; min-width: 32px; height: 32px; }
 }
 .app-topbar .sidebar-connection {
   height: 30px; min-width: 34px; grid-template-columns: 8px auto; column-gap: 8px;

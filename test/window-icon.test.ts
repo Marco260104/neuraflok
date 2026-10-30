@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { packagedRuntime, runningFromDevElectron } from '../backend/infrastructure/desktop-shell/runtime-packaging.js';
-import { browserWindowIconPath, unpackagedIconRoot } from '../backend/infrastructure/desktop-shell/window-icon.js';
+import { browserWindowIconPath, unpackagedIconRoot, windowsTaskbarIconPath } from '../backend/infrastructure/desktop-shell/window-icon.js';
 
 const require = createRequire(import.meta.url);
 
@@ -81,6 +81,17 @@ describe('Windows ICO for Explorer shortcuts', () => {
 });
 
 describe('Windows unpackaged identity', () => {
+  it('uses the packaged ICO for Windows taskbar details and the dev ICO in unpackaged runs', () => {
+    expect(windowsTaskbarIconPath('win32', true, 'C:/Program Files/NEURAFLOK/resources')).toBe(
+      path.join('C:/Program Files/NEURAFLOK/resources', 'app-icon.ico')
+    );
+    expect(windowsTaskbarIconPath('win32', false, 'C:/electron/resources', 'C:/project')).toBe(
+      path.join('C:/project', 'build', 'icon.ico')
+    );
+    expect(windowsTaskbarIconPath('darwin', true, '/irrelevant')).toBeUndefined();
+    expect(windowsTaskbarIconPath('win32', false, '/electron/resources')).toBeUndefined();
+  });
+
   it('pins the AppUserModelId before the startup graph', () => {
     const main = readFileSync(new URL('../backend/main.ts', import.meta.url), 'utf8');
     const identity = main.indexOf("import './infrastructure/desktop-shell/windows-app-id.js';");
@@ -98,9 +109,12 @@ describe('Windows unpackaged identity', () => {
     expect(stamp).toContain('process.env.ELECTRON_EXEC_PATH = brandedExe');
     expect(stamp).not.toContain('--app-user-model-id=');
     expect(identity).toContain('com.neuraflok.desktop.dev');
+    expect(identity).toContain("writeStartMenuShortcut('NEURAFLOK.lnk', WINDOWS_APP_USER_MODEL_ID, iconPath)");
+    expect(identity).toContain("path.join(process.resourcesPath, 'app-icon.ico')");
     expect(identity).toContain('writeShortcutLink');
     expect(identity).toContain('setAppDetails');
-    expect(window).toContain('applyUnpackagedWindowsTaskbar');
+    expect(window).toContain('applyWindowsTaskbar');
+    expect(window).toContain('windowsTaskbarIconPath');
     expect(window).toContain('packagedRuntime');
     expect(identity).toContain('packagedRuntime');
     const tray = readFileSync(new URL('../backend/application/tray-controller.ts', import.meta.url), 'utf8');
