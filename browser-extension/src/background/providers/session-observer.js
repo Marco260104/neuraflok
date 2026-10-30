@@ -1,6 +1,6 @@
 export function createProviderSessionObserver({ chrome, providerTabs, deepseekPages, reviveDeepseekTab, restoreDeepseekTab, restoreProviderTab, tabReply }) {
   async function readStatus(tabId, provider, preferred) {
-    if (preferred?.provider === provider && preferred.tabId === tabId) return preferred.status;
+    if (preferred?.provider === provider && preferred.tabId === tabId && preferred.status !== undefined) return preferred.status;
     try {
       return await tabReply(tabId, { type: providerTabs.pageType(provider, 'status') }, undefined, 5000);
     } catch {
@@ -16,6 +16,14 @@ export function createProviderSessionObserver({ chrome, providerTabs, deepseekPa
       return null;
     }
     let ready = tabs.filter(providerTabs.usable);
+    // The active provider tab is the one the user just reopened after a
+    // reconnect. Inspect it before older project/chat tabs: an unresponsive
+    // background tab must not delay restoring the visible connection state.
+    ready.sort((left, right) => {
+      const leftPriority = left.id === preferred?.tabId ? 2 : left.active === true ? 1 : 0;
+      const rightPriority = right.id === preferred?.tabId ? 2 : right.active === true ? 1 : 0;
+      return rightPriority - leftPriority;
+    });
     if (!ready.length && tabs.length) {
       try {
         const revived = await reviveDeepseekTab(tabs);
@@ -83,7 +91,13 @@ export function createProviderSessionObserver({ chrome, providerTabs, deepseekPa
     } catch {
       return { open: false, signedIn: null, tabId: null };
     }
-    const tab = tabs.find(candidate => !candidate.incognito && providerTabs.usable(candidate)) || null;
+    const candidates = tabs.filter(candidate => !candidate.incognito && providerTabs.usable(candidate));
+    candidates.sort((left, right) => {
+      const leftPriority = left.id === preferred?.tabId && preferred.provider === provider ? 2 : left.active === true ? 1 : 0;
+      const rightPriority = right.id === preferred?.tabId && preferred.provider === provider ? 2 : right.active === true ? 1 : 0;
+      return rightPriority - leftPriority;
+    });
+    const tab = candidates[0] || null;
     let status = tab ? await readStatus(tab.id, provider, preferred) : null;
     if (tab && (status?.provider !== provider || typeof status.signedIn !== 'boolean')) {
       try {

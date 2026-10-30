@@ -59,6 +59,13 @@ export function createProviderRuntime({ chrome, activeTabs, call, tabReply, main
   let latestPresenceAt = 0;
 
   async function inspect(preferred = null) {
+    if (!preferred) {
+      try {
+        const active = (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0] || null;
+        const provider = providerTabs.providerForUrl(active?.url || active?.pendingUrl);
+        if (provider && Number.isInteger(active?.id)) preferred = { provider, tabId: active.id };
+      } catch {}
+    }
     latestPresence = await observer.inspect(preferred);
     latestPresenceAt = Date.now();
     return latestPresence;

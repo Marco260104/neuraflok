@@ -4,7 +4,7 @@ import { expect, it, vi } from 'vitest';
 
 const source = readFileSync('browser-extension/src/background/providers/session-observer.js', 'utf8').replace(/^export\s+/gm, '');
 const createObserver = vm.runInNewContext(`${source}\ncreateProviderSessionObserver`, { URL }) as (options: Record<string, unknown>) => {
-  inspect(): Promise<Record<string, { open: boolean; signedIn: boolean | null; tabId: number | null }>>;
+  inspect(preferred?: { provider: string; tabId: number }): Promise<Record<string, { open: boolean; signedIn: boolean | null; tabId: number | null }>>;
 };
 
 it('reports exact signed-in page evidence and restores an unresponsive provider adapter', async () => {
@@ -48,6 +48,35 @@ it('reports exact signed-in page evidence and restores an unresponsive provider 
   });
   expect(restoreProviderTab).toHaveBeenCalledWith('kimi', 20);
   expect(restoreProviderTab).toHaveBeenCalledWith('glm', 40);
+});
+
+it('checks the active DeepSeek tab before stale chat tabs after a reconnect', async () => {
+  const providerTabs = {
+    list: vi.fn(async (provider: string) => provider === 'deepseek'
+      ? [
+          { id: 10, url: 'https://chat.deepseek.com/c/old', status: 'complete', active: false },
+          { id: 11, url: 'https://chat.deepseek.com/', status: 'complete', active: true }
+        ]
+      : []),
+    usable: (tab: Record<string, unknown>) => Number.isInteger(tab?.id) && tab.status !== 'loading',
+    pageType: () => 'neuraflok-deepseek-status',
+    providerForUrl: (value: string) => new URL(value).hostname === 'chat.deepseek.com' ? 'deepseek' : null
+  };
+  const tabReply = vi.fn(async (tabId: number) => tabId === 11 ? { signedIn: true } : null);
+  const observer = createObserver({
+    chrome: { tabs: { get: async (id: number) => ({ id, url: 'https://chat.deepseek.com/', status: 'complete' }) } },
+    providerTabs,
+    deepseekPages: new Map(),
+    reviveDeepseekTab: vi.fn(async () => null),
+    restoreDeepseekTab: vi.fn(async () => true),
+    restoreProviderTab: vi.fn(async () => true),
+    tabReply
+  });
+
+  await expect(observer.inspect({ provider: 'deepseek', tabId: 11 })).resolves.toMatchObject({
+    deepseek: { open: true, signedIn: true, tabId: 11 }
+  });
+  expect(tabReply.mock.calls.map(([tabId]) => tabId)).toEqual([11]);
 });
 
 it('revalidates a recent page announcement before using it as a provider tab', async () => {

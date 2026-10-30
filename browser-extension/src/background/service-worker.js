@@ -158,7 +158,7 @@ chrome.runtime.onNeuraflokReveal?.addListener((requestId, conversationId) => {
     .catch(() => undefined);
 });
 
-registerProviderTabLifecycle(chrome, { activeTabs, providerRuntime });
+registerProviderTabLifecycle(chrome, { activeTabs, providerRuntime, maintain });
 
 function restoreProviderPages() {
   void providerRuntime.restoreOpenPages().catch(() => undefined);
