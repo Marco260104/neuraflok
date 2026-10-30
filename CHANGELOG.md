@@ -6,6 +6,13 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.17] - 2026-10-30
+
+### Fixed
+
+- Reconnect the desktop app to the browser extension before checking provider tabs, and wait briefly for the authenticated wake-channel acknowledgement.
+- Replace a wake socket that remains stuck while connecting so a temporary browser interruption does not leave the app appearing disconnected.
+
 ## [0.1.16] - 2026-10-30
 
 ### Fixed

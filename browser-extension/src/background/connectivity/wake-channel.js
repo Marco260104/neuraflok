@@ -1,9 +1,21 @@
 const RECONNECT_DELAY_MS = 2000;
+const CONNECT_TIMEOUT_MS = 5000;
 
 export function createWakeChannel(readConnection) {
   let socket = null;
   let reconnectTimer = null;
+  let connectTimer = null;
+  let authenticatedSocket = null;
   let handler = () => undefined;
+  const readyWaiters = new Set();
+
+  function finishReadyWaiters(ready) {
+    for (const waiter of readyWaiters) {
+      clearTimeout(waiter.timer);
+      readyWaiters.delete(waiter);
+      waiter.resolve(ready);
+    }
+  }
 
   function currentConnection() {
     return readConnection() || {};
@@ -12,8 +24,12 @@ export function createWakeChannel(readConnection) {
   function close() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
+    clearTimeout(connectTimer);
+    connectTimer = null;
     const current = socket;
     socket = null;
+    authenticatedSocket = null;
+    finishReadyWaiters(false);
     try {
       current?.close();
     } catch {}
@@ -31,7 +47,10 @@ export function createWakeChannel(readConnection) {
 
   function retryAfterFailure(current) {
     if (socket !== current) return;
+    clearTimeout(connectTimer);
+    connectTimer = null;
     socket = null;
+    authenticatedSocket = null;
     try {
       current.close();
     } catch {}
@@ -63,6 +82,7 @@ export function createWakeChannel(readConnection) {
       return;
     }
     socket = next;
+    connectTimer = setTimeout(() => retryAfterFailure(next), CONNECT_TIMEOUT_MS);
     next.onopen = () => {
       const latest = currentConnection();
       if (socket !== next || !latest.token || latest.disconnected) {
@@ -86,6 +106,10 @@ export function createWakeChannel(readConnection) {
         return;
       }
       if (event.data !== 'wake' && event.data !== 'browser-control') return;
+      clearTimeout(connectTimer);
+      connectTimer = null;
+      authenticatedSocket = next;
+      finishReadyWaiters(true);
       try {
         Promise.resolve(handler(event.data)).catch(() => undefined);
       } catch {}
@@ -95,7 +119,10 @@ export function createWakeChannel(readConnection) {
     };
     next.onclose = () => {
       if (socket !== next) return;
+      clearTimeout(connectTimer);
+      connectTimer = null;
       socket = null;
+      authenticatedSocket = null;
       scheduleReconnect();
     };
   }
@@ -104,5 +131,24 @@ export function createWakeChannel(readConnection) {
     handler = typeof next === 'function' ? next : () => undefined;
   }
 
-  return { connect, close, setHandler };
+  function connectAndWait(timeoutMs = CONNECT_TIMEOUT_MS) {
+    const connection = currentConnection();
+    if (!connection.token || connection.disconnected || !connection.port || typeof globalThis.WebSocket === 'undefined') {
+      return Promise.resolve(false);
+    }
+    if (authenticatedSocket === socket && socket?.readyState === 1) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const waiter = {
+        resolve,
+        timer: setTimeout(() => {
+          readyWaiters.delete(waiter);
+          resolve(false);
+        }, timeoutMs)
+      };
+      readyWaiters.add(waiter);
+      connect();
+    });
+  }
+
+  return { connect, connectAndWait, close, setHandler };
 }

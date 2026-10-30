@@ -27,6 +27,10 @@ function jsonResponse(status: number, data: unknown): JsonResponse {
   return { ok: status >= 200 && status < 300, status, json: async () => data };
 }
 
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+}
+
 function harness(status = 200, unavailableSocket = false) {
   const sockets: WakeSocket[] = [];
   let socketUnavailable = unavailableSocket;
@@ -94,6 +98,53 @@ it('connects the wake channel after the first authenticated HTTP success and rec
   socket.finish();
   await vi.advanceTimersByTimeAsync(2_000);
   expect(h.sockets).toHaveLength(2);
+});
+
+it('restores the wake channel from saved pairing without waiting for a provider or status request', async () => {
+  const h = harness();
+  const connected = h.client.connectWakeChannel();
+  await flushMicrotasks();
+  expect(h.fetch.mock.calls.filter(([input]) => String(input).startsWith('http://127.0.0.1'))).toHaveLength(0);
+  expect(h.sockets).toHaveLength(1);
+  let resolved = false;
+  void connected.then(() => { resolved = true; });
+  await Promise.resolve();
+  expect(resolved).toBe(false);
+  h.sockets[0]!.open();
+  h.sockets[0]!.message('wake');
+  await expect(connected).resolves.toBe(true);
+  expect(h.sockets[0]!.send).toHaveBeenCalledWith('paired-secret');
+});
+
+it('does not wait forever for a wake channel that never authenticates', async () => {
+  vi.useFakeTimers();
+  try {
+    const h = harness();
+    const connected = h.client.connectWakeChannel();
+    await flushMicrotasks();
+    expect(h.sockets).toHaveLength(1);
+    h.sockets[0]!.open();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(connected).resolves.toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('replaces a wake socket that stays stuck in connecting state', async () => {
+  vi.useFakeTimers();
+  try {
+    const h = harness();
+    const connected = h.client.connectWakeChannel();
+    await flushMicrotasks();
+    expect(h.sockets).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(connected).resolves.toBe(false);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(h.sockets).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('does not treat failed HTTP as proof that the wake channel is ready', async () => {

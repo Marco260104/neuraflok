@@ -56,6 +56,10 @@ try {
 } catch {}
 
 async function maintainOnce() {
+  // A suspended MV3 worker can lose its WebSocket while the desktop app is
+  // still running. Restore the lightweight wake channel before probing provider
+  // tabs; those probes can each wait several seconds on an unresponsive page.
+  await bridge.connectWakeChannel().catch(() => undefined);
   const webProviders = await providerRuntime.inspect();
   const reply = await call('/status', {
     method: 'POST',

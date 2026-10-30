@@ -296,6 +296,11 @@ export function createBridgeClient(chrome, onDisconnect = () => undefined) {
     return (await pair(false)).ok;
   }
 
+  async function connectWakeChannel() {
+    await load();
+    return wake.connectAndWait();
+  }
+
   return {
     load,
     discover,
@@ -303,6 +308,7 @@ export function createBridgeClient(chrome, onDisconnect = () => undefined) {
     pair: () => pair(true),
     status,
     ensurePaired,
+    connectWakeChannel,
     connectWakeSocket: wake.connect,
     closeWakeSocket: wake.close,
     setWakeHandler: wake.setHandler,
