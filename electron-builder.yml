@@ -12,8 +12,7 @@ files:
   - package.json
   - '!node_modules/@img/sharp-*/**/*'
   - '!node_modules/@img/sharp-libvips-*/**/*'
-  # PDF.js ships in the renderer, so its Node-only optional canvas fallback is not needed.
-  - '!node_modules/pdfjs-dist/**/*'
+  # Main-process PDF text extraction needs PDF.js; only its optional canvas fallback is omitted below.
   - '!node_modules/@napi-rs/canvas/**/*'
   - '!node_modules/@napi-rs/canvas-*/**/*'
   # Exclude node-pty host builds so they cannot override target-architecture prebuilds.

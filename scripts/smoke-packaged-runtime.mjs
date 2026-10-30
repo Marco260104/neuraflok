@@ -193,6 +193,7 @@ const probe = String.raw`
   const base = process.env.NEURAFLOK_RESOURCES_DIR;
   const sharp = require(base + '/app.asar/node_modules/sharp');
   const pty = require(base + '/app.asar/node_modules/node-pty');
+  const pdfjs = require(base + '/app.asar/node_modules/pdfjs-dist/legacy/build/pdf.mjs');
   const manifest = require(base + '/app.asar/package.json');
   // Provider tool calls use the in-process registry, so MCP SDK packages are not runtime requirements.
   const png = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 1, g: 2, b: 3, alpha: 1 } } }).png().toBuffer();
@@ -212,7 +213,7 @@ const probe = String.raw`
     terminal.onData((data) => { output += data; });
     terminal.onExit(({ exitCode }) => { clearTimeout(timer); exitCode === 0 ? resolve() : reject(new Error('node-pty child exited ' + exitCode)); });
   });
-  process.stdout.write(JSON.stringify({ version: manifest.version, electron: process.versions.electron, sharp: sharp.versions.sharp, vips: sharp.versions.vips, png: png.length, pty: output.includes('packaged-pty'), desktop }) + '\n');
+  process.stdout.write(JSON.stringify({ version: manifest.version, electron: process.versions.electron, sharp: sharp.versions.sharp, vips: sharp.versions.vips, png: png.length, pty: output.includes('packaged-pty'), pdfjs: typeof pdfjs.getDocument === 'function', desktop }) + '\n');
   process.exit(0);
 })().catch((error) => process.stderr.write(String(error?.stack || error) + '\n', () => process.exit(1)));`;
 
@@ -227,7 +228,7 @@ if (result.stdout) process.stdout.write(result.stdout);
 if (result.stderr) process.stderr.write(result.stderr);
 if (result.status !== 0) process.exit(result.status ?? 1);
 const runtime = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
-if (runtime.version !== expectedVersion || runtime.electron !== expectedElectronVersion || !runtime.sharp || !runtime.vips || runtime.png <= 0 || !runtime.pty || (targetPlatform === 'darwin' && runtime.desktop !== true)) {
+if (runtime.version !== expectedVersion || runtime.electron !== expectedElectronVersion || !runtime.sharp || !runtime.vips || runtime.png <= 0 || !runtime.pty || runtime.pdfjs !== true || (targetPlatform === 'darwin' && runtime.desktop !== true)) {
   throw new Error(`Packaged native runtime probe failed: ${JSON.stringify(runtime)}`);
 }
 process.stdout.write(`Packaged ${targetPlatform}-${targetArch} resources and native runtimes verified for ${expectedVersion}.\n`);

@@ -6,6 +6,12 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-10-29
+
+### Fixed
+
+- Included PDF.js in the app package for main-process PDF text extraction and added a packaged-runtime check for it.
+
 ## [0.1.7] - 2026-10-29
 
 ### Fixed

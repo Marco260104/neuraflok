@@ -147,6 +147,7 @@ describe('cross-platform packaging targets', () => {
     const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
     const lock = JSON.parse(readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
     const smoke = readFileSync(path.join(root, 'scripts', 'smoke-packaged-runtime.mjs'), 'utf8');
+    const builder = readFileSync(path.join(root, 'electron-builder.yml'), 'utf8');
 
     expect(pkg.devDependencies.electron).toBe('44.3.0');
     expect(lock.packages?.['']?.devDependencies?.electron).toBe('44.3.0');
@@ -154,6 +155,9 @@ describe('cross-platform packaging targets', () => {
     expect(smoke).toContain('const expectedElectronVersion = sourcePackage.devDependencies?.electron;');
     expect(smoke).toContain('electron: process.versions.electron');
     expect(smoke).toContain('runtime.electron !== expectedElectronVersion');
+    expect(smoke).toContain("const pdfjs = require(base + '/app.asar/node_modules/pdfjs-dist/legacy/build/pdf.mjs');");
+    expect(smoke).toContain('runtime.pdfjs !== true');
+    expect(builder).not.toContain("'!node_modules/pdfjs-dist/**/*'");
     expect(smoke).not.toContain('@modelcontextprotocol/');
     expect(smoke).not.toContain('runtime.mcp');
   });
@@ -465,6 +469,7 @@ describe('cross-platform packaging targets', () => {
     expect(packagedRuntime).toContain('directories.length !== 1 || directories[0] !== nativeDir');
     expect(packagedRuntime).toContain("required('desktop/macos-desktop-addon.node')");
     expect(packagedRuntime).toContain("required('desktop/libneuraflok-desktop.dylib')");
+    expect(packagedRuntime).toContain("node_modules/pdfjs-dist/legacy/build/pdf.mjs");
     expect(packagedRuntime).toContain("addon.handle('{\"op\":\"warm\"}')");
 
     const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
