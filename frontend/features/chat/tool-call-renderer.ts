@@ -92,8 +92,8 @@ export function createToolCallRenderer(runtime: ToolCallRendererRuntime) {
       if (!deltaMetric) head.append(count);
     }
     if (summary.metric) head.append(toolMetric(summary.metric));
-    const project = context ? null : selectedLocalProject();
-    const sessionId = context ? null : runtime.selectedId;
+    const project = selectedLocalProject();
+    const sessionId = context?.id ?? runtime.selectedId;
     const reviewIndices = call.outcome === 'ok' ? (call.changes ?? []).flatMap((change, index) =>
       change.reviewAssetId ? [index] : []).slice(0, 32) : [];
     const unavailable = call.outcome === 'ok' ? (call.changes ?? []).filter(change => change.reviewUnavailable) : [];

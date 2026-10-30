@@ -545,10 +545,11 @@ it('ends the running turn with a row saying what it is doing now', async () => {
   // It follows the work: a new step lands above it, and it stays the last row.
   expect(now().previousElementSibling?.textContent).toContain('Searching the web');
   expect(now().parentElement!.lastElementChild).toBe(now());
-  // Prose speaks for itself while it is being written…
+  // Interim prose is visible while the turn is still active; keep the work
+  // indicator present until the provider reports that the turn has finished.
   await append([{ kind: 'assistant_message', seq: 4, time: Date.now(), source: 'extension', messageId: 'a-now', message: text('Two tests fail…'), final: false, state: 'streaming' }]);
-  expect(shown()).toBeNull();
-  // …and once it stops changing the turn is still working: an interim paragraph stays "streaming".
+  expect(shown()?.[0]).toBe('Thinking…');
+  // Once the interim prose stops changing, the active turn still reports work.
   await new Promise(resolve => setTimeout(resolve, 2_600));
   await append([]);
   expect(shown()?.[0]).toBe('Thinking…');

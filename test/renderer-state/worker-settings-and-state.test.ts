@@ -63,9 +63,9 @@ it('does not overwrite a focused dirty settings field on an unsolicited state pu
   installDialog(domState.dom.window);
   const w = domState.dom.window;
   w.HTMLElement.prototype.animate = vi.fn() as any;
+  Object.defineProperty(globalThis, 'navigator', { value: w.navigator, configurable: true, writable: true });
   Object.assign(globalThis, {
     window: w,
-    navigator: w.navigator,
     document: w.document,
     getComputedStyle: w.getComputedStyle.bind(w),
     ResizeObserver: TestResizeObserver,

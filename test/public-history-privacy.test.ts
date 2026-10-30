@@ -49,7 +49,7 @@ function verify(repository: string, args: string[] = []) {
     cwd: repository,
     encoding: 'utf8',
     windowsHide: true,
-    env: { ...process.env, GITHUB_REPOSITORY: 'example/neuraflok', NEURAFLOK_MAINTAINER_LOGIN: 'neuraflok-maintainer', GIT_AUTHOR_NAME: 'neuraflok-maintainer', GIT_AUTHOR_EMAIL: safeEmail },
+    env: { ...process.env, GITHUB_REPOSITORY: 'example/neuraflok', NEURAFLOK_CANONICAL_REPOSITORY: 'example/neuraflok', NEURAFLOK_MAINTAINER_LOGIN: 'neuraflok-maintainer', GIT_AUTHOR_NAME: 'neuraflok-maintainer', GIT_AUTHOR_EMAIL: safeEmail },
   });
 }
 

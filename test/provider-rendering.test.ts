@@ -21,6 +21,10 @@ function setup() {
       onRemoved: {
         addListener: (listener: typeof remove) => { remove = listener; },
         removeListener: vi.fn()
+      },
+      onActivated: {
+        addListener: vi.fn(),
+        removeListener: vi.fn()
       }
     },
     scripting: {
