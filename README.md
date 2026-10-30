@@ -85,6 +85,8 @@ npm test
 npm run verify:ui
 ```
 
+CircleCI runs verification for configured pushes and pull requests. To publish installers for a future version, update the version metadata and release notes, then push a `vX.Y.Z` tag; CircleCI builds and verifies the installers before publishing them to GitHub Releases. See the [CircleCI release guide](docs/circleci.md).
+
 For release builds, use the `dist:*` scripts in [package.json](package.json) on their target operating systems. See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request requirements and [ARCHITECTURE.md](ARCHITECTURE.md) for the module map and security boundaries.
 
 ## Contributing

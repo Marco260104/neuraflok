@@ -1,0 +1,250 @@
+version: 2.1
+
+orbs:
+  node: circleci/node@7.2.1
+  win: circleci/windows@5.0.0
+
+jobs:
+  verify:
+    docker:
+      - image: cimg/node:22
+    resource_class: medium
+    environment:
+      NEURAFLOK_CANONICAL_REPOSITORY: Marco260104/neuraflok
+      NEURAFLOK_MAINTAINER_LOGIN: Marco260104
+    steps:
+      - checkout
+      - run: npm ci
+      - run:
+          name: Validate the pull request description
+          command: node scripts/pr-check.mjs
+      - run:
+          name: Verify application, privacy boundaries, and tests
+          command: npm run verify:ci
+
+  validate-release:
+    docker:
+      - image: cimg/node:22
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Validate tag, versions, release notes, and existing releases
+          command: node scripts/circleci/validate-release.mjs
+
+  build-windows:
+    parameters:
+      include_arm64:
+        type: boolean
+        default: false
+    executor:
+      name: win/server-2022
+      size: medium
+    steps:
+      - checkout
+      - run:
+          name: Install the current Node.js 22 release
+          command: |
+            $major = (Get-Content .nvmrc -Raw).Trim()
+            $release = (Invoke-RestMethod "https://nodejs.org/dist/index.json" | Where-Object { $_.version -like "v$major.*" } | Select-Object -First 1).version
+            if (-not $release) { throw "Could not resolve Node.js $major" }
+            $installer = Join-Path $env:TEMP "node-$release-x64.msi"
+            Invoke-WebRequest "https://nodejs.org/dist/$release/node-$release-x64.msi" -OutFile $installer
+            $process = Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /qn /norestart" -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Node.js installer exited with $($process.ExitCode)" }
+            $env:Path = "C:\Program Files\nodejs;$env:Path"
+            node --version
+            npm --version
+          shell: powershell.exe -ExecutionPolicy Bypass
+      - run:
+          name: Install locked dependencies
+          command: |
+            $env:Path = "C:\Program Files\nodejs;$env:Path"
+            npm ci
+          shell: powershell.exe -ExecutionPolicy Bypass
+      - run:
+          name: Build and smoke-test Windows x64
+          command: |
+            $env:Path = "C:\Program Files\nodejs;$env:Path"
+            npm run dist:x64
+            New-Item -ItemType Directory -Force ci-artifacts\win32-x64 | Out-Null
+            Copy-Item release\NEURAFLOK-Setup-x64.exe ci-artifacts\win32-x64\
+          shell: powershell.exe -ExecutionPolicy Bypass
+      - when:
+          condition: << parameters.include_arm64 >>
+          steps:
+            - run:
+                name: Cross-build and smoke-test Windows ARM64
+                command: |
+                  $env:Path = "C:\Program Files\nodejs;$env:Path"
+                  npm run dist:arm64
+                  New-Item -ItemType Directory -Force ci-artifacts\win32-arm64 | Out-Null
+                  Copy-Item release\NEURAFLOK-Setup-arm64.exe ci-artifacts\win32-arm64\
+                shell: powershell.exe -ExecutionPolicy Bypass
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ci-artifacts/win32-x64
+            - ci-artifacts/win32-arm64
+
+  build-macos:
+    parameters:
+      include_x64:
+        type: boolean
+        default: false
+    macos:
+      xcode: "27.1.0"
+    resource_class: m4pro.medium
+    steps:
+      - checkout
+      - node/install:
+          node-version: "22"
+      - run: npm ci
+      - run:
+          name: Install Rosetta for Intel runtime smoke tests
+          command: |
+            if ! pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1; then
+              sudo softwareupdate --install-rosetta --agree-to-license
+            fi
+      - run:
+          name: Build, inspect, and smoke-test macOS ARM64
+          command: |
+            npm run dist:mac:arm64
+            mkdir -p ci-artifacts/darwin-arm64
+            cp release/NEURAFLOK-macOS-arm64.dmg release/NEURAFLOK-macOS-arm64.zip ci-artifacts/darwin-arm64/
+            bash scripts/circleci/smoke-macos-release.sh arm64
+      - when:
+          condition: << parameters.include_x64 >>
+          steps:
+            - run:
+                name: Cross-build, inspect, and smoke-test macOS Intel
+                command: |
+                  npm run dist:mac:x64
+                  mkdir -p ci-artifacts/darwin-x64
+                  cp release/NEURAFLOK-macOS-x64.dmg release/NEURAFLOK-macOS-x64.zip ci-artifacts/darwin-x64/
+                  bash scripts/circleci/smoke-macos-release.sh x64
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ci-artifacts/darwin-arm64
+            - ci-artifacts/darwin-x64
+
+  build-linux-x64:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      - run: bash scripts/circleci/install-node-linux.sh
+      - run: npm ci
+      - run:
+          name: Build and install-smoke-test Linux x64 packages
+          command: |
+            npm run dist:linux:x64
+            bash scripts/circleci/smoke-linux-release.sh x64
+            mkdir -p ci-artifacts/linux-x64
+            cp release/NEURAFLOK-Linux-x64.AppImage release/NEURAFLOK-Linux-x64.deb ci-artifacts/linux-x64/
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ci-artifacts/linux-x64
+
+  build-linux-arm64:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: arm.medium
+    steps:
+      - checkout
+      - run: bash scripts/circleci/install-node-linux.sh
+      - run: npm ci
+      - run:
+          name: Build and install-smoke-test Linux ARM64 packages
+          command: |
+            npm run dist:linux:arm64
+            bash scripts/circleci/smoke-linux-release.sh arm64
+            mkdir -p ci-artifacts/linux-arm64
+            cp release/NEURAFLOK-Linux-arm64.AppImage release/NEURAFLOK-Linux-arm64.deb ci-artifacts/linux-arm64/
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ci-artifacts/linux-arm64
+
+  assemble-release:
+    docker:
+      - image: cimg/node:22
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zip
+      - run: npm ci
+      - run:
+          name: Assemble and verify all release files and checksums
+          command: node scripts/circleci/assemble-release.mjs --scope=all --include-native=true
+      - store_artifacts:
+          path: release
+          destination: verified-release-candidate
+      - persist_to_workspace:
+          root: .
+          paths:
+            - release
+
+  publish-release:
+    docker:
+      - image: cimg/node:22
+    resource_class: small
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run: npm ci
+      - run:
+          name: Publish the verified draft as a stable GitHub Release
+          command: node scripts/circleci/publish-release.mjs
+
+workflows:
+  verify:
+    jobs:
+      - verify
+
+  stable-release:
+    jobs:
+      - validate-release:
+          filters: &release_tag_filter
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
+      - build-windows:
+          name: build-windows-all
+          include_arm64: true
+          requires:
+            - validate-release
+          filters: *release_tag_filter
+      - build-macos:
+          name: build-macos-all
+          include_x64: true
+          requires:
+            - validate-release
+          filters: *release_tag_filter
+      - build-linux-x64:
+          requires:
+            - validate-release
+          filters: *release_tag_filter
+      - build-linux-arm64:
+          requires:
+            - validate-release
+          filters: *release_tag_filter
+      - assemble-release:
+          requires:
+            - build-windows-all
+            - build-macos-all
+            - build-linux-x64
+            - build-linux-arm64
+          filters: *release_tag_filter
+      - publish-release:
+          context: neuraflok-release
+          requires:
+            - assemble-release
+          filters: *release_tag_filter

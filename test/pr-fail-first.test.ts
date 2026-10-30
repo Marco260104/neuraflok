@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error The planner is a plain Node script without type declarations.
 import { planFailFirst, runnerForFailFirst } from '../scripts/pr-fail-first.mjs';
@@ -7,10 +6,9 @@ const plan = planFailFirst as (nameStatus: string) => { tests: string[]; restore
 const runner = runnerForFailFirst as (nameStatus: string) => string;
 
 describe('fail-first proof plan', () => {
-  it('bounds the workflow runner to the two named hosted platforms', () => {
-    const workflow = readFileSync(new URL('../.github/workflows/pr-checklist.yml', import.meta.url), 'utf8');
-    expect(workflow).toContain("runs-on: ${{ needs.fail-first-platform.outputs.runner == 'windows-2025' && 'windows-2025' || 'ubuntu-24.04' }}");
-    expect(workflow).not.toContain('runs-on: ${{ needs.fail-first-platform.outputs.runner }}');
+  it('identifies tests that require a Windows runner for local maintainer validation', () => {
+    expect(runner('M\ttest/windows-capture.test.ts')).toBe('windows-2025');
+    expect(runner('M\ttest/ordinary.test.ts')).toBe('ubuntu-24.04');
   });
 
   it.each(['windows-capture', 'computer', 'computer-own-windows', 'computer-windows-input'])(

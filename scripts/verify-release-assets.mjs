@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { strFromU8, unzipSync } from 'fflate';
 
-/** The files release.yml publishes, in its SHA256SUMS.txt order. */
+/** The stable installer files published by CircleCI, in SHA256SUMS.txt order. */
 export const RELEASE_FILES = [
   'NEURAFLOK-Setup-x64.exe',
   'NEURAFLOK-Setup-arm64.exe',

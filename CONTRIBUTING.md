@@ -27,16 +27,18 @@ Use `npm run verify:ui` for interface changes. Build installers on the target op
 
 Open a pull request against `develop`. Keep one topic per PR. Turn on **Allow edits by maintainers**. Do not push directly to `main` or `develop`; those branches are intended to accept reviewed pull requests. The repository owner is the code owner for all files, so the recommended GitHub rules require the owner's approval before a pull request can merge. The owner configures those remote rules in [repository governance](docs/repository-governance.md).
 
-Fill in the pull request template. CI rejects a PR that is missing these sections:
+Fill in the pull request template so reviewers have the context they need:
 
 - **Why** — the root cause or the user problem, in a few sentences.
 - **What changed** — the behavior change, not a file list.
-- **Test** — add or update a test for the behavior change. The "Fail-first test" job runs the new tests against the base branch; at least one must fail there. Write `No test: <reason>` or `Fail-first: n/a <reason>` when a test does not apply.
+- **Test** — add or update a test for the behavior change, and list the checks you ran. Write `No test: <reason>` when a test does not apply.
 - **Screenshots** — before and after images for interface changes, or `No visual change: <reason>`.
 
 When a shared contract changes (preload, IPC, or `contracts/`), update [ARCHITECTURE.md](ARCHITECTURE.md) in the same PR, or write `No contract change: <reason>`.
 
 Keep a change under 600 lines outside tests and translations, or add `Large change: <reason>`. Split unrelated work.
+
+CircleCI runs the project verification workflow on configured pushes and pull requests. Stable installer releases run when a `vX.Y.Z` tag is pushed; maintainers update version metadata and release notes, while CircleCI builds, verifies, and uploads the installers. See the [CircleCI release guide](docs/circleci.md).
 
 ## Change guidelines
 

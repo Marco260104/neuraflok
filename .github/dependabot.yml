@@ -10,12 +10,3 @@ updates:
       - area: ci
     commit-message:
       prefix: deps
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    labels:
-      - area: ci
-    commit-message:
-      prefix: ci

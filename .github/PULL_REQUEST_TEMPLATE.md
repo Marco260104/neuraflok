@@ -8,7 +8,7 @@
 
 ## Test
 
-<!-- Name a test that fails without this change, or write "No test: <reason>". -->
+<!-- List the checks you ran, or write "No test: <reason>". -->
 
 ## Screenshots
 

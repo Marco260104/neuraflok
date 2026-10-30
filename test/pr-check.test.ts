@@ -38,11 +38,11 @@ describe('pull request checklist', () => {
     expect(check({ body: good.replace('Fixes #744\n\n', ''), files: [{ path: 'browser-extension/src/background/providers/tab-events.js', changes: 40 }, { path: 'test/provider-rendering.test.ts', changes: 60 }] })).toEqual([]);
   });
 
-  it('requires a test or a stated reason for code changes, and leaves the fail-first proof to its job', () => {
+  it('requires a test or a stated reason for code changes without prescribing wording', () => {
     const code = [{ path: 'backend/domains/automation/goal.ts', changes: 12 }];
     expect(check({ body: good.replace(/## Test[\s\S]*/, '## Test\n\n'), files: code }).join()).toMatch(/Add or update a test/);
     expect(check({ body: good.replace(/## Test[\s\S]*/, '## Test\n\nNo test: the change only renames a log line.'), files: code })).toEqual([]);
-    // The "Fail-first test" job runs the new test against main; the description need not say so.
+    // CI runs the test suite; the description need not claim a specific phrase.
     expect(check({ body: good.replace(/fails without the change/, 'passes'), files: [...code, { path: 'test/goal.test.ts', changes: 5 }] })).toEqual([]);
   });
 

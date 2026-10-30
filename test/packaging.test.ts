@@ -1,6 +1,7 @@
 // @ts-expect-error The target planner is a plain Node script without type declarations.
 import { releaseTargets } from '../scripts/release-targets.mjs';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +17,10 @@ import * as targetOptions from '../scripts/packaging/target-options.mjs';
 import * as nativeArtifacts from '../scripts/packaging/native-artifacts.mjs';
 // @ts-ignore Build scripts are intentionally plain ESM JavaScript.
 import { assertReleaseAbsent } from '../scripts/check-release-absent.mjs';
+// @ts-ignore Build scripts are intentionally plain ESM JavaScript.
+import { publishStableRelease } from '../scripts/circleci/publish-release.mjs';
+// @ts-ignore Build scripts are intentionally plain ESM JavaScript.
+import { validateRelease } from '../scripts/circleci/validate-release.mjs';
 // @ts-ignore Build scripts are intentionally plain ESM JavaScript.
 import * as macOSAuditUtils from '../scripts/macos-audit-utils.mjs';
 // @ts-ignore Build scripts are intentionally plain ESM JavaScript.
@@ -60,9 +65,7 @@ describe('cross-platform packaging targets', () => {
       icons: Record<string, string>;
       content_scripts: Array<{ js: string[]; css?: string[] }>;
     };
-    const workflow = readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
-    const list = workflow.match(/required_files=\(([\s\S]*?)\n          \)/)?.[1] || '';
-    const requiredFiles = [...list.matchAll(/^\s+([^\s#]+)\s*$/gm)].map(match => match[1]!);
+    const assembly = readFileSync(path.join(root, 'scripts/circleci/assemble-release.mjs'), 'utf8');
     const manifestFiles = [
       'manifest.json',
       'build-stamp.txt',
@@ -75,7 +78,11 @@ describe('cross-platform packaging targets', () => {
       'NOTICE'
     ];
 
-    expect(requiredFiles).toEqual(expect.arrayContaining(manifestFiles));
+    expect(assembly).toContain("path.join(root, 'browser-extension')");
+    expect(assembly).toContain("'-x', '*.map', '**/*.map'");
+    expect(manifestFiles).toEqual(expect.arrayContaining([
+      'manifest.json', 'build-stamp.txt', '_locales/en/messages.json', 'LICENSE', 'NOTICE'
+    ]));
   });
 
   it('normalizes supported OS spellings and rejects unsupported targets', () => {
@@ -169,276 +176,53 @@ describe('cross-platform packaging targets', () => {
     expect(installer).not.toMatch(/(?:no-sandbox|disable-gpu-sandbox)/i);
   });
 
-  it('builds canaries only for the targets most installs use, and releases for all of them', () => {
+  it('keeps common and stable release targets defined independently of CI', () => {
     expect(releaseTargets('common').include.map((target: { name: string }) => target.name)).toEqual(['Windows x64', 'macOS arm64', 'Linux x64']);
     expect(releaseTargets('common').files).toEqual(['NEURAFLOK-Setup-x64.exe', 'NEURAFLOK-macOS-arm64.dmg',
       'NEURAFLOK-macOS-arm64.zip', 'NEURAFLOK-Linux-x64.AppImage', 'NEURAFLOK-Linux-x64.deb',
       'NEURAFLOK-Provider-Extension.zip', 'NEURAFLOK-Native-Sources.tar.gz']);
+    expect(releaseTargets('all').include).toHaveLength(6);
     expect(() => releaseTargets('some')).toThrow();
-    const canary = yamlFile('.github/workflows/canary.yml');
-    expect(canary.jobs.candidate.with).toEqual({ platforms: 'common' });
-    // Built after every app-relevant push to main, and a running canary is never cancelled halfway through replacing the previous one.
-    expect(canary.on.push).toMatchObject({ branches: ['main'] });
-    expect(canary.on.push['paths-ignore']).toEqual(expect.arrayContaining(['docs/**', 'test/**']));
-    expect(canary.on).toHaveProperty('workflow_dispatch');
-    expect(canary.concurrency).toEqual({ group: 'canary', 'cancel-in-progress': false });
-    // A stable release passes nothing, which is `all`.
-    expect(yamlFile('.github/workflows/publish.yml').jobs.candidate?.with?.platforms).toBeUndefined();
   });
 
-  it('publishes a canary checksum manifest that names only attached canary assets', () => {
-    const canary = yamlFile('.github/workflows/canary.yml');
-    const steps = canary.jobs.publish.steps as Array<Record<string, any>>;
-    const reverify = steps.find((step) => step.name === 'Re-verify the checksums');
-    const narrow = steps.find((step) => step.name === 'Limit checksums to published canary assets');
-    const publish = steps.find((step) => step.name === 'Replace the canary prerelease');
+  it('runs verification and all installer builds through CircleCI with tag-gated publishing', () => {
+    const circle = yamlFile('.circleci/config.yml');
+    const workflow = circle.workflows['stable-release'];
+    const jobs = workflow.jobs as Array<string | Record<string, any>>;
+    const names = jobs.map(job => {
+      if (typeof job === 'string') return job;
+      const name = Object.keys(job)[0]!;
+      return job[name]?.name || name;
+    });
+    const source = readFileSync(path.join(root, 'scripts/circleci/assemble-release.mjs'), 'utf8');
+    const publisher = readFileSync(path.join(root, 'scripts/circleci/publish-release.mjs'), 'utf8');
 
-    expect(reverify?.run).toContain('sha256sum -c SHA256SUMS.txt');
-    expect(narrow?.['working-directory']).toBe('publish');
-    expect(narrow?.run).toContain('NEURAFLOK-Native-Sources.tar.gz');
-    expect(narrow?.run).toContain('SHA256SUMS.txt');
-    expect(narrow?.run).toContain('SHA256SUMS.canary.txt');
-    expect(publish?.run).toContain("! -name '*Native-Sources*'");
-    expect(steps.indexOf(narrow!)).toBeGreaterThan(steps.indexOf(reverify!));
-    expect(steps.indexOf(narrow!)).toBeLessThan(steps.indexOf(publish!));
+    expect(circle.jobs.verify.docker[0].image).toBe('cimg/node:22');
+    expect(JSON.stringify(circle.jobs.verify.steps)).toContain('npm run verify:ci');
+    expect(circle.jobs['build-windows'].executor.name).toBe('win/server-2022');
+    expect(circle.jobs['build-macos'].resource_class).toBe('m4pro.medium');
+    expect(circle.jobs['build-linux-arm64'].resource_class).toBe('arm.medium');
+    expect(names).toEqual(expect.arrayContaining([
+      'validate-release', 'build-windows-all', 'build-macos-all', 'build-linux-x64',
+      'build-linux-arm64', 'assemble-release', 'publish-release'
+    ]));
+    const validateJob = jobs.find(job => typeof job !== 'string' && Object.hasOwn(job, 'validate-release')) as Record<string, any>;
+    expect(String(validateJob['validate-release'].filters.tags.only)).toMatch(/v\\d\+\\\./);
+    expect(JSON.stringify(workflow)).toContain('neuraflok-release');
+    expect(source).toContain('releaseTargets(scope)');
+    expect(source).toContain('verifyReleaseAssets');
+    expect(publisher).toContain('refusing to replace it');
+    expect(publisher).toContain('draft: true');
+    expect(publisher).toContain('draft: false');
+    expect(existsSync(path.join(root, '.github', 'workflows'))).toBe(false);
   });
 
-  it('skips a stale canary run before staging a replacement', () => {
-    const canary = yamlFile('.github/workflows/canary.yml');
-    const steps = canary.jobs.publish.steps as Array<Record<string, any>>;
-    const publish = steps.find((step) => step.name === 'Replace the canary prerelease');
-    const script = String(publish?.run ?? '');
-
-    const headCheck = script.indexOf('gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha');
-    const stagingTag = script.indexOf('staging_tag="canary-staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
-    const draftCreate = script.indexOf('gh api --method POST "repos/${GITHUB_REPOSITORY}/releases"');
-    expect(headCheck).toBeGreaterThanOrEqual(0);
-    expect(stagingTag).toBeGreaterThan(headCheck);
-    expect(draftCreate).toBeGreaterThan(stagingTag);
-    expect(script).toContain('if [ "$GITHUB_SHA" != "$main_sha" ]; then');
-    expect(script).toContain('Skipping stale canary run');
-    expect(script).toContain('exit 0');
-    expect(script).toContain('-f tag_name="$staging_tag"');
-    expect(script).toContain('-F draft=true');
-    expect(script).not.toContain('git ls-remote --exit-code origin refs/heads/main');
+  it('packages the whole browser extension directory while excluding source maps', () => {
+    const assemble = readFileSync(path.join(root, 'scripts/circleci/assemble-release.mjs'), 'utf8');
+    expect(assemble).toContain("path.join(root, 'browser-extension')");
+    expect(assemble).toContain("'-x', '*.map', '**/*.map'");
+    expect(assemble).toContain('NEURAFLOK-Provider-Extension.zip');
   });
-
-  it('verifies a temporary draft before swapping the fixed canary tag', () => {
-    const canary = yamlFile('.github/workflows/canary.yml');
-    const steps = canary.jobs.publish.steps as Array<Record<string, any>>;
-    const publish = steps.find((step) => step.name === 'Replace the canary prerelease');
-    const script = String(publish?.run ?? '');
-
-    const headChecks = [...script.matchAll(/gh api "repos\/\$\{GITHUB_REPOSITORY\}\/commits\/main" --jq \.sha/g)]
-      .map((match) => match.index ?? -1);
-    const createDraft = script.indexOf('gh api --method POST "repos/${GITHUB_REPOSITORY}/releases"');
-    const verifyAssets = script.indexOf('diff -u expected-canary-assets.txt actual-canary-assets.txt');
-    const verifyDigests = script.indexOf('diff -u expected-canary-digests.txt actual-canary-digests.txt');
-    const swapStarted = script.indexOf('swap_started=true');
-    const deleteOld = script.indexOf('gh release delete canary --yes');
-    const repointTag = script.indexOf('git/refs/tags/canary');
-    const publishDraft = script.lastIndexOf('gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${draft_id}"');
-    const markPromoted = script.indexOf('staging_promoted=true');
-    const verifyFixed = script.indexOf('gh release view canary --json');
-
-    expect(headChecks).toHaveLength(2);
-    const firstHeadCheck = headChecks[0]!;
-    const secondHeadCheck = headChecks[1]!;
-    expect(createDraft).toBeGreaterThan(firstHeadCheck);
-    expect(verifyAssets).toBeGreaterThan(createDraft);
-    expect(verifyDigests).toBeGreaterThan(verifyAssets);
-    expect(secondHeadCheck).toBeGreaterThan(verifyDigests);
-    expect(swapStarted).toBeGreaterThan(secondHeadCheck);
-    expect(deleteOld).toBeGreaterThan(secondHeadCheck);
-    expect(deleteOld).toBeGreaterThan(swapStarted);
-    expect(repointTag).toBeGreaterThan(deleteOld);
-    expect(publishDraft).toBeGreaterThan(repointTag);
-    expect(markPromoted).toBeGreaterThan(publishDraft);
-    expect(verifyFixed).toBeGreaterThan(markPromoted);
-    expect(script).toContain('-F draft=true');
-    expect(script).toContain('-f target_commitish="$GITHUB_SHA"');
-    expect(script).toContain('-f tag_name=canary');
-    expect(script).toContain('-F draft=false');
-    expect(script).toContain('-F prerelease=true');
-    expect(script).toContain('releases/${draft_id}/assets?name=${name}');
-    expect(script).toContain('/releases/download/canary/');
-    expect(script).not.toContain('candidate_tag="canary-${GITHUB_SHA}"');
-    expect(script).not.toContain('--clobber');
-  });
-
-  it('fails closed on canary existence-probe errors and cleans temporary state', () => {
-    const canary = yamlFile('.github/workflows/canary.yml');
-    const steps = canary.jobs.publish.steps as Array<Record<string, any>>;
-    const publish = steps.find((step) => step.name === 'Replace the canary prerelease');
-    const script = String(publish?.run ?? '');
-
-    const secondHeadCheck = script.lastIndexOf('gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha');
-    const releaseProbe = script.indexOf('canary_release_status="$(github_get_status', secondHeadCheck);
-    const refProbe = script.indexOf('canary_ref_status="$(github_get_status', secondHeadCheck);
-    const deleteOld = script.indexOf('gh release delete canary --yes');
-    expect(releaseProbe).toBeGreaterThan(secondHeadCheck);
-    expect(refProbe).toBeGreaterThan(releaseProbe);
-    expect(deleteOld).toBeGreaterThan(refProbe);
-    expect(script).toContain("case \"$status\" in");
-    expect(script).toContain('200|404) printf');
-    expect(script).toContain('Unexpected GitHub API status');
-    expect(script).toContain('curl transport failed');
-    expect(script).toContain('if [ "$canary_release_status" = "200" ]; then');
-    expect(script).toContain('if [ "$canary_ref_status" = "200" ]; then');
-    expect(script).toContain('trap cleanup_staging EXIT');
-    expect(script).toContain('cleanup_staging_ref');
-    expect(script).toContain('gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${draft_id}"');
-    expect(script).toContain('[ "$swap_started" != "true" ]');
-    expect(script).toContain('gh release delete canary --yes');
-    expect(script).not.toContain('gh release delete canary --cleanup-tag');
-    expect(script).not.toContain('if gh release view canary');
-    expect(script).not.toContain('if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/canary"');
-  });
-
-  it('keeps every input required by the pinned first-interaction action without restoring PR events', () => {
-    const welcome = yamlFile('.github/workflows/welcome.yml');
-    const steps = welcome.jobs.welcome.steps as Array<Record<string, any>>;
-    const firstInteraction = steps.find((step) => step.uses === 'actions/first-interaction@1c4688942c71f71d4f5502a26ea67c331730fa4d');
-
-    expect(firstInteraction).toBeTruthy();
-    expect(String(firstInteraction?.with?.issue_message ?? '').trim()).not.toBe('');
-    expect(String(firstInteraction?.with?.pr_message ?? '').trim()).not.toBe('');
-    expect(welcome.on).toHaveProperty('issues');
-    expect(welcome.on).not.toHaveProperty('pull_request_target');
-  });
-
-  it('assembles every platform artifact in the reusable release workflow', () => {
-    const workflow = readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
-    const parsed = yamlFile('.github/workflows/release.yml');
-    // The matrix comes from the plan job, which reads .github/release-targets.json.
-    expect(parsed.jobs.package.strategy.matrix.include).toBe('${{ fromJSON(needs.plan.outputs.include) }}');
-    expect(parsed.jobs.plan.steps.at(-1).run).toBe('node scripts/release-targets.mjs "$PLATFORMS"');
-    const matrix = releaseTargets('all').include;
-    expect(matrix).toHaveLength(6);
-    expect(matrix).toEqual([
-      {
-        name: 'Windows x64', platform: 'win32', arch: 'x64', runner: 'windows-2025',
-        script: 'dist:x64', artifact: 'package-windows-x64', files: 'release/NEURAFLOK-Setup-x64.exe'
-      },
-      {
-        name: 'Windows arm64', platform: 'win32', arch: 'arm64', runner: 'windows-11-arm',
-        script: 'dist:arm64', artifact: 'package-windows-arm64', files: 'release/NEURAFLOK-Setup-arm64.exe'
-      },
-      {
-        name: 'macOS x64', platform: 'darwin', arch: 'x64', runner: 'macos-15-intel',
-        script: 'dist:mac:x64', artifact: 'package-macos-x64',
-        files: 'release/NEURAFLOK-macOS-x64.dmg\nrelease/NEURAFLOK-macOS-x64.zip'
-      },
-      {
-        name: 'macOS arm64', platform: 'darwin', arch: 'arm64', runner: 'macos-15',
-        script: 'dist:mac:arm64', artifact: 'package-macos-arm64',
-        files: 'release/NEURAFLOK-macOS-arm64.dmg\nrelease/NEURAFLOK-macOS-arm64.zip'
-      },
-      {
-        name: 'Linux x64', platform: 'linux', arch: 'x64', runner: 'ubuntu-24.04',
-        script: 'dist:linux:x64', artifact: 'package-linux-x64',
-        files: 'release/NEURAFLOK-Linux-x64.AppImage\nrelease/NEURAFLOK-Linux-x64.deb'
-      },
-      {
-        name: 'Linux arm64', platform: 'linux', arch: 'arm64', runner: 'ubuntu-24.04-arm',
-        script: 'dist:linux:arm64', artifact: 'package-linux-arm64',
-        files: 'release/NEURAFLOK-Linux-arm64.AppImage\nrelease/NEURAFLOK-Linux-arm64.deb'
-      }
-    ]);
-    expect(parsed.jobs.package['runs-on']).toBe('${{ matrix.runner }}');
-    expect(workflow).toContain('name: neuraflok-candidate-${{ github.run_id }}');
-    expect(workflow).toContain('Install generated DEB on target distro');
-    expect(workflow).toContain('Launch installed DEB normally under Xvfb');
-    expect(workflow).toContain('NEURAFLOK_DEBUG=1 timeout --signal=TERM --kill-after=5s 12s xvfb-run -a /usr/bin/neuraflok');
-    expect(workflow).toContain('Execute generated static-runtime AppImage');
-    expect(workflow).toContain('Verify generated macOS archives');
-    expect(workflow).toContain('hdiutil verify "$dmg"');
-    expect(workflow).toContain('codesign --display --verbose=4 "$dmg" >dmg-codesign.log 2>&1');
-    expect(workflow).toContain('dmg_codesign_status=$?');
-    expect(workflow).toContain("grep -Eqi 'code object is not signed( at all)?' dmg-codesign.log");
-    expect(workflow).toContain('test -L "$mount_dir/Applications"');
-    expect(workflow).toContain('test "$(readlink "$mount_dir/Applications")" = /Applications');
-    expect(workflow).toContain('ditto -x -k "$zip" "$zip_dir"');
-    expect(workflow).toContain("node scripts/smoke-macos-bundle.mjs '${{ matrix.arch }}' \"$mount_dir/NEURAFLOK.app\"");
-    expect(workflow).toContain("node scripts/smoke-macos-bundle.mjs '${{ matrix.arch }}' \"$zip_dir/NEURAFLOK.app\"");
-    expect(workflow).toContain('Audit packaged macOS bundle metadata and Mach-O payloads');
-    expect(workflow).toContain('node scripts/smoke-macos-bundle.mjs ${{ matrix.arch }}');
-    expect(workflow).toContain('Launch packaged macOS app normally');
-    expect(workflow).toContain('node scripts/smoke-macos-gui.mjs ${{ matrix.arch }}');
-    expect(workflow).toContain('architecture: ${{ matrix.arch }}');
-
-    const macGui = workflow.slice(
-      workflow.indexOf('      - name: Launch packaged macOS app normally'),
-      workflow.indexOf('      - name: Install generated DEB on target distro')
-    );
-    expect(macGui).toContain('node scripts/smoke-macos-gui.mjs ${{ matrix.arch }}');
-    expect(macGui).not.toContain('ELECTRON_RUN_AS_NODE');
-
-    const macGuiScript = readFileSync(path.join(root, 'scripts', 'smoke-macos-gui.mjs'), 'utf8');
-    expect(macGuiScript).toContain("NEURAFLOK_DEBUG: '1'");
-    expect(macGuiScript).toContain("output.includes('[info] app started')");
-    expect(macGuiScript).toContain("output.includes('[info] window loaded')");
-    expect(macGuiScript).toContain("output.includes('[info] renderer state ready')");
-    expect(macGuiScript).toContain("output.includes('[error] window failed to load')");
-    expect(macGuiScript).toContain("output.includes('[error] renderer:')");
-    expect(macGuiScript).toContain('minimumSurvivalMs = 10_000');
-    expect(macGuiScript).toContain('startupDeadlineMs = 15_000');
-    expect(macGuiScript).toContain("child.kill('SIGTERM')");
-    expect(macGuiScript).toContain("child.kill('SIGKILL')");
-    expect(macGuiScript).not.toContain('ELECTRON_RUN_AS_NODE');
-
-    const debGui = workflow.slice(
-      workflow.indexOf('      - name: Launch installed DEB normally under Xvfb'),
-      workflow.indexOf('      - name: Execute generated static-runtime AppImage')
-    );
-    expect(workflow).toContain('sudo apt-get install -y --no-install-recommends xvfb xauth');
-    expect(workflow).toContain("grep -Fxq 'Name=NEURAFLOK' \"$desktop\"");
-    expect(workflow).toContain("grep -Fxq 'Icon=neuraflok' \"$desktop\"");
-    expect(debGui).toContain('deb_smoke_root="$(mktemp -d)"');
-    // Same shape the AppImage smoke below is held to: the teardown may retry, and may fail, but it may never decide the step. Only the assertions under it do that.
-    expect(debGui).toContain('cleanup_path_with_retries()');
-    expect(debGui).toContain("trap 'cleanup_path_with_retries \"$deb_smoke_root\"' EXIT");
-    expect(debGui).toContain('rm -rf "$target" 2>/dev/null || true');
-    expect(debGui).toContain('HOME="$deb_smoke_root/home"');
-    expect(debGui).toContain('XDG_CONFIG_HOME="$deb_smoke_root/config"');
-    expect(debGui).toContain('XDG_CACHE_HOME="$deb_smoke_root/cache"');
-    expect(debGui).toContain('XDG_DATA_HOME="$deb_smoke_root/data"');
-    expect(debGui).toContain('XDG_STATE_HOME="$deb_smoke_root/state"');
-    expect(debGui).toContain('xvfb-run -a /usr/bin/neuraflok');
-    expect(debGui).toContain('--kill-after=5s 12s');
-    expect(debGui).toContain("grep -Fq '[info] app started' deb-gui.log");
-    expect(debGui).toContain("grep -Fq '[info] window loaded' deb-gui.log");
-    expect(debGui).toContain("grep -Fq '[info] renderer state ready' deb-gui.log");
-    expect(debGui).toContain("grep -Fq '[error] window failed to load' deb-gui.log");
-    expect(debGui).toContain("grep -Fq '[error] renderer:' deb-gui.log");
-    expect(debGui).not.toContain('ELECTRON_RUN_AS_NODE');
-
-    const appImageGui = workflow.slice(
-      workflow.indexOf('      - name: Execute generated static-runtime AppImage'),
-      workflow.indexOf('      - name: Upload package artifacts')
-    );
-    expect(appImageGui).toContain('xvfb-run -a "$appimage"');
-    expect(appImageGui).toContain('normal_smoke_root="$(mktemp -d)"');
-    expect(appImageGui).toContain('fallback_smoke_root="$(mktemp -d)"');
-    expect(appImageGui).toContain('rm -rf "$fake_bin" "$normal_smoke_root" "$fallback_smoke_root"');
-    expect(appImageGui).toContain('HOME="$smoke_root/home"');
-    expect(appImageGui).toContain('XDG_CONFIG_HOME="$smoke_root/config"');
-    expect(appImageGui).toContain('XDG_CACHE_HOME="$smoke_root/cache"');
-    expect(appImageGui).toContain('XDG_DATA_HOME="$smoke_root/data"');
-    expect(appImageGui).toContain('XDG_STATE_HOME="$smoke_root/state"');
-    expect(appImageGui).toContain("printf '#!/bin/sh\\nexit 1\\n' > \"$fake_bin/unshare\"");
-    expect(appImageGui).toContain('PATH="$launch_path"');
-    expect(appImageGui).toContain('NEURAFLOK_DEBUG=1 timeout --signal=TERM --kill-after=5s 12s xvfb-run -a "$appimage" >"$log"');
-    expect(appImageGui).toContain("grep -Fq '[info] app started' \"$log\"");
-    expect(appImageGui).toContain("grep -Fq '[info] window loaded' \"$log\"");
-    expect(appImageGui).toContain("grep -Fq '[info] renderer state ready' \"$log\"");
-    expect(appImageGui).toContain("grep -Fq '[error] window failed to load' \"$log\"");
-    expect(appImageGui).toContain("grep -Fq '[error] renderer:' \"$log\"");
-    expect(appImageGui).toContain('run_appimage_smoke normal "$normal_smoke_root" "$PATH" appimage-normal-gui.log');
-    expect(appImageGui).toContain('run_appimage_smoke forced-fallback "$fallback_smoke_root" "$fake_bin:$PATH" appimage-fallback-gui.log');
-    expect(appImageGui.replace(/^\s*#.*$/gm, '')).not.toContain('ELECTRON_RUN_AS_NODE');
-  });
-
   it('only reports renderer readiness after the initial state snapshot has completed', () => {
     const ipc = readFileSync(path.join(root, 'backend/application/ipc', 'system.ts'), 'utf8');
     const handler = ipc.indexOf("handle('state:get', async () => {");
@@ -563,31 +347,19 @@ describe('cross-platform packaging targets', () => {
     expect(plan.at(-1)?.args).toEqual([
       'scripts/smoke-packaged-runtime.mjs', '--platform', 'darwin', '--arch', 'arm64'
     ]);
-    const releaseWorkflow = readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
-    expect(releaseWorkflow).toContain('HOME="$deb_smoke_root/home"');
-    expect(releaseWorkflow).toContain('HOME="$smoke_root/home"');
-    expect(releaseWorkflow).toContain('PATH="$launch_path"');
-    expect(releaseWorkflow).toContain('run_appimage_smoke normal "$normal_smoke_root" "$PATH" appimage-normal-gui.log');
-    expect(releaseWorkflow).toContain('run_appimage_smoke forced-fallback "$fallback_smoke_root" "$fake_bin:$PATH" appimage-fallback-gui.log');
-    expect(releaseWorkflow).toContain('NEURAFLOK_DEBUG=1 timeout --signal=TERM --kill-after=5s 12s xvfb-run -a "$appimage" >"$log"');
-    expect(releaseWorkflow).toContain('NEURAFLOK_DEBUG=1 timeout --signal=TERM --kill-after=5s 12s xvfb-run -a /usr/bin/neuraflok');
-    expect(releaseWorkflow).toContain("grep -Fq '[info] app started' \"$log\"");
-    expect(releaseWorkflow).toContain("grep -Fq '[info] window loaded' \"$log\"");
-    expect(releaseWorkflow).toContain("test \"$(dpkg-deb --field \"$deb\" Package)\" = neuraflok");
-    expect(releaseWorkflow).toContain("test \"$(dpkg-deb --field \"$deb\" Version)\" = \"$(node -p \"require('./package.json').version\")\"");
-    expect(releaseWorkflow).toContain('expected_deb_arch=amd64');
-    expect(releaseWorkflow).toContain('test -L /usr/bin/neuraflok');
-    expect(releaseWorkflow).toContain('installed_executable="$(readlink -f /usr/bin/neuraflok)"');
-    expect(releaseWorkflow).toContain('test -x "$installed_executable"');
-    expect(releaseWorkflow).toContain('dpkg-query -S "$installed_executable"');
-    expect(releaseWorkflow).toContain("node scripts/smoke-packaged-runtime.mjs --platform linux --arch '${{ matrix.arch }}' --root \"$(dirname \"$installed_executable\")\"");
-    expect(releaseWorkflow).toContain('node scripts/smoke-macos-gui.mjs ${{ matrix.arch }}');
-
-    const appImageSection = releaseWorkflow.slice(
-      releaseWorkflow.indexOf('      - name: Execute generated static-runtime AppImage'),
-      releaseWorkflow.indexOf('      - name: Upload package artifacts')
-    );
-    expect(appImageSection.replace(/^\s*#.*$/gm, '')).not.toContain('ELECTRON_RUN_AS_NODE');
+    const linuxSmoke = readFileSync(path.join(root, 'scripts/circleci/smoke-linux-release.sh'), 'utf8');
+    const macSmoke = readFileSync(path.join(root, 'scripts/circleci/smoke-macos-release.sh'), 'utf8');
+    expect(linuxSmoke).toContain('XDG_CONFIG_HOME="$smoke_root/config"');
+    expect(linuxSmoke).toContain('xvfb-run -a /usr/bin/neuraflok');
+    expect(linuxSmoke).toContain('dpkg-deb --field "$deb" Architecture');
+    expect(linuxSmoke).toContain('dpkg-query -S "$installed_executable"');
+    expect(linuxSmoke).toContain('fake_bin/unshare');
+    expect(linuxSmoke).not.toContain('ELECTRON_RUN_AS_NODE');
+    expect(macSmoke).toContain('hdiutil verify "$dmg"');
+    expect(macSmoke).toContain('codesign --display --verbose=4 "$dmg"');
+    expect(macSmoke).toContain('test "$(readlink "$mount_dir/Applications")" = /Applications');
+    expect(macSmoke).toContain('ditto -x -k "$zip" "$zip_dir"');
+    expect(macSmoke).toContain('node scripts/smoke-macos-gui.mjs "$arch"');
 
     const security = readFileSync(path.join(root, 'SECURITY.md'), 'utf8');
     expect(security).toContain('--no-sandbox');
@@ -832,22 +604,81 @@ Load command 11
     })).rejects.toThrow(/refusing to assume the release is absent/);
   });
 
-  it('rejects invalid publishes before allocating the reusable six-runner build', () => {
-    const workflow = readFileSync(path.join(root, '.github', 'workflows', 'publish.yml'), 'utf8');
-    const preflight = workflow.indexOf('  preflight:');
-    const candidate = workflow.indexOf('  candidate:');
-    const publish = workflow.indexOf('  publish:');
-    expect(preflight).toBeGreaterThan(-1);
-    expect(candidate).toBeGreaterThan(preflight);
-    expect(publish).toBeGreaterThan(candidate);
-    expect(workflow.slice(preflight, candidate)).toContain('node scripts/check-release-absent.mjs');
-    expect(workflow.slice(preflight, candidate)).toContain('Verify release metadata agrees');
-    expect(workflow.slice(preflight, candidate)).toContain("APP_VERSION = '([^']+)'");
-    expect(workflow.slice(preflight, candidate)).toContain('has no release title');
-    expect(workflow.slice(candidate, publish)).toContain('needs: preflight');
-    expect(workflow.slice(publish)).toContain('node scripts/check-release-absent.mjs');
-    expect(workflow).not.toMatch(/tunnel-client|cloudflared|verify:tunnel-current/i);
-    expect(workflow).toContain('name: neuraflok-candidate-${{ github.run_id }}');
+  it('validates a version tag before allocating CircleCI release runners', () => {
+    const circle = yamlFile('.circleci/config.yml');
+    const workflow = circle.workflows['stable-release'];
+    const jobs = workflow.jobs as Array<string | Record<string, any>>;
+    const names = jobs.map(job => {
+      if (typeof job === 'string') return job;
+      const name = Object.keys(job)[0]!;
+      return job[name]?.name || name;
+    });
+    const validateIndex = names.indexOf('validate-release');
+    const buildIndex = names.indexOf('build-windows-all');
+    const validateScript = readFileSync(path.join(root, 'scripts/circleci/validate-release.mjs'), 'utf8');
+
+    expect(validateIndex).toBeGreaterThanOrEqual(0);
+    expect(buildIndex).toBeGreaterThan(validateIndex);
+    const validateJob = jobs.find(job => typeof job !== 'string' && Object.hasOwn(job, 'validate-release')) as Record<string, any>;
+    expect(String(validateJob['validate-release'].filters.tags.only)).toMatch(/v\\d\+\\\./);
+    expect(validateScript).toContain('assertReleaseAbsent');
+    expect(validateScript).toContain('docs/release-notes');
+    expect(validateScript).toContain('extensionVersion');
+  });
+
+  it('validates release versions and notes without contacting GitHub during local checks', async () => {
+    const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as { version: string };
+    let lookup: Record<string, string | undefined> | null = null;
+    await expect(validateRelease({
+      root,
+      environment: { CIRCLE_TAG: `v${pkg.version}`, NEURAFLOK_REPOSITORY: 'owner/repo', GH_TOKEN: 'test-token' },
+      checkReleaseAbsent: async (request: Record<string, string | undefined>) => { lookup = request; }
+    })).resolves.toMatchObject({ tag: `v${pkg.version}`, version: pkg.version });
+    expect(lookup).toEqual({ repository: 'owner/repo', tag: `v${pkg.version}`, token: 'test-token' });
+    await expect(validateRelease({ root, environment: { CIRCLE_TAG: 'v99.0.0' } })).rejects.toThrow(/versions do not match/);
+  });
+
+  it('publishes only verified stable assets and never overwrites an existing release', async () => {
+    const releaseDir = mkdtempSync(path.join(tmpdir(), 'neuraflok-circleci-release-'));
+    const assetNames = [...releaseTargets('all').files, 'SHA256SUMS.txt'];
+    try {
+      for (const name of assetNames) writeFileSync(path.join(releaseDir, name), `fixture:${name}`);
+      const calls: Array<{ url: string; method: string }> = [];
+      const uploaded: string[] = [];
+      const fetchJson = async (url: string, options: { method?: string } = {}) => {
+        const method = options.method || 'GET';
+        calls.push({ url, method });
+        if (url.endsWith('/releases/tags/v0.1.1')) return { status: 404, data: null, text: '' };
+        if (url.endsWith('/releases') && method === 'POST') {
+          return { status: 201, data: { id: 123, upload_url: 'https://uploads.example/assets{?name,label}' }, text: '' };
+        }
+        if (url.endsWith('/releases/123/assets?per_page=100')) {
+          return { status: 200, data: assetNames.map(name => ({ name, size: statSync(path.join(releaseDir, name)).size })), text: '' };
+        }
+        if (url.endsWith('/releases/123') && method === 'PATCH') {
+          return { status: 200, data: { html_url: 'https://github.com/owner/repo/releases/tag/v0.1.1' }, text: '' };
+        }
+        throw new Error(`Unexpected release API request: ${method} ${url}`);
+      };
+      const published = await publishStableRelease({
+        repository: 'owner/repo', tag: 'v0.1.1', token: 'test-token', releaseDir, projectRoot: root,
+        apiBase: 'https://api.example', fetchJson,
+        upload: async (_url: string, options: { file: string }) => { uploaded.push(path.basename(options.file)); },
+        verifyAssets: async () => []
+      });
+
+      expect(published.html_url).toContain('/releases/tag/v0.1.1');
+      expect(uploaded).toEqual(assetNames);
+      expect(calls.some(call => call.method === 'PATCH')).toBe(true);
+
+      await expect(publishStableRelease({
+        repository: 'owner/repo', tag: 'v0.1.1', token: 'test-token', releaseDir,
+        fetchJson: async () => ({ status: 200, data: {}, text: '' }),
+        verifyAssets: async () => []
+      })).rejects.toThrow(/already exists/);
+    } finally {
+      rmSync(releaseDir, { recursive: true, force: true });
+    }
   });
 
   it('keeps version metadata aligned and validates artifacts independently of editorial release notes', () => {
@@ -858,8 +689,8 @@ Load command 11
     const tag = `v${pkg.version}`;
     const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
     const notes = readFileSync(path.join(root, 'docs', 'release-notes', `${tag}.md`), 'utf8');
-    const publish = readFileSync(path.join(root, '.github', 'workflows', 'publish.yml'), 'utf8');
-    const release = readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
+    const publish = readFileSync(path.join(root, 'scripts/circleci/publish-release.mjs'), 'utf8');
+    const release = readFileSync(path.join(root, '.circleci', 'config.yml'), 'utf8');
 
     expect(lock.version).toBe(pkg.version);
     expect(lock.packages?.['']?.version).toBe(pkg.version);
@@ -880,22 +711,17 @@ Load command 11
       'NEURAFLOK-Linux-arm64.AppImage',
       'NEURAFLOK-Linux-arm64.deb',
       'NEURAFLOK-Provider-Extension.zip',
+      'NEURAFLOK-Native-Sources.tar.gz',
       'SHA256SUMS.txt'
     ];
-    const checksumStep = release.slice(
-      release.indexOf('      - name: Create SHA-256 checksums'),
-      release.indexOf('      - name: Upload release candidate')
-    );
-    const candidateUpload = release.slice(release.indexOf('      - name: Upload release candidate'));
-    const publishStep = publish.slice(publish.indexOf('      - name: Publish the release'));
-    // A release packages every target: the plan for `all` names each artifact, and the checksum step and the candidate upload take exactly that plan.
-    expect(checksumStep).toContain('FILES: ${{ needs.plan.outputs.files }}');
-    expect(candidateUpload).toContain('release/NEURAFLOK-*');
-    expect(candidateUpload).toContain('release/SHA256SUMS.txt');
+    // A stable release contains all six platform targets, the provider extension, source archive and checksum manifest.
     const planned = releaseTargets('all').files;
     for (const artifact of artifacts) {
-      expect(publishStep).toContain(artifact);
       if (artifact !== 'SHA256SUMS.txt') expect(planned).toContain(artifact);
     }
+    expect(publish).toContain("releaseTargets('all').files");
+    expect(publish).toContain('verifyReleaseAssets');
+    expect(release).toContain("node scripts/circleci/publish-release.mjs");
+    expect(release).toContain('neuraflok-release');
   });
 });

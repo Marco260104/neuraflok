@@ -9,7 +9,7 @@ export default defineConfig({
     hookTimeout: 30_000,
     // CI retries timing-sensitive tests and reports every test that needs a retry.
     retry: Number(process.env.NEURAFLOK_TEST_RETRY) || 0,
-    reporters: process.env.GITHUB_ACTIONS ? ['default', './scripts/flaky-reporter.mjs'] : ['default'],
+    reporters: process.env.CI ? ['default', './scripts/flaky-reporter.mjs'] : ['default'],
     env: {
       // Keep tests away from the installed bridge range.
       NEURAFLOK_BRIDGE_PORTS: '0',
