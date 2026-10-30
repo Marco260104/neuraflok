@@ -10,6 +10,9 @@ import { afterKeychainRead, beforeKeychainRead } from '../desktop-shell/keychain
 const FILE_NAME = 'secrets.bin';
 const LINUX_BASIC_TEXT_PREFIX = Buffer.from('v10', 'ascii');
 const LINUX_STORAGE_PROBE = 'neuraflok-safe-storage-probe';
+const MACOS_KEYCHAIN_OPERATION_TIMEOUT_MS = 8_000;
+const MACOS_KEYCHAIN_RETRY_COOLDOWN_MS = 30_000;
+const MACOS_KEYCHAIN_TIMEOUT_MESSAGE = 'macOS Keychain did not respond in time';
 
 let secretsPath = '';
 let cache: Record<string, string> | null = null;
@@ -19,6 +22,8 @@ let rotationPending = false;
 let loadGeneration = 0;
 /** Coalesces concurrent cache misses into one disk/keyring read. Async safeStorage makes a load genuinely long-lived: without a single-flight promise, a read-only getSecret() and a queued setSecret() can both decrypt the old blob, the mutation can commit a new blob, and then the slower read can publish its old snapshot back into cache. The next mutation would then compose from stale credentials and could erase the just-written value. One authoritative load shared by all callers closes that race at its source. */
 let loadInFlight: Promise<Record<string, string>> | null = null;
+/** A native Keychain prompt can leave Electron's async safeStorage promise pending forever (notably when a new ad-hoc build has not been approved yet). Keep startup responsive and avoid starting repeated native requests while that prompt is unresolved. */
+let macOSKeychainRetryAt = 0;
 /** Every mutation is a read-modify-write of one small encrypted blob. Saving the OpenAI key while the bridge token is being minted would otherwise have both calls clone the same snapshot, and the later write would erase the other's key — as well as racing on secrets.bin.tmp. Same shape as config.ts's queue, for the same reason. */
 let mutationQueue: Promise<void> = Promise.resolve();
 
@@ -48,21 +53,43 @@ export function secureStorageCiphertextIsProtected(
 }
 
 /** Every safeStorage call goes through here. The first one sets up Electron's encryptor, which on macOS reads the key from the Keychain, and after an update that read waits on the password prompt; keychain-notice.ts lets the window say so before it starts. */
-async function keychain<T>(operation: () => Promise<T>, ok: (result: T) => boolean = () => true): Promise<T> {
+async function keychain<T>(
+  operation: () => Promise<T>,
+  ok: (result: T) => boolean = () => true,
+  platform: NodeJS.Platform = process.platform
+): Promise<T> {
   await beforeKeychainRead();
+  if (platform === 'darwin' && Date.now() < macOSKeychainRetryAt) {
+    void afterKeychainRead(false);
+    throw new Error(MACOS_KEYCHAIN_TIMEOUT_MESSAGE);
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = await operation();
+    const result = platform === 'darwin'
+      ? await Promise.race([
+          operation(),
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+              macOSKeychainRetryAt = Date.now() + MACOS_KEYCHAIN_RETRY_COOLDOWN_MS;
+              reject(new Error(MACOS_KEYCHAIN_TIMEOUT_MESSAGE));
+            }, MACOS_KEYCHAIN_OPERATION_TIMEOUT_MS);
+          })
+        ])
+      : await operation();
+    if (platform === 'darwin') macOSKeychainRetryAt = 0;
     void afterKeychainRead(ok(result));
     return result;
   } catch (error) {
     void afterKeychainRead(false);
     throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 
 export async function secureStorageStatus(platform: NodeJS.Platform = process.platform): Promise<SecureStorageInfo> {
   try {
-    if (!(await keychain(() => safeStorage.isAsyncEncryptionAvailable(), available => available))) {
+    if (!(await keychain(() => safeStorage.isAsyncEncryptionAvailable(), available => available, platform))) {
       return {
         available: false,
         detail:
@@ -75,7 +102,7 @@ export async function secureStorageStatus(platform: NodeJS.Platform = process.pl
     }
     if (platform === 'linux') {
       // Probe the provider Electron actually chose, not only the desktop/backend label above. The probe contains no credential and is never persisted.
-      const probe = await keychain(() => safeStorage.encryptStringAsync(LINUX_STORAGE_PROBE));
+      const probe = await keychain(() => safeStorage.encryptStringAsync(LINUX_STORAGE_PROBE), () => true, platform);
       if (!secureStorageCiphertextIsProtected(probe, platform)) {
         return {
           available: false,
@@ -85,8 +112,13 @@ export async function secureStorageStatus(platform: NodeJS.Platform = process.pl
       }
     }
     return { available: true, detail: null };
-  } catch {
-    return { available: false, detail: 'Secure operating-system credential storage could not be initialized.' };
+  } catch (error) {
+    return {
+      available: false,
+      detail: error instanceof Error && error.message === MACOS_KEYCHAIN_TIMEOUT_MESSAGE
+        ? 'macOS Keychain is taking too long to respond. Unlock the login keychain, then try again.'
+        : 'Secure operating-system credential storage could not be initialized.'
+    };
   }
 }
 
@@ -259,4 +291,5 @@ export function resetSecretsCacheForTests(): void {
   cache = null;
   rotationPending = false;
   loadInFlight = null;
+  macOSKeychainRetryAt = 0;
 }

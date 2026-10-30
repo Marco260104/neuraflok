@@ -6,6 +6,13 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13] - 2026-10-29
+
+### Fixed
+
+- Bound macOS Keychain startup checks and back off retries when the native credential prompt does not respond, so a stalled Keychain no longer holds the app's initial state indefinitely.
+- Keep macOS startup smoke-test diagnostics available through debug-only startup phase markers.
+
 ## [0.1.12] - 2026-10-29
 
 ### Fixed

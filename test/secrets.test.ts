@@ -47,6 +47,28 @@ afterEach(async () => {
 });
 
 describe('secret store', () => {
+  it('keeps macOS startup responsive when the Keychain request never resolves and backs off retries', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(safeStorage.isAsyncEncryptionAvailable).mockImplementation(() => new Promise<boolean>(() => {}));
+
+      const firstStatus = secureStorageStatus('darwin');
+      await vi.advanceTimersByTimeAsync(8_000);
+      await expect(firstStatus).resolves.toEqual({
+        available: false,
+        detail: expect.stringMatching(/taking too long/i)
+      });
+
+      await expect(secureStorageStatus('darwin')).resolves.toEqual({
+        available: false,
+        detail: expect.stringMatching(/taking too long/i)
+      });
+      expect(safeStorage.isAsyncEncryptionAvailable).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('refuses Linux v10 hard-coded-key ciphertext instead of trusting the legacy backend label', async () => {
     vi.mocked(safeStorage.getSelectedStorageBackend).mockReturnValue('basic_text');
     vi.mocked(safeStorage.encryptStringAsync).mockResolvedValueOnce(Buffer.from('v10fallback-ciphertext', 'ascii'));
