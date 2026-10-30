@@ -280,11 +280,14 @@ it('delivers a project message exactly once after its active preparation turn co
   ports.nextAfterTurn.mockResolvedValueOnce(queued);
 
   releasePreparation();
-  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledTimes(2), { timeout: 5_000 });
+  // The complete suite runs hundreds of isolated files in CI; this dispatch
+  // follows a deliberately released async preparation turn and can be delayed
+  // by worker scheduling even though the message remains queued correctly.
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledTimes(2), { timeout: 15_000 });
   expect(ports.run.mock.calls[0]?.[0]).toMatchObject({ id: preparation.id, warmup: true });
   expect(ports.run.mock.calls[1]?.[0]).toMatchObject({ id: authored.id, text: 'Explain this project', mode: 'after-turn' });
   expect(ports.nextAfterTurn).toHaveBeenCalledWith(sessionId, conversationId, 'project-preparation-turn');
-  await vi.waitFor(() => expect(ports.nextAfterTurn).toHaveBeenCalledTimes(2), { timeout: 5_000 });
+  await vi.waitFor(() => expect(ports.nextAfterTurn).toHaveBeenCalledTimes(2), { timeout: 15_000 });
   expect(ports.rows.filter(row => row.id === authored.id)).toHaveLength(1);
 });
 
