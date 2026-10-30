@@ -21,7 +21,7 @@ import { z } from 'zod';
 import type { AppState } from '../../../contracts/types.js';
 import { getConfig, settingsRecovered } from '../../infrastructure/settings/config.js';
 import { onBackgroundExecChange } from '../../domains/workspace/execution/ownership.js';
-import { onLog } from '../../infrastructure/settings/logger.js';
+import { logInfo, onLog } from '../../infrastructure/settings/logger.js';
 import { SandboxError } from '../../infrastructure/settings/sandbox.js';
 import { hasSecret, secureStorageStatus } from '../../infrastructure/settings/secrets.js';
 import {
@@ -40,15 +40,22 @@ import { getMacOSDesktopAccess, onMacOSDesktopAccessChange } from '../../infrast
 
 async function buildState(): Promise<AppState> {
   const config = getConfig();
+  const debugStartup = process.env['NEURAFLOK_DEBUG'] === '1';
+  const readStartupField = async <T>(name: string, read: () => Promise<T>): Promise<T> => {
+    if (debugStartup) logInfo(`startup state: ${name} starting`);
+    const value = await read();
+    if (debugStartup) logInfo(`startup state: ${name} ready`);
+    return value;
+  };
   return {
     config,
     platform: hostPlatformInfo(),
     loginStartupAvailable: supportsLoginStartup(process.platform, packagedRuntime(app.isPackaged, process.execPath)),
-    secureStorage: await secureStorageStatus(),
-    hasGoalKey: await hasSecret('openRouterApiKey'),
-    hasOpenAiModelKey: await hasSecret('openaiChatApiKey'),
-    hasCustomProviderKey: await hasSecret('customProviderApiKey'),
-    bridge: await bridgeStatus(),
+    secureStorage: await readStartupField('secure credential storage', () => secureStorageStatus()),
+    hasGoalKey: await readStartupField('goal credential', () => hasSecret('openRouterApiKey')),
+    hasOpenAiModelKey: await readStartupField('OpenAI credential', () => hasSecret('openaiChatApiKey')),
+    hasCustomProviderKey: await readStartupField('custom provider credential', () => hasSecret('customProviderApiKey')),
+    bridge: await readStartupField('browser bridge status', () => bridgeStatus()),
     update: updateStatus(),
     desktopAccess: getMacOSDesktopAccess(),
     settingsRecovered: settingsRecovered()

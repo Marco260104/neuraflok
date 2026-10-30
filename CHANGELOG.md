@@ -6,6 +6,12 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-10-29
+
+### Fixed
+
+- Add debug-only startup phase markers to the macOS packaged-app smoke test so an incomplete initial renderer state can be traced to its exact startup dependency.
+
 ## [0.1.11] - 2026-10-29
 
 ### Fixed

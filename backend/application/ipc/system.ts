@@ -14,6 +14,7 @@ import type { IpcRouteContext } from './types.js';
 export function registerSystemIpc({ handle, getWindow, buildState, quitToInstall }: Pick<IpcRouteContext, 'handle' | 'getWindow' | 'buildState'> & { quitToInstall: () => void }): void {
   handle('usage:get', () => usageOverview());
   handle('state:get', async () => {
+    if (process.env['NEURAFLOK_DEBUG'] === '1') logInfo('renderer state request received');
     const state = await buildState();
     // Native package smoke uses this as the end-to-end renderer readiness barrier. Unlike `did-finish-load`, it can only happen after the renderer's first IPC request has completed secure-storage availability/decryption probes and the rest of the initial state snapshot.
     logInfo('renderer state ready');
