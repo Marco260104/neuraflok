@@ -188,6 +188,8 @@
 }
 
 .msg.rich {
+  min-width: 0;
+  max-width: 100%;
   white-space: normal;
   line-height: 1.55;
 }
@@ -300,7 +302,11 @@
 }
 
 .msg.rich .markdown-table {
+  display: block;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
   overflow-x: auto;
 }
 

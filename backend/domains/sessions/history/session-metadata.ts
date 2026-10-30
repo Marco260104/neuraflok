@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { SessionSummary } from '../../../../contracts/session.js';
+import { isApiProviderSettings } from '../../../../contracts/settings.js';
 import { logWarn } from '../../../infrastructure/settings/logger.js';
 import { legacyContextTitle, legacyLabelPending } from './title.js';
 
@@ -70,9 +71,7 @@ function normalizeSummary(id: string, raw: string): MetaCheckpoint | null {
         typeof selected.conversationId !== 'string' || typeof selected.model !== 'string' ||
         !/^[a-zA-Z0-9 ._~:/@-]{1,160}$/.test(selected.model) || !Number.isFinite(selected.observedAt))) {
       delete publicSummary.selectedModel;
-    } else if (selected?.apiProvider !== undefined && (!selected.apiProvider || typeof selected.apiProvider !== 'object' ||
-        !['openai', 'openrouter', 'custom'].includes(selected.apiProvider.kind) ||
-        typeof selected.apiProvider.baseUrl !== 'string' || selected.apiProvider.baseUrl.length > 2048)) {
+    } else if (selected?.apiProvider !== undefined && !isApiProviderSettings(selected.apiProvider)) {
       delete selected.apiProvider;
     }
     const lastToolActivity = publicSummary.lastToolActivity;

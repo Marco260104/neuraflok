@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-/** Packaged Windows/macOS keep the executable / app-bundle icon. Packaged Linux needs an explicit PNG. Unpackaged `electron-vite dev` uses the authored mark so Windows does not keep Electron's stock icon. */
+/** Packaged Windows and Linux windows receive an explicit branded PNG; macOS uses its app-bundle icon. Unpackaged `electron-vite dev` uses the authored mark. */
 export function browserWindowIconPath(
   platform: NodeJS.Platform,
   packaged: boolean,
@@ -9,8 +9,8 @@ export function browserWindowIconPath(
   developmentRoot?: string
 ): string | undefined {
   if (packaged) {
-    if (platform !== 'linux') return undefined;
-    return path.join(resourcesPath, 'runtime-icon.png');
+    if (platform === 'win32' || platform === 'linux') return path.join(resourcesPath, 'runtime-icon.png');
+    return undefined;
   }
   if (!developmentRoot) return undefined;
   return path.join(developmentRoot, 'brand', 'LogotipoSN.png');

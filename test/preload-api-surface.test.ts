@@ -14,7 +14,8 @@ it('exposes the complete renderer API without exposing Electron IPC', async () =
   const api = value as Record<string, unknown>;
 
   expect(world).toBe('api');
-  expect(Object.keys(api)).toHaveLength(124);
+  expect(Object.keys(api)).toHaveLength(125);
   expect(Object.values(api).every(action => typeof action === 'function')).toBe(true);
+  expect(api).toHaveProperty('setCustomProviderHeaders');
   expect(api).not.toHaveProperty('ipcRenderer');
 });

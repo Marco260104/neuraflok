@@ -7,7 +7,7 @@ import { WEB_PROVIDER_IDS, selectableWebProviderOrDefault } from '../../../../co
 import { CHAT_EXECUTORS } from '../../../../contracts/chat-protocol.js';
 import { browserPreferencesSchema } from '../../../../contracts/browser/preferences.js';
 import {
-  API_PROVIDERS, CAPABILITIES, CHAT_BROWSERS, DEFAULT_CAPABILITIES, GOAL_MODES, GOAL_REASONING_LEVELS,
+  API_PROVIDERS, API_PROTOCOLS, CAPABILITIES, CHAT_BROWSERS, DEFAULT_CAPABILITIES, GOAL_MODES, GOAL_REASONING_LEVELS,
   type Capabilities, type Root
 } from '../../../../contracts/types.js';
 import { MAX_GOAL_SYSTEM_PROMPT_CHARS } from '../../../../contracts/automation/goal-settings.js';
@@ -89,7 +89,13 @@ export const configSchema = z.object({
   providers: z.object({
     api: z.object({
       kind: z.enum(API_PROVIDERS).optional().default(DEFAULT_API_PROVIDER.kind).catch(DEFAULT_API_PROVIDER.kind),
-      baseUrl: z.string().max(2048).optional().default(DEFAULT_API_PROVIDER.baseUrl)
+      baseUrl: z.string().max(2048).optional().default(DEFAULT_API_PROVIDER.baseUrl),
+      protocol: z.enum(API_PROTOCOLS).optional(),
+      name: z.string().max(80).optional(),
+      chatPath: z.string().max(500).optional(),
+      modelsPath: z.string().max(500).optional(),
+      authHeader: z.string().max(128).optional(),
+      authPrefix: z.string().max(64).optional()
     }).optional().default({ ...DEFAULT_API_PROVIDER })
   }).optional().default({ api: { ...DEFAULT_API_PROVIDER } }),
   readOnly: z.boolean(),

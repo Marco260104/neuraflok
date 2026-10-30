@@ -3,7 +3,7 @@ import { isWebProviderId, type WebProviderId } from '../../../contracts/web-prov
 import type { SessionSummary } from '../../../contracts/session.js';
 import type { InputEntry } from '../../../backend/domains/sessions/input/input.js';
 import { $, run } from '../../shared/dom.js';
-import { waitForComposerAttachmentUploads, type ComposerAttachment } from './chat-composer-attachments.js';
+import { composerAttachmentUploadBarrier, type ComposerAttachment } from './chat-composer-attachments.js';
 import type { ChatSendAnchor } from './chat-reader-state.js';
 import { composerWarmupKey, composerWarmupState, markUnboundOpening, noteOpeningSession } from './chat-composer-ready.js';
 
@@ -97,7 +97,8 @@ export function createChatComposerDelivery(runtime: Runtime) {
     let key = runtime.draftKey();
     let images = runtime.imageDrafts.get(key) ?? [];
     const expectedAttachmentIds = images.filter((file): file is InputAttachment => 'id' in file).map(file => file.id);
-    if (!await waitForComposerAttachmentUploads(images)) return false;
+    const attachmentUploads = composerAttachmentUploadBarrier(images);
+    if (attachmentUploads === false) return false;
     const settledKey = runtime.draftKey();
     if (settledKey !== key) {
       const settledImages = runtime.imageDrafts.get(settledKey) ?? [];
@@ -186,6 +187,23 @@ export function createChatComposerDelivery(runtime: Runtime) {
     runtime.paintDeliveryControls();
     runtime.paintDetail(true);
     try {
+      // Reserve and paint the user's message before waiting on a provider-side file upload.
+      // The composer remains available while the attachment finishes staging.
+      if (attachmentUploads !== true && !await attachmentUploads) {
+        runtime.startingInputs.delete(id);
+        if (runtime.pendingNewInput?.id === id) runtime.pendingNewInput = null;
+        if (runtime.selectedId === sessionId && runtime.selectionGeneration === generation && !runtime.authoredComposerText()) {
+          runtime.inputDrafts.set(key, authoredDraft);
+          input.value = authoredDraft;
+          runtime.restoreSkills();
+        } else if (!runtime.inputDrafts.get(key)) runtime.inputDrafts.set(key, authoredDraft);
+        if (images.length) runtime.imageDrafts.set(key, [...images, ...(runtime.imageDrafts.get(key) ?? [])]);
+        if (runtime.draftKey() === key) runtime.paintComposerImages();
+        runtime.paintDeliveryControls();
+        runtime.paintDetail();
+        void runtime.refreshInputQueue();
+        return false;
+      }
       if (waitForOpening) {
         const adopted = await waitForOpeningSession();
         if (!adopted || !runtime.selectedId || runtime.selectedId !== pendingOpeningId) {

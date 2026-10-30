@@ -52,8 +52,7 @@ export function registerSettingsIpc({ handle, getWindow, buildState }: Pick<IpcR
       before.goal.model !== next.goal.model ||
       before.goal.backend !== next.goal.backend ||
       before.goal.loopBackend !== next.goal.loopBackend ||
-      before.providers.api.kind !== next.providers.api.kind ||
-      before.providers.api.baseUrl !== next.providers.api.baseUrl ||
+      JSON.stringify(before.providers.api) !== JSON.stringify(next.providers.api) ||
       before.goal.reasoning !== next.goal.reasoning ||
       before.goal.prompt !== next.goal.prompt ||
       before.goal.objectivePrompt !== next.goal.objectivePrompt ||
@@ -126,17 +125,33 @@ export function registerSettingsIpc({ handle, getWindow, buildState }: Pick<IpcR
   handle('secret:set', async (payload) => {
     const { value, key } = z
       .object({
-        value: z.string().max(500),
-        key: z.enum(['openaiChatApiKey', 'openRouterApiKey', 'customProviderApiKey'])
+        value: z.string().max(16_000),
+        key: z.enum(['openaiChatApiKey', 'openRouterApiKey', 'customProviderApiKey', 'customProviderHeaders'])
       })
       .parse(payload);
+    if (key !== 'customProviderHeaders' && value.length > 500) throw new Error('API keys cannot exceed 500 characters.');
+    if (key === 'customProviderHeaders' && value !== '') {
+      let headers: unknown;
+      try { headers = JSON.parse(value); } catch { throw new Error('Additional API headers must be valid JSON.'); }
+      if (!headers || typeof headers !== 'object' || Array.isArray(headers) || Object.keys(headers).length > 24) {
+        throw new Error('Additional API headers must be a JSON object with at most 24 entries.');
+      }
+      const authHeader = getConfig().providers.api.authHeader?.trim().toLowerCase() || 'authorization';
+      const forbidden = new Set(['authorization', 'proxy-authorization', 'content-type', 'host', 'cookie', 'set-cookie', authHeader]);
+      for (const [name, headerValue] of Object.entries(headers)) {
+        if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || forbidden.has(name.toLowerCase()) ||
+            typeof headerValue !== 'string' || headerValue.length > 2000 || /[\r\n\u0000]/.test(headerValue)) {
+          throw new Error(`Additional API header ${name.slice(0, 80)} is invalid or reserved.`);
+        }
+      }
+    }
     if (!(await isEncryptionAvailable())) {
       throw new Error('Secure OS credential storage is unavailable, so the key cannot be stored safely.');
     }
     await setSecret(key, value);
     const activeGoalKey = getConfig().providers.api.kind === 'custom' ? 'customProviderApiKey'
       : getConfig().providers.api.kind === 'openai' ? 'openaiChatApiKey' : 'openRouterApiKey';
-    if (key === activeGoalKey) retireGoalDrafts();
+    if (key === activeGoalKey || (key === 'customProviderHeaders' && getConfig().providers.api.kind === 'custom')) retireGoalDrafts();
     const what = key === 'openRouterApiKey' ? 'OpenRouter key' : key === 'openaiChatApiKey' ? 'OpenAI model key'
       : 'custom provider key';
     logInfo(value.trim() === '' ? `${what} cleared` : `${what} stored`);

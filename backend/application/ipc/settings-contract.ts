@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { browserPreferencesSchema } from '../../../contracts/browser/preferences.js';
-import { API_PROVIDERS, CAPABILITIES, CHAT_BROWSERS, GOAL_MODES, GOAL_REASONING_LEVELS, type Config } from '../../../contracts/types.js';
+import { API_PROTOCOLS, API_PROVIDERS, CAPABILITIES, CHAT_BROWSERS, GOAL_MODES, GOAL_REASONING_LEVELS, type Config } from '../../../contracts/types.js';
 import { CHAT_EXECUTORS } from '../../../contracts/chat-protocol.js';
 import { WEB_PROVIDER_IDS } from '../../../contracts/web-providers.js';
 import { MAX_GOAL_SYSTEM_PROMPT_CHARS } from '../../../contracts/automation/goal-settings.js';
@@ -85,7 +85,16 @@ const settingsPatch = z.object({
   providerTools: z.object({ instructions: z.string().trim().max(MAX_PROVIDER_TOOL_INSTRUCTIONS_CHARS) }).strict().optional(),
   controlApi: z.object({ enabled: z.boolean(), allowActions: z.boolean().optional() }).strict().optional(),
   providers: z.object({
-    api: z.object({ kind: z.enum(API_PROVIDERS), baseUrl: z.string().max(2048) }).strict()
+    api: z.object({
+      kind: z.enum(API_PROVIDERS),
+      baseUrl: z.string().max(2048),
+      protocol: z.enum(API_PROTOCOLS).optional(),
+      name: z.string().max(80).optional(),
+      chatPath: z.string().max(500).optional(),
+      modelsPath: z.string().max(500).optional(),
+      authHeader: z.string().max(128).optional(),
+      authPrefix: z.string().max(64).optional()
+    }).strict()
   }).strict(),
   goal: z.object({
     impulseMinutes: z.number().int().min(0).max(60).optional(),
@@ -242,7 +251,13 @@ export function mergeSettings(current: Config, base: SettingsSnapshot, wanted: S
     providers: {
       api: {
         kind: pick(current.providers.api.kind, base.providers.api.kind, wanted.providers.api.kind),
-        baseUrl: pick(current.providers.api.baseUrl, base.providers.api.baseUrl, wanted.providers.api.baseUrl)
+        baseUrl: pick(current.providers.api.baseUrl, base.providers.api.baseUrl, wanted.providers.api.baseUrl),
+        protocol: pick(current.providers.api.protocol, base.providers.api.protocol, wanted.providers.api.protocol),
+        name: pick(current.providers.api.name, base.providers.api.name, wanted.providers.api.name),
+        chatPath: pick(current.providers.api.chatPath, base.providers.api.chatPath, wanted.providers.api.chatPath),
+        modelsPath: pick(current.providers.api.modelsPath, base.providers.api.modelsPath, wanted.providers.api.modelsPath),
+        authHeader: pick(current.providers.api.authHeader, base.providers.api.authHeader, wanted.providers.api.authHeader),
+        authPrefix: pick(current.providers.api.authPrefix, base.providers.api.authPrefix, wanted.providers.api.authPrefix)
       }
     },
     goal: {

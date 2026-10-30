@@ -65,6 +65,24 @@ export function bindChatRendererEvents(bindings: ChatInitializationBindings): vo
   bindChatAgentEvents({
     paintSwarm: bindings.paintSwarm
   });
+  $('goalCustomProtocol').addEventListener('change', () => {
+    const protocol = ($<HTMLSelectElement>('goalCustomProtocol').value === 'anthropic-messages' ? 'anthropic-messages' : 'openai-compatible');
+    const chatPath = $<HTMLInputElement>('goalCustomChatPath');
+    const authHeader = $<HTMLInputElement>('goalCustomAuthHeader');
+    const authPrefix = $<HTMLInputElement>('goalCustomAuthPrefix');
+    if ((protocol === 'anthropic-messages' && (!chatPath.value || chatPath.value === 'chat/completions')) ||
+        (protocol === 'openai-compatible' && (!chatPath.value || chatPath.value === 'messages'))) {
+      chatPath.value = protocol === 'anthropic-messages' ? 'messages' : 'chat/completions';
+    }
+    if ((protocol === 'anthropic-messages' && (!authHeader.value || authHeader.value === 'Authorization')) ||
+        (protocol === 'openai-compatible' && authHeader.value.toLowerCase() === 'x-api-key')) {
+      authHeader.value = protocol === 'anthropic-messages' ? 'x-api-key' : 'Authorization';
+    }
+    if ((protocol === 'anthropic-messages' && authPrefix.value === 'Bearer') ||
+        (protocol === 'openai-compatible' && authPrefix.value === '')) {
+      authPrefix.value = protocol === 'anthropic-messages' ? '' : 'Bearer';
+    }
+  });
   for (const id of bindings.chatSettings.CHAT_INPUTS) {
     $(id).addEventListener('change', () => void bindings.deps.save());
   }

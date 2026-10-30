@@ -19,11 +19,16 @@ export const imageDrafts = new Map<string, ComposerAttachment[]>();
 const uploadStates = new Map<string, UploadState>();
 const uploadPromises = new Map<string, Promise<boolean>>();
 
-export async function waitForComposerAttachmentUploads(attachments: ComposerAttachment[]): Promise<boolean> {
+export function composerAttachmentUploadBarrier(attachments: ComposerAttachment[]): boolean | Promise<boolean> {
   const files = attachments.filter((file): file is InputAttachment => 'id' in file);
   const pending = files.map(file => uploadPromises.get(file.id)).filter((promise): promise is Promise<boolean> => !!promise);
-  if (pending.length && !(await Promise.all(pending)).every(Boolean)) return false;
-  return files.every(file => uploadStates.get(file.id) !== 'failed');
+  const uploadsReady = () => files.every(file => uploadStates.get(file.id) !== 'failed');
+  if (!pending.length) return uploadsReady();
+  return Promise.all(pending).then(results => results.every(Boolean) && uploadsReady());
+}
+
+export async function waitForComposerAttachmentUploads(attachments: ComposerAttachment[]): Promise<boolean> {
+  return await composerAttachmentUploadBarrier(attachments);
 }
 
 export function composerAttachmentUploadState(file: InputAttachment): UploadState | undefined {

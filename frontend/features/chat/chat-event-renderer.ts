@@ -86,17 +86,18 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
     await runtime.loadDetail();
   }
 
-  function attachmentUploadStatus(status?: 'uploading' | 'ready' | 'failed'): HTMLElement | null {
+  function attachmentUploadStatus(status?: 'uploading' | 'ready' | 'failed', includeIndicator = true): HTMLElement | null {
     if (!status) return null;
     const label = status === 'uploading' ? t('Uploading…') : status === 'ready' ? t('Uploaded') : t('Upload failed');
     const badge = el('span', `attachment-upload-status is-${status}`);
     badge.dataset.status = status;
     badge.setAttribute('aria-live', 'polite');
     const statusIcon = status === 'uploading'
-      ? el('span', 'attachment-loading-spinner is-small')
+      ? includeIndicator ? el('span', 'attachment-loading-spinner is-small') : null
       : el('i', `ico ph ${status === 'ready' ? 'ph-check-circle' : 'ph-warning-circle'}`);
-    statusIcon.setAttribute('aria-hidden', 'true');
-    badge.append(statusIcon, el('span', status === 'uploading' ? 'attachment-loading-label' : '', label));
+    statusIcon?.setAttribute('aria-hidden', 'true');
+    if (statusIcon) badge.append(statusIcon);
+    badge.append(el('span', status === 'uploading' ? 'attachment-loading-label' : '', label));
     return badge;
   }
   function attachmentCard(file: InputAttachment, inComposer = false, uploadStatus?: 'uploading' | 'ready' | 'failed'): HTMLElement {
@@ -122,10 +123,9 @@ export function createChatEventRenderer(runtime: ChatEventRendererRuntime) {
     glyph.append(fileGlyph);
     const details = el('div', 'attachment-details');
     const kind = el('div', 'attachment-kind');
-    if (uploadStatus === 'uploading') kind.append(el('span', 'attachment-loading-label', t('Uploading…')));
-    else kind.textContent = file.mimeType.startsWith('image/') ? t("Image") : t("File");
+    kind.textContent = file.mimeType.startsWith('image/') ? t("Image") : t("File");
     details.append(el('div', 'attachment-name', file.name), kind);
-    const status = uploadStatus === 'uploading' ? null : attachmentUploadStatus(uploadStatus);
+    const status = attachmentUploadStatus(uploadStatus, uploadStatus !== 'uploading');
     if (status) details.append(status);
     tile.append(glyph, details); return tile;
   }

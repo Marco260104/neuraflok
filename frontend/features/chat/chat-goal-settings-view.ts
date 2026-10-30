@@ -66,6 +66,14 @@ export function createChatGoalSettingsView(runtime: Runtime, goalModelPicker: Ch
       providerBaseUrl,
       previous?.providers.api.baseUrl,
     );
+    applyChatValue($<HTMLInputElement>('goalCustomName'), config.providers.api.name ?? '', previous?.providers.api.name);
+    const customProtocol = config.providers.api.protocol ?? 'openai-compatible';
+    const anthropicProtocol = customProtocol === 'anthropic-messages';
+    applyChatValue($<HTMLSelectElement>('goalCustomProtocol'), customProtocol, previous?.providers.api.protocol);
+    applyChatValue($<HTMLInputElement>('goalCustomChatPath'), config.providers.api.chatPath ?? (anthropicProtocol ? 'messages' : 'chat/completions'), previous?.providers.api.chatPath);
+    applyChatValue($<HTMLInputElement>('goalCustomModelsPath'), config.providers.api.modelsPath ?? 'models', previous?.providers.api.modelsPath);
+    applyChatValue($<HTMLInputElement>('goalCustomAuthHeader'), config.providers.api.authHeader ?? (anthropicProtocol ? 'x-api-key' : 'Authorization'), previous?.providers.api.authHeader);
+    applyChatValue($<HTMLInputElement>('goalCustomAuthPrefix'), config.providers.api.authPrefix ?? (anthropicProtocol ? '' : 'Bearer'), previous?.providers.api.authPrefix);
     applyChatValue(
       $<HTMLInputElement>('goalCustomModel'),
       config.goal.model,
@@ -145,6 +153,18 @@ export function createChatGoalSettingsView(runtime: Runtime, goalModelPicker: Ch
     );
     $<HTMLButtonElement>('goalCustomKeyRemove').disabled =
       !state.hasCustomProviderKey || !secureStorageAvailable;
+    const customHeaders = $<HTMLTextAreaElement>('goalCustomHeaders');
+    customHeaders.disabled = !secureStorageAvailable;
+    ui(customHeaders, 'placeholder', () => state.hasCustomProviderHeaders ? t('•••••••• stored') : '{"X-Custom-Tenant":"team-a"}');
+    ui($('goalCustomHeadersState'), 'textContent', () =>
+      !secureStorageAvailable
+        ? (state.secureStorage?.detail ?? t('Secure credential storage is unavailable.'))
+        : state.hasCustomProviderHeaders
+          ? t('Additional headers are stored securely. Enter new JSON to replace them.')
+          : t('Headers are stored securely and sent only to this configured endpoint.'),
+    );
+    $<HTMLButtonElement>('goalCustomHeadersSave').disabled = !secureStorageAvailable;
+    $<HTMLButtonElement>('goalCustomHeadersRemove').disabled = !state.hasCustomProviderHeaders || !secureStorageAvailable;
     goalModelPicker.paintReasoning(reasoning);
     if (goalModelPicker.hasModels()) goalModelPicker.paint();
   }

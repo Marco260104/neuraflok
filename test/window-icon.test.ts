@@ -9,14 +9,15 @@ import { browserWindowIconPath, unpackagedIconRoot } from '../backend/infrastruc
 const require = createRequire(import.meta.url);
 
 describe('native BrowserWindow icon policy', () => {
-  it('uses the packaged branded runtime PNG on Linux', () => {
-    expect(browserWindowIconPath('linux', true, '/opt/neuraflok/resources')).toBe(
-      path.join('/opt/neuraflok/resources', 'runtime-icon.png')
+  it.each(['win32', 'linux'] as const)('uses the packaged branded runtime PNG on %s', (platform) => {
+    const resources = platform === 'win32' ? 'C:/Program Files/NEURAFLOK/resources' : '/opt/neuraflok/resources';
+    expect(browserWindowIconPath(platform, true, resources)).toBe(
+      path.join(resources, 'runtime-icon.png')
     );
   });
 
-  it.each(['win32', 'darwin'] as const)('preserves native executable/bundle icon semantics on %s', (platform) => {
-    expect(browserWindowIconPath(platform, true, '/irrelevant/resources')).toBeUndefined();
+  it('preserves the native app-bundle icon on macOS', () => {
+    expect(browserWindowIconPath('darwin', true, '/irrelevant/resources')).toBeUndefined();
   });
 
   it('does not impose a generated packaging path on Linux development runs', () => {

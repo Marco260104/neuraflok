@@ -74,7 +74,7 @@ export const LOOP_RESPONSE_FORMAT = {
   }
 } as const;
 
-export async function httpFailure(response: Response): Promise<string> {
+export async function httpFailure(response: Response, providerLabel = 'OpenRouter'): Promise<string> {
   let detail = '';
   try {
     const raw = await boundedResponseText(response, MAX_ERROR_BODY_BYTES);
@@ -88,10 +88,10 @@ export async function httpFailure(response: Response): Promise<string> {
 
     if (error instanceof Error && error.message === 'response_body_too_large') detail = 'response body too large';
   }
-  if (response.status === 401 || response.status === 403) return `auth_rejected: ${detail || 'the OpenRouter key was refused'}`;
-  if (response.status === 402) return `out_of_credit: ${detail || 'the OpenRouter account is out of credit'}`;
-  if (response.status === 404) return `unknown_model: ${detail || 'OpenRouter does not know that model id'}`;
-  if (response.status === 429) return `rate_limited: ${detail || 'OpenRouter is rate-limiting this key'}`;
+  if (response.status === 401 || response.status === 403) return `auth_rejected: ${detail || `${providerLabel} rejected the configured credential`}`;
+  if (response.status === 402) return `out_of_credit: ${detail || `${providerLabel} account has no available credit`}`;
+  if (response.status === 404) return `unknown_model: ${detail || `${providerLabel} does not recognize the configured model or route`}`;
+  if (response.status === 429) return `rate_limited: ${detail || `${providerLabel} is rate-limiting this request`}`;
   return `http_${response.status}${detail ? `: ${detail}` : ''}`;
 }
 

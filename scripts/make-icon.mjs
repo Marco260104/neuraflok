@@ -94,12 +94,36 @@ function decodeSourcePng(encoded) {
 
 const source = decodeSourcePng(readFileSync(SOURCE_PATH));
 
-// Use the authored square as-is. Do not punch, crop, or replate LogotipoSN.
-const crop = {
-  left: (source.width - Math.max(source.width, source.height)) / 2,
-  top: (source.height - Math.max(source.width, source.height)) / 2,
-  side: Math.max(source.width, source.height)
-};
+// LogotipoSN is authored on a black square with generous whitespace. Trim that
+// whitespace around the bright mark so Explorer, the taskbar, and small tiles
+// do not render the brand as a tiny glyph. Keep a quiet 6% inset around it.
+function markBounds(image) {
+  let left = image.width;
+  let top = image.height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < image.height; y++) {
+    for (let x = 0; x < image.width; x++) {
+      const at = (y * image.width + x) * 4;
+      const visible = image.pixels[at + 3] > 16 &&
+        Math.max(image.pixels[at], image.pixels[at + 1], image.pixels[at + 2]) > 32;
+      if (!visible) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  if (right < left || bottom < top) throw new Error('brand/LogotipoSN.png has no visible mark');
+  const width = right - left + 1;
+  const height = bottom - top + 1;
+  const side = Math.max(width, height) * 1.12;
+  const centerX = (left + right + 1) / 2;
+  const centerY = (top + bottom + 1) / 2;
+  return { left: centerX - side / 2, top: centerY - side / 2, side };
+}
+
+const crop = markBounds(source);
 
 // Area-resample the supplied mark while preserving its original colors and clean edges.
 function render(size) {

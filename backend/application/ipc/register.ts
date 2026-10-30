@@ -55,6 +55,7 @@ async function buildState(): Promise<AppState> {
     hasGoalKey: await readStartupField('goal credential', () => hasSecret('openRouterApiKey')),
     hasOpenAiModelKey: await readStartupField('OpenAI credential', () => hasSecret('openaiChatApiKey')),
     hasCustomProviderKey: await readStartupField('custom provider credential', () => hasSecret('customProviderApiKey')),
+    hasCustomProviderHeaders: await readStartupField('custom API headers', () => hasSecret('customProviderHeaders')),
     bridge: await readStartupField('browser bridge status', () => bridgeStatus()),
     update: updateStatus(),
     desktopAccess: getMacOSDesktopAccess(),

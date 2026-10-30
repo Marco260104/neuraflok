@@ -53,10 +53,21 @@ export function createChatSettingsPatch(modelPicker: ChatGoalModelPicker): (curr
         endSleepingWorkerProcesses: $<HTMLInputElement>('endSleepingWorkerProcesses').checked,
       },
       providers: {
-        api: {
-          kind: (providerKind || current.providers.api.kind || 'openrouter') as Config['providers']['api']['kind'],
-          baseUrl: $<HTMLInputElement>('goalBaseUrl').value,
-        },
+        api: providerKind === 'custom'
+          ? {
+              kind: 'custom',
+              baseUrl: $<HTMLInputElement>('goalBaseUrl').value,
+              protocol: $<HTMLSelectElement>('goalCustomProtocol').value as Config['providers']['api']['protocol'],
+              name: $<HTMLInputElement>('goalCustomName').value.trim(),
+              chatPath: $<HTMLInputElement>('goalCustomChatPath').value.trim() || 'chat/completions',
+              modelsPath: $<HTMLInputElement>('goalCustomModelsPath').value.trim(),
+              authHeader: $<HTMLInputElement>('goalCustomAuthHeader').value.trim(),
+              authPrefix: $<HTMLInputElement>('goalCustomAuthPrefix').value.trim(),
+            }
+          : {
+              kind: (providerKind || current.providers.api.kind || 'openrouter') as Config['providers']['api']['kind'],
+              baseUrl: $<HTMLInputElement>('goalBaseUrl').value,
+            },
       },
       goal: {
         enabled: current.goal.enabled,

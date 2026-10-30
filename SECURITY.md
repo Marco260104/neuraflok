@@ -12,6 +12,7 @@ Report security issues privately through GitHub's vulnerability reporting for th
 - The companion extension observes supported provider pages and sends bounded browser events to the local bridge. It cannot execute local tools or grant itself filesystem access.
 - Browser sessions establish that a supported provider page is signed in. They do not establish provider approval, account entitlement, or available model limits.
 - API credentials are held by the desktop process and stored through Electron `safeStorage`. Conversation history and session metadata are stored locally and may contain sensitive user content.
+- The browser-session/MCP workflow is intended for small project work. It is not a corporate governance, audit, or compliance layer. Organizations should use their approved direct API or gateway and apply their own controls for larger or regulated work.
 - Optional plugin servers and the local control API have their own endpoints and credentials. Enable them only when needed and protect their tokens as access to the data or actions they expose.
 
 ## Limitations
@@ -20,7 +21,7 @@ Release packages may be unsigned or unnotarized. Verify published checksums befo
 
 The Linux AppImage may add `--no-sandbox` when the host disables unprivileged user namespaces. On restrictive Debian or Ubuntu systems, use the DEB package if you do not want that fallback.
 
-Review provider terms and usage rules before connecting. Stop a workflow when a provider refuses an action or restricts an account; local permissions do not override those decisions.
+Review provider terms, data-retention settings, and usage rules before connecting. A direct API does not by itself satisfy an organization's security or compliance requirements. Stop a workflow when a provider refuses an action or restricts an account; local permissions do not override those decisions.
 
 See [Setup and help](docs/setup.md) for account, permissions, and recovery guidance.
 

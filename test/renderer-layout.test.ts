@@ -107,8 +107,8 @@ it('keeps page titles and supporting text compact at the default scale', () => {
 it('centers the colored GitHub and Telegram links in the title bar beside each other', async () => {
   const links = [...document.querySelectorAll<HTMLButtonElement>('.app-topbar-social-links button')];
   expect(links.map(button => [button.getAttribute('aria-label'), button.type, button.dataset.url])).toEqual([
-    ['GitHub', 'button', 'https://google.com'],
-    ['Telegram', 'button', 'https://google.com']
+    ['GitHub', 'button', 'https://github.com/Marco260104/neuraflok'],
+    ['Telegram', 'button', 'https://t.me/neura_flok']
   ]);
   expect(links.every(button => button.tagName === 'BUTTON')).toBe(true);
   expect(mainSource).toContain('void run(api.openLink(url, { external: true }));');
@@ -643,6 +643,13 @@ describe('the settings sheet', () => {
     for (const field of pane.querySelectorAll('select, textarea')) {
       // Interface language persists in the renderer; the event/storage behavior is covered by renderer-i18n, independently of the app configuration channel.
       if (field.id === 'uiLanguage') continue;
+      // Extra API headers are encrypted separately from app config and are only committed by the two explicit secure-storage actions.
+      if (field.id === 'goalCustomHeaders') {
+        expect(chatGoalSettingsEventsSource).toContain("$('goalCustomHeadersSave').addEventListener('click'");
+        expect(chatGoalSettingsEventsSource).toContain("$('goalCustomHeadersRemove').addEventListener('click'");
+        expect(chatGoalSettingsEventsSource).toContain('api.setCustomProviderHeaders(submitted)');
+        continue;
+      }
       expect(listened![1], `#${field.id} never saves`).toContain(`'${field.id}'`);
     }
   });

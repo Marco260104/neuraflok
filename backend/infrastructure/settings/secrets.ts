@@ -38,7 +38,7 @@ function enqueue<T>(operation: () => Promise<T>): Promise<T> {
 
 /** `bridgeToken` is not a user credential: it is the bearer token the paired browser extension presents. It lives here anyway so it is encrypted at rest and stays out of config.json, the log and the renderer. */
 /** `bridgeToken` is not a user credential either way; `openRouterApiKey` and `customProviderApiKey` are credentials a *model* can cause to be spent (Goal/Loop drafts), so they live under the same OS-backed encrypted blob as the rest and never leave the main process. */
-export type SecretKey = 'openaiChatApiKey' | 'bridgeToken' | 'openRouterApiKey' | 'customProviderApiKey';
+export type SecretKey = 'openaiChatApiKey' | 'bridgeToken' | 'openRouterApiKey' | 'customProviderApiKey' | 'customProviderHeaders';
 
 export function initSecretsPath(userDataDir: string): void {
   secretsPath = path.join(userDataDir, FILE_NAME);

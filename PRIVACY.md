@@ -1,40 +1,41 @@
 # Privacy policy
 
-Effective date: 19 October 2026
+Effective date: 30 October 2026
 
-## Summary
+## Scope
 
-NEURAFLOK does not collect, sell, share, or receive your personal data. The project does not run an account service, analytics backend, or crash reporter. The app runs on your computer.
+This policy covers the NEURAFLOK desktop app and its bundled browser companion. The app runs locally and does not require a NEURAFLOK account.
 
-## What stays on your computer
+## Data stored on your device
 
-NEURAFLOK stores workspace data locally, including conversations, session history, settings, approved folders, and optional API credentials. Credentials use the operating system's secure storage. Local logs and recovery files stay on disk to support the app.
+NEURAFLOK does not collect, sell, share, or receive your personal data through its own services. Conversation and project content is sent to a provider only when you choose to use that provider; the provider's own policies then apply.
 
-The maintainers of NEURAFLOK cannot see that data. Uninstalling the app or deleting its data folder removes it from this computer.
+NEURAFLOK stores conversation history, settings, workspace references, approved folders, task state, and recovery data on your computer. API credentials are stored through the operating system's secure credential storage when it is available. Local diagnostics and recovery files can contain paths, provider status, or conversation-related details; review them before sharing.
 
-## What NEURAFLOK does not do
+The maintainers do not receive local chats, files, credentials, or diagnostics through a NEURAFLOK telemetry or analytics service. Local data remains until you delete it or remove the app's data directory; uninstalling may not remove that directory automatically.
 
-- Create NEURAFLOK user accounts
-- Upload chats, files, or diagnostics to NEURAFLOK
-- Run advertising, profiling, or third-party product analytics
-- Sell or rent personal information
+## Information sent to services you choose
 
-## Providers you connect
+When you send a prompt, conversation context, attachment, or project excerpt through a signed-in provider session or API, that provider receives the content needed to answer. If you enable tools or automation, tool results and follow-up instructions may also be sent to the selected model. The provider's own privacy policy, retention settings, terms, and account plan apply.
 
-When you use DeepSeek, Kimi, Qwen, Z AI, OpenAI, OpenRouter, or another endpoint you configure, that provider receives the prompts, files, and account activity you send through their session or API. Their privacy policies and terms apply. NEURAFLOK does not operate those services and does not get a copy of that traffic.
+For API chats, the desktop process sends the stored API credential to the configured API endpoint. Credentials are not placed in the renderer or sent to NEURAFLOK maintainers. A custom endpoint is controlled by whoever operates that endpoint.
+
+## Network requests
+
+The app checks GitHub Releases for updates and downloads a verified update when you request installation. GitHub receives ordinary network request metadata for those requests. The app may also contact providers or services you explicitly configure, such as model APIs, optional plugins, or skill sources.
 
 ## Browser companion
 
-The bundled companion observes supported provider pages on this computer so NEURAFLOK can confirm a signed-in session and deliver authorized work. It does not grant itself filesystem access and it does not send browsing data to NEURAFLOK.
+The companion reads supported provider pages in the integrated browser so the app can verify a session and deliver the work you submit. The provider page handles the conversation. The companion does not send your browsing history to NEURAFLOK maintainers and does not grant itself local file access.
+
+## Your choices
+
+Use only providers and endpoints you trust. Do not submit confidential, regulated, or third-party information unless your provider account and organization allow it. You can remove saved API credentials in Settings and delete local app data from your computer.
 
 ## Children
 
-NEURAFLOK is not directed at children under 13.
+NEURAFLOK is not designed for children under 13.
 
-## Changes
+## Changes and contact
 
-If this policy changes, this file is updated in the repository and in Settings → General → Legal.
-
-## Contact
-
-Report privacy or security issues through GitHub's private vulnerability reporting for this repository. Do not include conversation text, credentials, or personal paths.
+If this policy changes, the repository copy and the in-app copy in Settings → General → Legal are updated together. Report privacy or security concerns through GitHub's private vulnerability reporting. Do not include credentials, private conversation text, or personal file paths.

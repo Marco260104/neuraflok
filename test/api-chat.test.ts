@@ -133,6 +133,46 @@ it('uses structured API tool calls, carries project files as bounded text contex
   expect(events.some(event => event.kind === 'turn_end' && event.outcome === 'completed')).toBe(true);
 });
 
+it('uses the Anthropic Messages protocol for a direct Claude API chat', async () => {
+  const config = defaultConfig();
+  await saveConfig({
+    ...config,
+    ui: { ...config.ui, chatExecutor: 'api' },
+    providers: { api: { kind: 'custom', baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic-messages' } },
+    goal: { ...config.goal, model: 'claude-test' }
+  });
+  await setSecret('customProviderApiKey', 'anthropic-chat-test-key');
+  const requests: Array<{ url: string; headers: Record<string, string>; body: Record<string, any> }> = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({ url: String(url), headers: init?.headers as Record<string, string>, body: JSON.parse(String(init?.body)) });
+    return Response.json({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'The greeting is ready.' }],
+      stop_reason: 'end_turn'
+    });
+  }));
+  const input = await enqueueInput({
+    id: randomUUID(), sessionId: null, text: 'Say hello.', mode: 'auto', dueAt: 0,
+    model: null, reasoningEffort: null
+  });
+
+  await runApiProviderInput(input);
+
+  expect(requests[0]?.url).toBe('https://api.anthropic.com/v1/messages');
+  expect(requests[0]?.headers).toMatchObject({ 'x-api-key': 'anthropic-chat-test-key', 'anthropic-version': expect.any(String) });
+  expect(requests[0]?.body).toMatchObject({ model: 'claude-test', max_tokens: expect.any(Number), messages: [{ role: 'user' }] });
+  await flushRecorder();
+  const events = await readEvents(input.id);
+  expect(events.some(event => event.kind === 'assistant_message' && event.message.text === 'The greeting is ready.')).toBe(true);
+  await saveConfig({
+    ...config,
+    roots: [{ name: 'workspace', path: workspace }],
+    ui: { ...config.ui, chatExecutor: 'api' },
+    providers: { api: { kind: 'custom', baseUrl: 'http://localhost:1234/v1' } },
+    goal: { ...config.goal, model: 'mock-model' }
+  });
+});
+
 it('continues an older API chat from the recorded history summary when its provider thread is unavailable', async () => {
   const bodies: Array<{ messages: Array<{ role: string; content?: string | null | Array<unknown> }> }> = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {

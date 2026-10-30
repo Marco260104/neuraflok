@@ -18,6 +18,18 @@ Provider accounts and model availability remain controlled by each provider. NEU
 
 The provider picker distinguishes a saved preference from a verified signed-in session. A provider without a verified session cannot receive browser work. Browser conversations stay bound to the provider where they were started.
 
+## API model connections
+
+Open **Settings → Manage models** to configure an API provider, credential, and model:
+
+- **OpenAI** connects directly to GPT models using your OpenAI API key.
+- **OpenRouter** exposes its live catalog, including Claude, GPT, and DeepSeek models.
+- **Custom API** connects to OpenAI Chat Completions-compatible services and directly to the Anthropic Messages API. Configure its name, base URL, protocol, chat path, optional models path, model ID, authentication header and prefix, API key, and optional extra headers. For DeepSeek, use `https://api.deepseek.com`; its model catalog can change over time.
+
+Custom APIs must implement the protocol selected in settings: OpenAI Chat Completions or Anthropic Messages. Extra headers and API keys are kept in the operating system's secure credential storage and are sent by the desktop process only to the endpoint you selected. APIs that expose neither protocol need a compatible gateway or a dedicated adapter; changing routes and headers cannot translate a proprietary request/response format.
+
+The browser-session/MCP workflow is designed for small project tasks. For a large corporate codebase or workloads with organization-wide governance, audit, or compliance requirements, use your organization's approved direct API or gateway and apply its controls. NEURAFLOK does not provide enterprise governance or compliance certification.
+
 For an API conversation, configure the endpoint, key, and model in **Settings → Models**. Credentials are held by the desktop process. Each API conversation keeps the endpoint and model selected when it was created.
 
 ## Projects and local tools

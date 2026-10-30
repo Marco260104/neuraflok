@@ -1,10 +1,10 @@
 {
   "name": "neuraflok",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "A desktop coding workspace for signed-in DeepSeek, Kimi, Qwen, and Z AI sessions with approved local tools.",
   "license": "MIT",
   "author": {
-    "name": "NEURAFLOK contributors",
+    "name": "Marco Torres",
     "email": "noreply@github.com"
   },
   "repository": {

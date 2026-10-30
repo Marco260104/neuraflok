@@ -145,6 +145,26 @@ export function createChatGoalSettingsEvents(applyGoal: (state: AppState, previo
         toast(t('Custom provider key removed'));
       }
     });
+    $('goalCustomHeadersSave').addEventListener('click', async () => {
+      const input = $<HTMLTextAreaElement>('goalCustomHeaders');
+      const submitted = input.value.trim();
+      if (!submitted) return;
+      const next = await run(api.setCustomProviderHeaders(submitted));
+      if (next) {
+        if (input.value.trim() === submitted) input.value = '';
+        goalModelPicker.invalidate();
+        applyGoal(next);
+        toast(t('Custom API headers stored'));
+      }
+    });
+    $('goalCustomHeadersRemove').addEventListener('click', async () => {
+      const next = await run(api.setCustomProviderHeaders(''));
+      if (next) {
+        goalModelPicker.invalidate();
+        applyGoal(next);
+        toast(t('Custom API headers removed'));
+      }
+    });
   }
   return wireGoal;
 }

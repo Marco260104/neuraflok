@@ -46,15 +46,15 @@ it('shows an animated spinner while uploading, then a file icon and visible uplo
     const uploading = renderer.attachmentCard(file, true, 'uploading');
     expect(uploading.querySelector('.attachment-icon .attachment-loading-spinner')).not.toBeNull();
     expect(uploading.querySelector('.attachment-icon.is-loading')).not.toBeNull();
-    expect(uploading.querySelector('.attachment-kind')?.textContent).toBe('Uploading…');
-    expect(uploading.querySelector('.attachment-kind .attachment-loading-label')).not.toBeNull();
-    expect(uploading.querySelector('.attachment-upload-status')).toBeNull();
+    expect(uploading.querySelector('.attachment-kind')?.textContent).toBe('File');
+    expect(uploading.querySelector('.attachment-details .attachment-upload-status.is-uploading .attachment-loading-label')?.textContent).toBe('Uploading…');
+    expect(uploading.querySelector('.attachment-details .attachment-upload-status .attachment-loading-spinner')).toBeNull();
 
     const sentWhileUploading = renderer.attachmentCard(file, false, 'uploading');
     expect(sentWhileUploading.querySelector('.attachment-icon .attachment-loading-spinner')).not.toBeNull();
-    expect(sentWhileUploading.querySelector('.attachment-kind')?.textContent).toBe('Uploading…');
-    expect(sentWhileUploading.querySelector('.attachment-kind .attachment-loading-label')).not.toBeNull();
-    expect(sentWhileUploading.querySelector('.attachment-upload-status')).toBeNull();
+    expect(sentWhileUploading.querySelector('.attachment-kind')?.textContent).toBe('File');
+    expect(sentWhileUploading.querySelector('.attachment-details .attachment-upload-status.is-uploading .attachment-loading-label')?.textContent).toBe('Uploading…');
+    expect(sentWhileUploading.querySelector('.attachment-details .attachment-upload-status .attachment-loading-spinner')).toBeNull();
 
     const ready = renderer.attachmentCard(file, true, 'ready');
     expect(ready.querySelector('.attachment-icon .i-file-text')).not.toBeNull();

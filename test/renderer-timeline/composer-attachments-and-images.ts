@@ -291,6 +291,23 @@ it.each(['image', 'txt', 'mixed', 'new-chat', 'after-turn'])('routes the compose
   const txt = { ...image, id: '22222222-2222-4333-8444-555555555555', name: 'notes.txt', mimeType: 'text/plain' };
   const files = kind === 'txt' ? [txt] : kind === 'mixed' ? [image, txt] : [image];
   (app.w as any).api.chooseFiles = async () => ({ ok: true, data: files });
+  if (kind === 'new-chat') {
+    const uploadedSession = {
+      ...summary([]), id: '2026-09-02-upload0001', conversationId: 'ds-00000000-0000-4000-8000-000000000111',
+      projectId: null, chatIds: [], title: 'Attachment upload'
+    };
+    const getSessionControls = (app.w as any).api.getSessionControls;
+    (app.w as any).api.ensureAttachmentSession = async () => ({ ok: true, data: uploadedSession });
+    (app.w as any).api.getSessionControls = async (id: string) => {
+      const result = await getSessionControls(id);
+      return id === uploadedSession.id
+        ? { ...result, data: { ...result.data, sessionId: id, conversationId: uploadedSession.conversationId, activeTurnId: null, canInject: false } }
+        : result;
+    };
+    (app.w as any).api.uploadProviderAttachments = async (sessionId: string, attachments: typeof files) => ({
+      ok: true, data: { sessionId, attachmentIds: attachments.map(file => file.id), ready: true }
+    });
+  }
   app.w.document.getElementById('attachImages')!.click(); await settle();
   expect(app.w.document.getElementById('immediateDeliveryLabel')!.textContent).toBe(
     kind === 'new-chat' ? 'Send' : ['txt', 'mixed'].includes(kind) ? 'After this turn' : 'Inject now');
@@ -354,7 +371,7 @@ it('uses the same separate image row for pending and recorded native attachments
     inputId: 'image-input', message: text('whats that'), attachments: [attachment] }]);
   const recorded = app.w.document.querySelector('.said.is-user')!;
   expect(recorded.querySelector('.message-attachments')?.nextElementSibling?.classList.contains('user-message-text')).toBe(true);
-  expect(recorded.querySelector('.message-attachments > img')?.getAttribute('alt')).toBe('meme.png');
+  expect(recorded.querySelector('.message-attachments .attachment-image-card > img')?.getAttribute('alt')).toBe('meme.png');
   expect(recorded.querySelector('.composer-image')).toBeNull();
 });
 
@@ -480,7 +497,7 @@ it('imports one physical file drop from the composer, timeline, or sidebar exact
   expect(api.dropFiles).toHaveBeenCalledTimes(3);
   expect(w.document.querySelectorAll('#composerImages .attachment-card')).toHaveLength(3);
   expect(w.document.getElementById('composerImages')!.textContent).toContain('dropped.md');
-  drop(w.document.getElementById('composer')!, 18);
+  drop(w.document.getElementById('composer')!, 48);
   await settle();
   expect(api.dropFiles).toHaveBeenCalledTimes(3);
   expect(w.document.querySelectorAll('#composerImages .attachment-card')).toHaveLength(3);

@@ -40,10 +40,12 @@ export function localizedGoalError(error: string): string {
 export function paintGoalProgress(runtime: ChatGoalProgressRuntime): void {
   let row = document.getElementById('goalLifecycle');
   if (!row) {
+    const anchor = document.getElementById('activeGoalRow');
+    if (!anchor) return;
     row = el('div', 'queued-input');
     row.id = 'goalLifecycle';
     row.setAttribute('role', 'status');
-    $('activeGoalRow').before(row);
+    anchor.before(row);
   }
   const progress = runtime.progress?.selection === runtime.selectionGeneration ? runtime.progress : null;
   const entry = progress?.inputId ? runtime.pendingComposerInputs.find(item => item.id === progress.inputId) : undefined;

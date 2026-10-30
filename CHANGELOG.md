@@ -6,6 +6,17 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.15] - 2026-10-30
+
+### Changed
+
+- Enlarge the NEURAFLOK mark in generated desktop and extension icons so it remains legible in small taskbar and launcher sizes.
+- Link the top-bar GitHub and Telegram buttons to the NEURAFLOK community destinations.
+- Clarify API model routes for OpenAI, OpenRouter, DeepSeek, and compatible endpoints, plus project-size guidance for corporate use.
+- Let users configure an OpenAI-compatible API endpoint's name, request paths, authentication header/prefix, and securely stored extra headers.
+- Update the English privacy policy and terms in the repository and in the app.
+- Publish the Windows installer without a signing requirement while trusted signing remains deferred; Windows may show a SmartScreen warning.
+
 ## [0.1.14] - 2026-10-29
 
 ### Fixed

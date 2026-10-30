@@ -98,7 +98,8 @@ export function createQueuedTaskList(runtime: Runtime) {
         runtime.toast(t('The queue changed during the move. Try again.'));
       void runtime.refreshInputQueue();
     };
-    const taskList = $('finishQueue');
+    const taskList = document.getElementById('finishQueue');
+    if (!taskList) return;
     taskList.hidden = queuedTasks.length === 0;
     const oldCards = new Map(
       [...taskList.children].map((node) => [

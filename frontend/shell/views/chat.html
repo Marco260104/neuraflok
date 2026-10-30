@@ -200,32 +200,56 @@
                     </select>
                   </div>
                   </div>
-                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Model providers</h2><p>Connect a provider once, then choose one of its available models.</p></div></header>
+                <header class="settings-section-head automation-section-head"><div><h2 class="settings-section-title">Model providers</h2><p>Connect an API provider once, then choose one of its available models.</p></div></header>
                 <div class="settings-surface pane">
                   <div class="setting">
                     <span class="setting-text">
                       <b id="goalProviderTitle">Provider</b>
-                      <em>OpenAI, OpenRouter, or an OpenAI-compatible endpoint such as Ollama, vLLM, or LM Studio.</em>
+                      <em>Connect OpenAI or OpenRouter, or configure an API with its URL, protocol, routes, authentication, and headers.</em>
                     </span>
                     <select id="goalProvider" aria-labelledby="goalProviderTitle">
-                      <option value="openai">OpenAI</option>
-                      <option value="openrouter">OpenRouter</option>
-                      <option value="custom">Custom compatible endpoint</option>
+                      <option value="openai">OpenAI API · GPT models</option>
+                      <option value="openrouter">OpenRouter API · Claude, GPT, DeepSeek</option>
+                      <option value="custom">Custom API · OpenAI or Anthropic compatible</option>
                     </select>
                   </div>
 
                   <div class="field" id="goalCustomPanel" hidden>
+                    <label for="goalCustomName">Provider name (optional)</label>
+                    <input id="goalCustomName" type="text" spellcheck="false" maxlength="80" placeholder="My API" autocomplete="off" />
+                    <label for="goalCustomProtocol">API format</label>
+                    <select id="goalCustomProtocol">
+                      <option value="openai-compatible">OpenAI Chat Completions compatible</option>
+                      <option value="anthropic-messages">Anthropic Messages API compatible</option>
+                    </select>
                     <label for="goalBaseUrl">Endpoint base URL</label>
                     <input id="goalBaseUrl" type="text" spellcheck="false" placeholder="http://localhost:11434/v1" autocomplete="off" />
-                    <p class="hint">https, or http on localhost. <code>/chat/completions</code> and <code>/models</code> are called under it.</p>
+                    <p class="hint">Use HTTPS, or HTTP on localhost. DeepSeek API: https://api.deepseek.com. The request format must match the API format selected above.</p>
+                    <label for="goalCustomChatPath">Chat endpoint path</label>
+                    <input id="goalCustomChatPath" type="text" spellcheck="false" placeholder="chat/completions" autocomplete="off" />
+                    <label for="goalCustomModelsPath">Models endpoint path (optional)</label>
+                    <input id="goalCustomModelsPath" type="text" spellcheck="false" placeholder="models" autocomplete="off" />
+                    <p class="hint">Paths are relative to the base URL. Leave the models path empty to enter the model ID manually.</p>
                     <label for="goalCustomModel">Model</label>
                     <input id="goalCustomModel" type="text" spellcheck="false" placeholder="llama3.1" autocomplete="off" />
-                    <p class="hint">Your endpoint's own model id, typed exactly as it serves it.</p>
+                    <p class="hint">Enter the exact model ID exposed by your API.</p>
+                    <label for="goalCustomAuthHeader">Authentication header (optional)</label>
+                    <input id="goalCustomAuthHeader" type="text" spellcheck="false" placeholder="Authorization" autocomplete="off" />
+                    <label for="goalCustomAuthPrefix">Authentication prefix</label>
+                    <input id="goalCustomAuthPrefix" type="text" spellcheck="false" placeholder="Bearer" autocomplete="off" />
+                    <p class="hint">For example, use header x-api-key with an empty prefix when required by your API.</p>
                     <label for="goalCustomKey">Endpoint API key (optional)</label>
                     <input id="goalCustomKey" type="password" spellcheck="false" placeholder="leave empty for a keyless local server" autocomplete="off" />
                     <p class="hint" id="goalCustomKeyState"></p>
                     <div class="step-actions">
                       <button class="btn" id="goalCustomKeyRemove" type="button">Remove stored key</button>
+                    </div>
+                    <label for="goalCustomHeaders">Additional headers (JSON, optional)</label>
+                    <textarea id="goalCustomHeaders" rows="3" spellcheck="false" maxlength="16000" placeholder='{"X-Custom-Tenant":"team-a"}'></textarea>
+                    <p class="hint" id="goalCustomHeadersState">Headers are stored securely and sent only to this configured endpoint.</p>
+                    <div class="step-actions">
+                      <button class="btn" id="goalCustomHeadersSave" type="button">Save headers</button>
+                      <button class="btn" id="goalCustomHeadersRemove" type="button">Remove stored headers</button>
                     </div>
                   </div>
                   <div class="field" id="goalKeyField">

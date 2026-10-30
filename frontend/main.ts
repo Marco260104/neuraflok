@@ -231,7 +231,7 @@ function apply(next: AppState): void {
   paintConnectionCapsule(next);
   webModelLoading.paint(next);
   ui($('headerSub'), 'textContent', () => apiExecutor
-      ? `${config.providers.api.kind === 'custom' ? 'Custom endpoint' : config.providers.api.kind === 'openai' ? 'OpenAI' : 'OpenRouter'} · ${config.goal.model}`
+      ? `${config.providers.api.kind === 'custom' ? config.providers.api.name?.trim() || 'Custom endpoint' : config.providers.api.kind === 'openai' ? 'OpenAI' : 'OpenRouter'} · ${config.goal.model}`
       : `${WEB_PROVIDERS[selectedProvider].label} · browser session`);
 
   // App and extension update status.

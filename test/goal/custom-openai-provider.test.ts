@@ -10,6 +10,7 @@ import {
   settled,
 } from './context.js';
 import { describe, expect, it, vi } from 'vitest';
+import { resetGoalModelCatalogCache } from '../../backend/domains/automation/goal-model-catalog.js';
 
 describe('a custom OpenAI-compatible provider', () => {
   async function useCustom(over: Record<string, unknown> = {}): Promise<void> {
@@ -89,6 +90,38 @@ describe('a custom OpenAI-compatible provider', () => {
     // `exclude` is OpenRouter vocabulary; a custom endpoint gets the effort alone.
     expect(sent.body.reasoning_effort).toBe('high');
     expect(sent.body).not.toHaveProperty('reasoning');
+  });
+
+  it('sends Anthropic Messages requests with Anthropic auth and normalizes its forced decision tool', async () => {
+    await useCustom();
+    const config = defaultConfig();
+    await saveConfig({
+      ...config,
+      providers: { api: { kind: 'custom', baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic-messages' } },
+      goal: { ...config.goal, enabled: true, backend: 'api', loopBackend: 'api', model: 'claude-test', reasoning: 'default' }
+    });
+    await setSecret('customProviderApiKey', 'anthropic-test-key');
+    const session = await userSession('c-anthropic-1');
+    const sent: Array<{ url: string; headers: Record<string, string>; body: Record<string, any> }> = [];
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      sent.push({ url, headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) });
+      return Response.json({
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'toolu_decision', name: 'neuroflok_goal_decision', input: { action: 'continue', reply: 'inspect the parser' } }],
+        stop_reason: 'tool_use'
+      });
+    }) as never;
+
+    goal.startGoalDraft({ sessionId: session.id, conversationId: 'c-anthropic-1', turnId: 'g-1' });
+    const view = await settled('c-anthropic-1');
+
+    expect(view.stage).toBe('ready');
+    expect(sent[0]?.url).toBe('https://api.anthropic.com/v1/messages');
+    expect(sent[0]?.headers).toMatchObject({ 'x-api-key': 'anthropic-test-key', 'anthropic-version': expect.any(String) });
+    expect(sent[0]?.body.model).toBe('claude-test');
+    expect(sent[0]?.body.tool_choice).toEqual({ type: 'tool', name: 'neuroflok_goal_decision' });
+    expect(sent[0]?.body.tools[0].input_schema.required).toEqual(['action', 'reply']);
+    expect(JSON.stringify(sent[0]?.body)).not.toContain('response_format');
   });
 
   it('fails settled on an invalid base URL instead of retrying forever', async () => {
@@ -191,6 +224,41 @@ describe('a custom OpenAI-compatible provider', () => {
     expect(empty).toEqual({ models: [], total: 0 });
   });
 
+  it('loads the Anthropic model catalog across cursor pages', async () => {
+    const config = defaultConfig();
+    await saveConfig({
+      ...config,
+      providers: { api: { kind: 'custom', baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic-messages' } },
+      goal: { ...config.goal, enabled: true, backend: 'api', model: 'claude-a' }
+    });
+    await setSecret('customProviderApiKey', 'anthropic-catalog-test-key');
+    resetGoalModelCatalogCache();
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      urls.push(String(url));
+      if (urls.length === 1) return Response.json({
+        data: [{ id: 'claude-a', display_name: 'Claude A', max_input_tokens: 1000 }],
+        has_more: true,
+        last_id: 'claude-a'
+      });
+      return Response.json({
+        data: [{ id: 'claude-b', display_name: 'Claude B', max_input_tokens: 2000 }],
+        has_more: false,
+        last_id: 'claude-b'
+      });
+    }) as never;
+
+    const page = await goal.listGoalModels(0, 20);
+
+    expect(urls).toEqual([
+      'https://api.anthropic.com/v1/models?limit=1000',
+      'https://api.anthropic.com/v1/models?limit=1000&after_id=claude-a'
+    ]);
+    expect(page.models.map(model => model.id).sort()).toEqual(['claude-a', 'claude-b']);
+    expect(page.models.find(model => model.id === 'claude-a')).toMatchObject({ name: 'Claude A', contextLength: 1000 });
+    resetGoalModelCatalogCache();
+  });
+
   it('requires a key for OpenRouter but not for a custom endpoint', async () => {
     await saveConfig({
       ...defaultConfig(),
@@ -253,5 +321,32 @@ describe('a custom OpenAI-compatible provider', () => {
       expect(() => open(bad), bad).toThrow(/^invalid_provider/);
     }
     expect(apiSettings.resolveApiBaseUrl({ kind: 'openrouter', baseUrl: '' })).toBe('https://openrouter.ai/api/v1');
+  });
+
+  it('builds configurable relative routes and custom authentication headers without exposing saved extras', async () => {
+    await useCustom();
+    const endpoint = {
+      kind: 'custom' as const,
+      baseUrl: 'http://localhost:11434/v1',
+      name: 'Team gateway',
+      chatPath: 'tenant/chat/completions',
+      modelsPath: 'tenant/models',
+      authHeader: 'x-api-key',
+      authPrefix: ''
+    };
+    await setSecret('customProviderApiKey', 'synthetic-provider-key');
+    await setSecret('customProviderHeaders', '{"x-tenant-id":"synthetic-team"}');
+    expect(apiSettings.apiRequestUrl(endpoint, 'chat')).toBe('http://localhost:11434/v1/tenant/chat/completions');
+    expect(apiSettings.apiRequestUrl(endpoint, 'models')).toBe('http://localhost:11434/v1/tenant/models');
+    expect(apiSettings.apiRequestUrl({ ...endpoint, modelsPath: '' }, 'models')).toBeNull();
+    const headers = await apiSettings.apiRequestHeaders(endpoint, 'synthetic-provider-key');
+    expect(headers).toMatchObject({
+      'content-type': 'application/json',
+      'x-api-key': 'synthetic-provider-key',
+      'x-tenant-id': 'synthetic-team'
+    });
+    expect(headers['x-tenant-id']).not.toContain('synthetic-provider-key');
+    expect(() => apiSettings.apiRequestUrl({ ...endpoint, chatPath: 'https://evil.example/chat' }, 'chat')).toThrow(/relative path/i);
+    await setSecret('customProviderHeaders', '');
   });
 });

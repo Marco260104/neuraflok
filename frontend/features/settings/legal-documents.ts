@@ -14,44 +14,45 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
     title: 'Privacy policy',
     markdown: `# Privacy policy
 
-Effective date: 19 October 2026
+Effective date: 30 October 2026
 
-## Summary
+## Scope
 
-NEURAFLOK does not collect, sell, share, or receive your personal data. The project does not run an account service, analytics backend, or crash reporter. The app runs on your computer.
+This policy covers the NEURAFLOK desktop app and its bundled browser companion. The app runs locally and does not require a NEURAFLOK account.
 
-## What stays on your computer
+## Data stored on your device
 
-NEURAFLOK stores workspace data locally, including conversations, session history, settings, approved folders, and optional API credentials. Credentials use the operating system's secure storage. Local logs and recovery files stay on disk to support the app.
+NEURAFLOK does not collect, sell, share, or receive your personal data through its own services. Conversation and project content is sent to a provider only when you choose to use that provider; the provider's own policies then apply.
 
-The maintainers of NEURAFLOK cannot see that data. Uninstalling the app or deleting its data folder removes it from this computer.
+NEURAFLOK stores conversation history, settings, workspace references, approved folders, task state, and recovery data on your computer. API credentials are stored through the operating system's secure credential storage when it is available. Local diagnostics and recovery files can contain paths, provider status, or conversation-related details; review them before sharing.
 
-## What NEURAFLOK does not do
+The maintainers do not receive local chats, files, credentials, or diagnostics through a NEURAFLOK telemetry or analytics service. Local data remains until you delete it or remove the app's data directory; uninstalling may not remove that directory automatically.
 
-- Create NEURAFLOK user accounts
-- Upload chats, files, or diagnostics to NEURAFLOK
-- Run advertising, profiling, or third-party product analytics
-- Sell or rent personal information
+## Information sent to services you choose
 
-## Providers you connect
+When you send a prompt, conversation context, attachment, or project excerpt through a signed-in provider session or API, that provider receives the content needed to answer. If you enable tools or automation, tool results and follow-up instructions may also be sent to the selected model. The provider's own privacy policy, retention settings, terms, and account plan apply.
 
-When you use DeepSeek, Kimi, Qwen, Z AI, OpenAI, OpenRouter, or another endpoint you configure, that provider receives the prompts, files, and account activity you send through their session or API. Their privacy policies and terms apply. NEURAFLOK does not operate those services and does not get a copy of that traffic.
+For API chats, the desktop process sends the stored API credential to the configured API endpoint. Credentials are not placed in the renderer or sent to NEURAFLOK maintainers. A custom endpoint is controlled by whoever operates that endpoint.
+
+## Network requests
+
+The app checks GitHub Releases for updates and downloads a verified update when you request installation. GitHub receives ordinary network request metadata for those requests. The app may also contact providers or services you explicitly configure, such as model APIs, optional plugins, or skill sources.
 
 ## Browser companion
 
-The bundled companion observes supported provider pages on this computer so NEURAFLOK can confirm a signed-in session and deliver authorized work. It does not grant itself filesystem access and it does not send browsing data to NEURAFLOK.
+The companion reads supported provider pages in the integrated browser so the app can verify a session and deliver the work you submit. The provider page handles the conversation. The companion does not send your browsing history to NEURAFLOK maintainers and does not grant itself local file access.
+
+## Your choices
+
+Use only providers and endpoints you trust. Do not submit confidential, regulated, or third-party information unless your provider account and organization allow it. You can remove saved API credentials in Settings and delete local app data from your computer.
 
 ## Children
 
-NEURAFLOK is not directed at children under 13.
+NEURAFLOK is not designed for children under 13.
 
-## Changes
+## Changes and contact
 
-If this policy changes, this file is updated in the repository and in Settings → General → Legal.
-
-## Contact
-
-Report privacy or security issues through GitHub's private vulnerability reporting for this repository. Do not include conversation text, credentials, or personal paths.
+If this policy changes, the repository copy and the in-app copy in Settings → General → Legal are updated together. Report privacy or security concerns through GitHub's private vulnerability reporting. Do not include credentials, private conversation text, or personal file paths.
 `
   },
   terms: {
@@ -59,37 +60,39 @@ Report privacy or security issues through GitHub's private vulnerability reporti
     title: 'Terms of use',
     markdown: `# Terms of use
 
-Effective date: 19 October 2026
+Effective date: 30 October 2026
 
-These terms describe how you may use the NEURAFLOK desktop app. The MIT License in LICENSE covers the software itself. Using the app means you accept both.
+These terms describe use of the NEURAFLOK desktop app. The source code is separately licensed under the MIT License in LICENSE. These terms do not replace the terms of any provider or service you connect.
 
-## The software
+## Independent software
 
-NEURAFLOK is provided as-is, without a paid service, uptime promise, or support contract. See LICENSE for the full warranty disclaimer.
+NEURAFLOK is an independent project created and maintained by Marco Torres with community contributions. It is not affiliated with or endorsed by DeepSeek, Anthropic, OpenAI, OpenRouter, Kimi, Qwen, Z AI, or a browser vendor. Product and company names identify services users may choose to connect.
 
-## Independent project
+## Providers, accounts, and costs
 
-NEURAFLOK is independent and is not affiliated with or endorsed by DeepSeek, Kimi, Qwen, Z AI, OpenAI, OpenRouter, or any browser vendor. Names of those services appear only to describe connections you choose to make.
+NEURAFLOK does not collect your personal data through an account, analytics, or telemetry service. When you send content to a connected provider, that provider processes it under its own terms and privacy policy.
 
-## Your accounts and their rules
+You are responsible for your provider accounts, API keys, model selection, usage, charges, and compliance with each provider's terms. A provider may change availability, prices, limits, or supported models. NEURAFLOK does not control provider services and cannot guarantee that a request will be accepted or completed.
 
-You use your own provider accounts and API keys. You must follow each provider's terms, usage rules, and limits. Local permissions in NEURAFLOK do not override a provider refusal, ban, or rate limit. Stop a workflow when a provider blocks the action.
+## Projects and local capabilities
 
-## Local tools
+The current browser-session and local MCP workflow is designed for small project tasks. It can read or change files and run commands only when the corresponding project, folder, and capability have been made available in the app. These controls reduce accidental actions; they are not an operating-system sandbox or a security boundary against malicious code running as your user.
 
-Terminal commands, file tools, and other local capabilities run with your operating-system user. Approved folders and capability switches reduce accidents; they are not a sandbox against malware or against another process running as you. You are responsible for the folders you approve and the commands you allow.
+For large corporate repositories or workloads that require organization-wide access controls, audit, retention, or compliance guarantees, use your organization's approved direct model API or gateway and its enterprise controls. NEURAFLOK does not provide an enterprise control plane, compliance certification, or corporate service-level agreement. A direct API connection does not by itself make a workflow compliant; follow your organization's policies.
 
-## Model output
+You are responsible for backups, reviewing proposed changes and commands, and ensuring that you have the right to share project content with the selected model provider.
 
-Answers from a connected model are generated by that provider, not by NEURAFLOK. They are not legal, medical, financial, or other professional advice. Review them before you rely on them or send them onward.
+## Generated content
 
-## No data collection by NEURAFLOK
+Model output is produced by the provider you selected and may be incomplete or incorrect. Review it before relying on it, executing it, or sharing it. It is not professional legal, medical, financial, or security advice.
 
-NEURAFLOK does not collect your personal data. See the Privacy policy in this repository and in Settings.
+## Availability and warranty
 
-## Changes
+NEURAFLOK is provided as-is without a paid service, uptime promise, or support contract. The MIT License contains the software warranty disclaimer and limitation applicable to the source distribution. Nothing in these terms creates a provider relationship or guarantees that a model, account, or update service will remain available.
 
-If these terms change, this file is updated in the repository and in Settings → General → Legal.
+## Updates and changes
+
+The app may check GitHub Releases for updates. These terms may change; the current version is published in this repository and in Settings → General → Legal.
 
 ## Contact
 
@@ -101,7 +104,7 @@ Use GitHub issues for product questions and GitHub's private vulnerability repor
     title: 'MIT License',
     markdown: `MIT License
 
-Copyright (c) 2026 NEURAFLOK contributors
+Copyright (c) 2026 Marco Torres and contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

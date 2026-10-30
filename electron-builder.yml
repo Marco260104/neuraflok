@@ -1,6 +1,6 @@
 appId: com.neuraflok.desktop
 productName: NEURAFLOK
-copyright: Copyright © 2026 NEURAFLOK contributors
+copyright: Copyright © 2026 Marco Torres and contributors
 
 directories:
   output: release
@@ -64,6 +64,8 @@ win:
       to: node_modules
       filter: ['**/*']
   extraResources:
+    - from: build/runtime-icon.png
+      to: runtime-icon.png
     - from: resources/packaging/native/win32/${arch}/node_modules/@img/sharp-win32-${arch}/README.md
       to: THIRD-PARTY-NOTICES-sharp-win32-${arch}.md
     - from: resources/packaging/rg/win32/${arch}

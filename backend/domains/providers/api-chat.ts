@@ -10,7 +10,7 @@ import {
   openaiTools,
 } from '../../../contracts/chat-protocol.js';
 import { getConfig, effectiveCapabilities } from '../../infrastructure/settings/config.js';
-import { apiProviderKey, configuredApiEndpoint, resolveApiBaseUrl } from './api-settings.js';
+import { apiProviderKey, apiRequestUrl, configuredApiEndpoint } from './api-settings.js';
 import { completeApiChat, type ApiChatSettings, type ApiMessage, type ApiToolCall } from './api-chat-protocol.js';
 import { persistApiThread, readApiThread, trimApiThread, type ApiThread } from './api-chat-thread-store.js';
 import { summarizeProviderConversation, summarizeSessionHistory, sessionHistoryMessages, textOnlyApiMessages } from './conversation-summary.js';
@@ -69,12 +69,12 @@ async function resolveApiChatSettings(sessionId?: string): Promise<ApiChatSettin
   if (endpoint.kind === 'custom' && !endpoint.baseUrl.trim()) {
     throw new Error('Add the API endpoint URL in Settings before sending.');
   }
-  const baseUrl = resolveApiBaseUrl(endpoint);
+  if (!apiRequestUrl(endpoint, 'chat')) throw new Error('Add the API chat endpoint path in Settings before sending.');
   const key = await apiProviderKey(endpoint.kind);
   if (endpoint.kind !== 'custom' && !key) {
     throw new Error(`Add your ${endpoint.kind === 'openai' ? 'OpenAI' : 'OpenRouter'} key in Manage models before sending.`);
   }
-  return { endpoint, baseUrl, model, key };
+  return { endpoint, model, key };
 }
 
 /** Validate settings before a durable input is accepted. */
@@ -266,8 +266,7 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
     throw new Error('NEURAFLOK could not accept this API message into the local session.');
   }
   await observeSessionModel(sessionId, conversationId, settings.model, Date.now(), undefined, {
-    kind: settings.endpoint.kind,
-    baseUrl: settings.endpoint.baseUrl
+    ...settings.endpoint
   });
   const abort = new AbortController();
   const onAbort = () => abort.abort(signal?.reason);

@@ -74,3 +74,38 @@ it('saves a custom deployment id and returns to the known OpenRouter model', asy
   expect(mounted.calls[2].providers.api).toMatchObject({ kind: 'openrouter' });
   expect(mounted.calls[2].goal).toMatchObject({ model: 'deepseek/deepseek-v4-flash' });
 });
+
+it('loads and saves a custom API name, routes, and authentication settings', async () => {
+  const mounted = await mountChat({}, [], {}, { model: 'team-model' }, {
+    kind: 'custom',
+    baseUrl: 'https://api.example.test/v1',
+    protocol: 'anthropic-messages',
+    name: 'Team gateway',
+    chatPath: 'tenant/chat/completions',
+    modelsPath: 'tenant/models',
+    authHeader: 'x-api-key',
+    authPrefix: ''
+  });
+  const w = mounted.window;
+  expect((w.document.getElementById('goalCustomName') as HTMLInputElement).value).toBe('Team gateway');
+  expect((w.document.getElementById('goalCustomProtocol') as HTMLSelectElement).value).toBe('anthropic-messages');
+  expect((w.document.getElementById('goalCustomChatPath') as HTMLInputElement).value).toBe('tenant/chat/completions');
+  expect((w.document.getElementById('goalCustomModelsPath') as HTMLInputElement).value).toBe('tenant/models');
+  expect((w.document.getElementById('goalCustomAuthHeader') as HTMLInputElement).value).toBe('x-api-key');
+  expect((w.document.getElementById('goalCustomAuthPrefix') as HTMLInputElement).value).toBe('');
+
+  const name = w.document.getElementById('goalCustomName') as HTMLInputElement;
+  name.value = 'Production gateway';
+  name.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(mounted.calls).toHaveLength(1));
+  expect(mounted.calls[0].providers.api).toMatchObject({
+    kind: 'custom',
+    protocol: 'anthropic-messages',
+    name: 'Production gateway',
+    baseUrl: 'https://api.example.test/v1',
+    chatPath: 'tenant/chat/completions',
+    modelsPath: 'tenant/models',
+    authHeader: 'x-api-key',
+    authPrefix: ''
+  });
+});

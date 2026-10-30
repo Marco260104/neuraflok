@@ -165,6 +165,8 @@ export interface AppState {
   hasOpenAiModelKey?: boolean;
   /** True when a custom-provider key is stored. Only meaningful beside a custom endpoint, which may also run keyless. */
   hasCustomProviderKey: boolean;
+  /** True when optional custom API headers are stored in secure OS credential storage. */
+  hasCustomProviderHeaders?: boolean;
   bridge: BridgeStatus;
   update: UpdateStatus;
   /** Present only on macOS once the in-process native backend has reported its live TCC state. */

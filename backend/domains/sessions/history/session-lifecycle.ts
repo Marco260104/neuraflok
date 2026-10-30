@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isApiConversationId } from '../../../../contracts/chat-protocol.js';
 import type { Handoff, ReasoningEffort, SessionOrigin, SessionSummary, WorkerAssignmentSummary } from '../../../../contracts/session.js';
 import type { ApiProviderSettings } from '../../../../contracts/types.js';
+import { isApiProviderSettings } from '../../../../contracts/settings.js';
 import { isWebProviderConversationId } from '../../../../contracts/web-providers.js';
 import { logInfo, logWarn } from '../../../infrastructure/settings/logger.js';
 import { automaticTitle, firstTitleMessage, projectPageTitle, providerTitleIgnored, userTitle } from './title.js';
@@ -118,8 +119,7 @@ export function createSessionLifecycle(runtime: Runtime) {
     apiProvider?: ApiProviderSettings
   ): Promise<void> {
     if (!/^[a-zA-Z0-9 ._~:/@-]{1,160}$/.test(model) || !Number.isFinite(observedAt) ||
-        (apiProvider !== undefined && (!apiProvider || !['openai', 'openrouter', 'custom'].includes(apiProvider.kind) ||
-          typeof apiProvider.baseUrl !== 'string' || apiProvider.baseUrl.length > 2048))) return;
+        (apiProvider !== undefined && !isApiProviderSettings(apiProvider))) return;
     const entry = await runtime.ensureOpen(id);
     await runtime.enqueueSessionOperation(entry, 'model-selection', async () => {
       if (entry.summary.conversationId !== conversationId ||
@@ -127,7 +127,7 @@ export function createSessionLifecycle(runtime: Runtime) {
       const selectedModel = {
         conversationId, model, observedAt,
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(apiProvider ? { apiProvider: { kind: apiProvider.kind, baseUrl: apiProvider.baseUrl } } : {})
+        ...(apiProvider ? { apiProvider: { ...apiProvider } } : {})
       };
       if (JSON.stringify(entry.summary.selectedModel) === JSON.stringify(selectedModel)) return;
       const staged = { ...entry.summary, selectedModel };

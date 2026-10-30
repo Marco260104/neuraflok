@@ -1,6 +1,6 @@
 // Provider-neutral Goal and Loop decision requests through browser pages or configured APIs.
 
-import { httpFailure, normalizeGoalDecision, readGoalCompletion, GOAL_OUTPUT_PROTOCOL, GOAL_RESPONSE_FORMAT, LOOP_OUTPUT_PROTOCOL, LOOP_RESPONSE_FORMAT } from './goal-response.js';
+import { boundedResponseText, httpFailure, normalizeGoalDecision, readGoalCompletion, GOAL_OUTPUT_PROTOCOL, GOAL_RESPONSE_FORMAT, LOOP_OUTPUT_PROTOCOL, LOOP_RESPONSE_FORMAT } from './goal-response.js';
 import type { GoalDecision } from './goal-response.js';
 import { GOAL_REFERENCE_CONTRACT, clip, type ChatMessage } from './goal-context.js';
 import { requestProviderDecision } from './provider-decision.js';
@@ -8,13 +8,18 @@ import { GOAL_LOOP_STOP_REFUSED } from '../../../contracts/automation/goal-promp
 import { MAX_PROVIDER_MESSAGE_CHARS } from '../../../contracts/messaging/provider-message-envelope.js';
 import type { GoalBackend, GoalMode, GoalReasoning } from '../../../contracts/types.js';
 import type { ApiProviderEndpoint } from '../providers/api-settings.js';
-import { resolveApiBaseUrl } from '../providers/api-settings.js';
+import { apiRequestHeaders, apiRequestUrl } from '../providers/api-settings.js';
 import { API_ATTRIBUTION_HEADERS as ATTRIBUTION_HEADERS } from '../providers/api-attribution.js';
 import { getConfig } from '../../infrastructure/settings/config.js';
 import { logWarn } from '../../infrastructure/settings/logger.js';
 import { providerForConversationId, WEB_PROVIDERS } from '../../../contracts/web-providers.js';
 
 const LOOP_ATTEMPTS = 3;
+
+function apiProviderLabel(endpoint: ApiProviderEndpoint): string {
+  return endpoint.kind === 'custom' ? endpoint.name?.trim() || 'Custom API'
+    : endpoint.kind === 'openai' ? 'OpenAI' : 'OpenRouter';
+}
 
 // One OpenRouter decision, with none of the draft bookkeeping around it. Two callers want exactly this and nothing more: `run`, answering a finished turn inside a chat the app is recording, and `draftOpeningMessage`, answering a chat that does not exist yet and therefore has no draft, no session and no conversation id at all. Sharing one request is what keeps the opening message under the same protocol guard, the same body caps and the same refusal rules as every other message this app has ever typed.
 export interface GoalRequest {
@@ -37,6 +42,60 @@ export interface GoalRequest {
   signal: AbortSignal;
   /** Called as legacy SSE text arrives, so a streaming panel can show it being written. */
   publish?: (text: string) => void;
+}
+
+async function requestAnthropicDecision(
+  request: GoalRequest,
+  url: string,
+  providerHeaders: Record<string, string>,
+  referenceContract: string
+): Promise<GoalDecision | { action: 'http'; error: string; retryAfterMs?: number }> {
+  const protocol = request.mode === 'loop' ? LOOP_OUTPUT_PROTOCOL : GOAL_OUTPUT_PROTOCOL;
+  const toolName = 'neuroflok_goal_decision';
+  const response = await fetch(url, {
+    method: 'POST',
+    redirect: 'error',
+    headers: providerHeaders,
+    signal: request.signal,
+    body: JSON.stringify({
+      model: request.model,
+      max_tokens: 2048,
+      system: [...request.system, protocol, referenceContract].join('\n\n'),
+      messages: [{ role: 'user', content: JSON.stringify(request.messages) + '\n\n' + request.trailer }],
+      tools: [{
+        name: toolName,
+        description: 'Return the Goal or Loop decision for this turn.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: request.mode === 'loop' ? ['continue'] : ['stop', 'continue'] },
+            reply: { type: 'string' }
+          },
+          required: ['action', 'reply'],
+          additionalProperties: false
+        }
+      }],
+      tool_choice: { type: 'tool', name: toolName }
+    })
+  });
+  if (!response.ok || !response.body) {
+    const header = response.headers.get('retry-after');
+    const delay = header === null ? NaN : /^\d+(?:\.\d+)?$/.test(header.trim()) ? Number(header) * 1000 : Date.parse(header) - Date.now();
+    return { action: 'http', error: await httpFailure(response, apiProviderLabel(request.endpoint)), ...(Number.isFinite(delay) ? { retryAfterMs: Math.max(0, delay) } : {}) };
+  }
+  const raw = await boundedResponseText(response, 64 * 1024);
+  let payload: unknown;
+  try { payload = raw ? JSON.parse(raw) : null; }
+  catch { throw new Error('malformed_completion_response'); }
+  if (!payload || typeof payload !== 'object') throw new Error('malformed_completion_response');
+  const content = (payload as { content?: unknown }).content;
+  if (!Array.isArray(content)) throw new Error('malformed_completion_response');
+  const decision = content.find((block): block is { type: string; name?: string; input?: unknown } =>
+    Boolean(block && typeof block === 'object' && !Array.isArray(block) && 'type' in block && (block as { type?: unknown }).type === 'tool_use' && (block as { name?: unknown }).name === toolName));
+  if (!decision || !decision.input || typeof decision.input !== 'object' || Array.isArray(decision.input)) {
+    return { action: 'invalid', error: 'invalid_goal_decision_schema' };
+  }
+  return normalizeGoalDecision(JSON.stringify(decision.input), false);
 }
 
 // One request, one answer — including "no usable answer". There is deliberately no retry here. A provider error, a cut stream and a reply in a shape this app cannot read are all the same event, and whether asking again is worth anything depends on facts this function cannot see: whether the turn being answered is still the last one, whether the user has started typing, whether Goal is even switched on. Those live in the page's Goal loop, which reads the failure back off `retryable` and asks again on its own clock. A second attempt from in here would be spent against a turn nobody rechecked.
@@ -82,11 +141,17 @@ export async function requestGoalDecision(request: GoalRequest): Promise<GoalDec
     request.signal.throwIfAborted();
     return decision;
   }
-  let baseUrl: string;
+  let url: string | null;
+  let providerHeaders: Record<string, string>;
   try {
-    baseUrl = resolveApiBaseUrl(request.endpoint);
+    url = apiRequestUrl(request.endpoint, 'chat');
+    if (!url) throw new Error('The configured API has no chat endpoint.');
+    providerHeaders = await apiRequestHeaders(request.endpoint, request.key);
   } catch (error) {
     return { action: 'http', error: (error as Error).message };
+  }
+  if (request.endpoint.kind === 'custom' && request.endpoint.protocol === 'anthropic-messages') {
+    return requestAnthropicDecision(request, url, providerHeaders, referenceContract);
   }
   const custom = request.endpoint.kind === 'custom';
   const openrouter = request.endpoint.kind === 'openrouter';
@@ -115,22 +180,18 @@ export async function requestGoalDecision(request: GoalRequest): Promise<GoalDec
     body['reasoning_effort'] = request.reasoning;
   }
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(url, {
     method: 'POST',
     // A redirect must not hand conversation content or credentials to a different endpoint.
     redirect: 'error',
-    headers: {
-      ...(request.key ? { authorization: `Bearer ${request.key}` } : {}),
-      'content-type': 'application/json',
-      ...(openrouter ? ATTRIBUTION_HEADERS : {})
-    },
+    headers: { ...providerHeaders, ...(openrouter ? ATTRIBUTION_HEADERS : {}) },
     body: JSON.stringify(body),
     signal: request.signal
   });
   if (!response.ok || !response.body) {
     const header = response.headers.get('retry-after');
     const delay = header === null ? NaN : /^\d+(?:\.\d+)?$/.test(header.trim()) ? Number(header) * 1000 : Date.parse(header) - Date.now();
-    return { action: 'http', error: await httpFailure(response), ...(Number.isFinite(delay) ? { retryAfterMs: Math.max(0, delay) } : {}) };
+    return { action: 'http', error: await httpFailure(response, apiProviderLabel(request.endpoint)), ...(Number.isFinite(delay) ? { retryAfterMs: Math.max(0, delay) } : {}) };
   }
   const completion = await readGoalCompletion(response, request.publish);
   return normalizeGoalDecision(completion.text, completion.legacy);

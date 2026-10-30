@@ -153,12 +153,12 @@ export function createChatProviderPicker(runtime: Runtime) {
     $('chatModelPicker').dataset.executor = executor;
   }
 
-  function apiProviderName(kind: Config['providers']['api']['kind']): string {
-    return kind === 'openai'
+  function apiProviderName(provider: Config['providers']['api']): string {
+    return provider.kind === 'openai'
       ? 'OpenAI'
-      : kind === 'openrouter'
+      : provider.kind === 'openrouter'
         ? 'OpenRouter'
-        : 'Custom endpoint';
+        : provider.name?.trim() || 'Custom endpoint';
   }
 
   function configuredApiProvider(state: AppState): Config['providers']['api'] {
@@ -290,7 +290,7 @@ export function createChatProviderPicker(runtime: Runtime) {
       el(
         'small',
         '',
-        ready ? apiProviderName(provider.kind) : t('Set up in Manage models'),
+        ready ? apiProviderName(provider) : t('Set up in Manage models'),
       ),
     );
     choose.append(icon, text);
@@ -311,7 +311,7 @@ export function createChatProviderPicker(runtime: Runtime) {
     $('chatModelPickerMark').replaceChildren(currentMark);
     ui($('chatModelPickerTrigger'), 'title', () =>
       ready && executor === 'api'
-        ? `${apiProviderName(provider.kind)} · ${model}`
+        ? `${apiProviderName(provider)} · ${model}`
         : currentName,
     );
     $('chatModelPickerDot').dataset.state =

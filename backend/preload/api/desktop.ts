@@ -37,6 +37,7 @@ export function createDesktopApi() {
     setGoalKey: (value: string) => call<AppState>('secret:set', { value, key: 'openRouterApiKey' }),
     setOpenAiModelKey: (value: string) => call<AppState>('secret:set', { value, key: 'openaiChatApiKey' }),
     setCustomProviderKey: (value: string) => call<AppState>('secret:set', { value, key: 'customProviderApiKey' }),
+    setCustomProviderHeaders: (value: string) => call<AppState>('secret:set', { value, key: 'customProviderHeaders' }),
     listGoalModels: (offset: number, query = '') => call<GoalModelPage>('goal:models', { offset, query }),
     saveDiagnosticsReport: () => call<{ saved: false } | { saved: true; name: string }>('diagnostics:saveReport'),
     requestDesktopAccessibility: () => call<AppState>('desktop:requestAccessibility'),

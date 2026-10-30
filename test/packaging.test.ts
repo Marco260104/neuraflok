@@ -328,7 +328,7 @@ describe('cross-platform packaging targets', () => {
     expect(builder.linux.syncDesktopName).toBe(true);
     expect(pkg.license).toBe('MIT');
     expect(pkg.author).toEqual({
-      name: 'NEURAFLOK contributors',
+      name: 'Marco Torres',
       email: 'noreply@github.com',
     });
     expect(pkg.desktopName).toBe('com.neuraflok.desktop');

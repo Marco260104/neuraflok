@@ -111,10 +111,39 @@ export type GoalBackend = 'api' | 'web' | 'templates';
 // API endpoint settings are shared by chat execution and automation helpers.
 export const API_PROVIDERS = ['openrouter', 'openai', 'custom'] as const;
 export type ApiProviderKind = (typeof API_PROVIDERS)[number];
+export const API_PROTOCOLS = ['openai-compatible', 'anthropic-messages'] as const;
+export type ApiProtocol = (typeof API_PROTOCOLS)[number];
 
 export interface ApiProviderSettings {
   kind: ApiProviderKind;
   baseUrl: string;
+  /** Wire protocol used by a custom provider. */
+  protocol?: ApiProtocol;
+  /** Optional label for a user-configured OpenAI-compatible service. */
+  name?: string;
+  /** Relative path under baseUrl. Defaults to chat/completions. */
+  chatPath?: string;
+  /** Relative path under baseUrl. Empty disables model discovery. */
+  modelsPath?: string;
+  /** Custom authentication header name; defaults to Authorization. */
+  authHeader?: string;
+  /** Text placed before the API key; defaults to Bearer. Empty sends the key as-is. */
+  authPrefix?: string;
+}
+
+export function isApiProviderSettings(value: unknown): value is ApiProviderSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const provider = value as Record<string, unknown>;
+  if (!(API_PROVIDERS as readonly unknown[]).includes(provider.kind) ||
+      typeof provider.baseUrl !== 'string' || provider.baseUrl.length > 2048) return false;
+  if (provider.protocol !== undefined && !(API_PROTOCOLS as readonly unknown[]).includes(provider.protocol)) return false;
+  if (provider.name !== undefined && (typeof provider.name !== 'string' || provider.name.length > 80)) return false;
+  for (const field of ['chatPath', 'modelsPath'] as const) {
+    if (provider[field] !== undefined && (typeof provider[field] !== 'string' || provider[field].length > 500)) return false;
+  }
+  if (provider.authHeader !== undefined && (typeof provider.authHeader !== 'string' || provider.authHeader.length > 128)) return false;
+  if (provider.authPrefix !== undefined && (typeof provider.authPrefix !== 'string' || provider.authPrefix.length > 64 || /[\r\n\u0000]/.test(provider.authPrefix))) return false;
+  return true;
 }
 
 export interface ProvidersSettings {

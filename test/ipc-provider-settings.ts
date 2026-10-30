@@ -71,6 +71,34 @@ describe('settings writes from more than one UI', () => {
       expect(JSON.stringify(response)).not.toContain('synthetic-active-key');
     } finally { retired.mockRestore(); }
   });
+  it('saves a configurable compatible API and keeps extra headers encrypted and out of the state payload', async () => {
+    const base = defaultConfig();
+    await saveConfig(base);
+    const custom = {
+      ...base,
+      providers: { api: {
+        kind: 'custom' as const,
+        baseUrl: 'https://api.example.test/v1',
+        name: 'Team gateway',
+        chatPath: 'tenant/chat/completions',
+        modelsPath: 'tenant/models',
+        authHeader: 'x-api-key',
+        authPrefix: ''
+      } }
+    };
+    const saved = await save(custom, base);
+    expect(saved.ok, saved.error).toBe(true);
+    expect(getConfig().providers.api).toEqual(custom.providers.api);
+
+    const setHeaders = handlers.get('secret:set')!;
+    const stored = await setHeaders({}, { key: 'customProviderHeaders', value: '{"x-tenant-id":"private-header-value"}' });
+    expect(stored).toMatchObject({ ok: true, data: { hasCustomProviderHeaders: true } });
+    expect(JSON.stringify(stored)).not.toContain('private-header-value');
+    const rejected = await setHeaders({}, { key: 'customProviderHeaders', value: '{"authorization":"should-not-be-a-custom-header"}' });
+    expect(rejected).toMatchObject({ ok: false });
+    const removed = await setHeaders({}, { key: 'customProviderHeaders', value: '' });
+    expect(removed).toMatchObject({ ok: true, data: { hasCustomProviderHeaders: false } });
+  });
   it('persists provider tool guidance through IPC, preserves concurrent edits, and allows explicit clearing', async () => {
     const base = defaultConfig(); await saveConfig(base);
     const wanted = { ...base, providerTools: { instructions: 'Use the approved project only.' }, ui: { ...base.ui, browserOnly: true } };
