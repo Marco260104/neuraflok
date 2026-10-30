@@ -286,7 +286,9 @@ export async function runApiProviderInput(entry: InputEntry, signal?: AbortSigna
     if (!bound?.conversationId || bound.conversationId !== conversationId) throw new Error('The API session binding changed before the request started.');
     acceptedInput = (await listInputs()).find(row => row.id === entry.id && row.state === 'sent');
     if (!acceptedInput) throw new Error('NEURAFLOK could not verify the accepted API message.');
-    await recordDeliveredInput(acceptedInput, undefined, { turnId, model: settings.model, images, attachmentUpload: true });
+    await recordDeliveredInput(acceptedInput, undefined, {
+      turnId, model: settings.model, apiProvider: settings.endpoint, images, attachmentUpload: true
+    });
     await observe(conversationId, [{ kind: 'turn_start', time: now(), turnId }]);
     await noteLocalAgentTurnStarted(conversationId, now());
     const modelUser = apiUserMessage(preparedText, images);

@@ -6,11 +6,14 @@ import { validateInputImages } from './input-images.js';
 import sharp from 'sharp';
 import { positionOf } from '../../../../contracts/chronology.js';
 import { notifyChanged } from '../history/recorder.js';
+import type { ApiProviderSettings } from '../../../../contracts/settings.js';
 
 export interface LocalExecutorDelivery {
   turnId: string;
   /** Actual API model, when the provider reports a fixed model name. */
   model?: string;
+  /** Direct API endpoint that produced this delivery, when applicable. */
+  apiProvider?: ApiProviderSettings;
   /** Normalized images that were sent with this local executor turn. */
   images?: InputEntry['images'];
   /** Show attachment preparation in the authored message until the executor confirms delivery. */
@@ -38,7 +41,8 @@ export async function recordDeliveredInput(
     ? { model: localExecutor.model ?? null, reasoningEffort: null }
     : browserInputModel(entry);
   if (!messageId.startsWith('input:') && selection.model && entry.conversationId) {
-    await observeSessionModel(sessionId, entry.conversationId, selection.model, entry.deliveredAt!, selection.reasoningEffort ?? undefined);
+    await observeSessionModel(sessionId, entry.conversationId, selection.model, entry.deliveredAt!,
+      selection.reasoningEffort ?? undefined, localExecutor?.apiProvider);
   }
   const message = {
     time, source: 'app' as const, kind: 'user_message' as const,
