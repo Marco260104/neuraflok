@@ -43,30 +43,25 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install the current Node.js 22 release
+          name: Verify the preinstalled Node.js runtime
           command: |
-            $major = (Get-Content .nvmrc -Raw).Trim()
-            $release = (Invoke-RestMethod "https://nodejs.org/dist/index.json" | Where-Object { $_.version -like "v$major.*" } | Select-Object -First 1).version
-            if (-not $release) { throw "Could not resolve Node.js $major" }
-            $installer = Join-Path $env:TEMP "node-$release-x64.msi"
-            Invoke-WebRequest "https://nodejs.org/dist/$release/node-$release-x64.msi" -OutFile $installer
-            $process = Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /qn /norestart" -Wait -PassThru
-            if ($process.ExitCode -ne 0) { throw "Node.js installer exited with $($process.ExitCode)" }
-            $env:Path = "C:\Program Files\nodejs;$env:Path"
-            node --version
+            $requiredMajor = [int]((Get-Content .nvmrc -Raw).Trim())
+            $nodeCommand = Get-Command node -ErrorAction Stop
+            $nodeVersion = (& $nodeCommand.Source --version).Trim()
+            if ($nodeVersion -notmatch '^v(?<major>\d+)\.') { throw "Could not parse the preinstalled Node.js version: $nodeVersion" }
+            if ([int]$Matches.major -lt $requiredMajor) { throw "Node.js $nodeVersion is older than the required major version $requiredMajor" }
+            Write-Host "Using preinstalled Node.js $nodeVersion at $($nodeCommand.Source)"
             npm --version
           shell: powershell.exe -ExecutionPolicy Bypass
       - run:
           name: Install locked dependencies
           command: |
-            $env:Path = "C:\Program Files\nodejs;$env:Path"
             npm ci
           shell: powershell.exe -ExecutionPolicy Bypass
       - run:
           name: Build and smoke-test Windows x64
           command: |
             Remove-Item Env:CIRCLE_BUILD_NUM -ErrorAction SilentlyContinue
-            $env:Path = "C:\Program Files\nodejs;$env:Path"
             npm run dist:x64
             New-Item -ItemType Directory -Force ci-artifacts\win32-x64 | Out-Null
             Copy-Item release\NEURAFLOK-Setup-x64.exe ci-artifacts\win32-x64\
@@ -78,7 +73,6 @@ jobs:
                 name: Cross-build and smoke-test Windows ARM64
                 command: |
                   Remove-Item Env:CIRCLE_BUILD_NUM -ErrorAction SilentlyContinue
-                  $env:Path = "C:\Program Files\nodejs;$env:Path"
                   npm run dist:arm64
                   New-Item -ItemType Directory -Force ci-artifacts\win32-arm64 | Out-Null
                   Copy-Item release\NEURAFLOK-Setup-arm64.exe ci-artifacts\win32-arm64\

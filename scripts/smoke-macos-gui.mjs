@@ -36,7 +36,9 @@ const exitPromise = new Promise((resolve) => {
 });
 
 const startedAt = Date.now();
-const startupDeadlineMs = 15_000;
+// Cross-architecture Intel launches on Apple Silicon need extra time for Rosetta
+// to start Electron and its native modules before application startup is logged.
+const startupDeadlineMs = arch === 'x64' ? 60_000 : 15_000;
 const minimumSurvivalMs = 10_000;
 
 let startupError = null;
@@ -77,7 +79,7 @@ try {
     const failure = startupFailure();
     if (failure) finish(new Error(`macOS GUI startup failed: ${failure}`));
     else if (ready()) finish();
-    else finish(new Error('macOS GUI did not report app started, window loaded and renderer state ready within 15 seconds'));
+    else finish(new Error(`macOS GUI did not report app started, window loaded and renderer state ready within ${startupDeadlineMs / 1000} seconds`));
   }, startupDeadlineMs);
   });
 } catch (error) {

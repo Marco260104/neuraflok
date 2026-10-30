@@ -6,6 +6,13 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-10-29
+
+### Fixed
+
+- Use CircleCI's preinstalled supported Node.js runtime on Windows instead of downloading an MSI during the release build.
+- Allow additional startup time for the macOS Intel app smoke test when it runs under Rosetta on Apple Silicon.
+
 ## [0.1.8] - 2026-10-29
 
 ### Fixed

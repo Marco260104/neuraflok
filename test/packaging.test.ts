@@ -204,6 +204,12 @@ describe('cross-platform packaging targets', () => {
     expect(circle.jobs.verify.docker[0].image).toBe('cimg/node:22');
     expect(JSON.stringify(circle.jobs.verify.steps)).toContain('npm run verify:ci');
     expect(circle.jobs['build-windows'].executor.name).toBe('win/server-2022');
+    const windowsNodeStep = circle.jobs['build-windows'].steps.find((step: any) =>
+      typeof step === 'object' && step.run?.name === 'Verify the preinstalled Node.js runtime'
+    ) as { run?: { command?: string } } | undefined;
+    expect(windowsNodeStep?.run?.command).toContain('Get-Command node -ErrorAction Stop');
+    expect(windowsNodeStep?.run?.command).toContain('older than the required major version');
+    expect(JSON.stringify(circle.jobs['build-windows'].steps)).not.toContain('nodejs.org/dist');
     expect(JSON.stringify(circle.jobs['build-windows'].steps).match(/Remove-Item Env:CIRCLE_BUILD_NUM/g)).toHaveLength(2);
     expect(circle.jobs['build-macos'].resource_class).toBe('m4pro.medium');
     expect(JSON.stringify(circle.jobs['build-macos'].steps)).toContain('unset CIRCLE_BUILD_NUM');
@@ -375,6 +381,9 @@ describe('cross-platform packaging targets', () => {
     expect(macSmoke).toContain('test "$(readlink "$mount_dir/Applications")" = /Applications');
     expect(macSmoke).toContain('ditto -x -k "$zip" "$zip_dir"');
     expect(macSmoke).toContain('node scripts/smoke-macos-gui.mjs "$arch"');
+    const macGuiSmoke = readFileSync(path.join(root, 'scripts/smoke-macos-gui.mjs'), 'utf8');
+    expect(macGuiSmoke).toContain("arch === 'x64' ? 60_000 : 15_000");
+    expect(macGuiSmoke).toContain('${startupDeadlineMs / 1000} seconds');
 
     const security = readFileSync(path.join(root, 'SECURITY.md'), 'utf8');
     expect(security).toContain('--no-sandbox');
