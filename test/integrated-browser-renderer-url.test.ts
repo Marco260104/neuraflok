@@ -1,5 +1,14 @@
 import { expect, it } from 'vitest';
-import { integratedBrowserRendererUrl } from '../backend/domains/browser/embedded/renderer-url.js';
+import { integratedBrowserRendererPage, integratedBrowserRendererUrl } from '../backend/domains/browser/embedded/renderer-url.js';
+
+it('loads the integrated browser toolbar from its nested Vite output path when packaged', () => {
+  expect(integratedBrowserRendererPage('integrated-browser.html'))
+    .toBe('features/browser/integrated-browser.html');
+});
+
+it('keeps other packaged renderer pages relative to the renderer output directory', () => {
+  expect(integratedBrowserRendererPage('index.html')).toBe('index.html');
+});
 
 it('loads the integrated browser toolbar from its nested Vite source path in development', () => {
   expect(integratedBrowserRendererUrl('http://localhost:5173', 'integrated-browser.html'))

@@ -17,7 +17,7 @@ import type { ModelEvent } from './tabs/model-contracts.js';
 import { createIntegratedBrowserProviderPages } from './provider-pages.js';
 import { createIntegratedBrowserWindowHost, integratedBrowserPageBackground } from './window-host.js';
 import { loadFreshIntegratedExtension } from './extension-loading.js';
-import { integratedBrowserRendererUrl } from './renderer-url.js';
+import { integratedBrowserRendererPage, integratedBrowserRendererUrl } from './renderer-url.js';
 
 const PARTITION = 'persist:neural-jam-browser';
 
@@ -264,7 +264,7 @@ export class IntegratedBrowser {
     const rendererUrl = this.assets.rendererUrl();
     void (rendererUrl
       ? contents.loadURL(integratedBrowserRendererUrl(rendererUrl, file))
-      : contents.loadFile(path.join(this.assets.rendererDir, file))).catch(() => undefined);
+      : contents.loadFile(path.join(this.assets.rendererDir, integratedBrowserRendererPage(file)))).catch(() => undefined);
   }
 
   /** Toolbar actions, accepted only from this window's own toolbar and for its own tabs. */

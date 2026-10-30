@@ -6,6 +6,13 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-10-29
+
+### Fixed
+
+- Load the integrated browser toolbar from its nested renderer output path in packaged builds, fixing the missing-page error that prevented the macOS Intel startup smoke test from reaching its ready state.
+- Keep the macOS Intel launch smoke test enabled under Rosetta so the release pipeline verifies the actual packaged app, not just its bundle metadata.
+
 ## [0.1.10] - 2026-10-29
 
 ### Fixed

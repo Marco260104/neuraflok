@@ -97,6 +97,12 @@ jobs:
           node-version: "22"
       - run: npm ci
       - run:
+          name: Install Rosetta for Intel runtime smoke tests
+          command: |
+            if ! pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1; then
+              sudo softwareupdate --install-rosetta --agree-to-license
+            fi
+      - run:
           name: Build, inspect, and smoke-test macOS ARM64
           command: |
             # CircleCI's build number makes electron-builder append an extra
