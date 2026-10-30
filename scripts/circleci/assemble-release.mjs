@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { releaseTargets } from '../release-targets.mjs';
 import { verifyReleaseAssets } from '../verify-release-assets.mjs';
 

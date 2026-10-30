@@ -1,6 +1,7 @@
 // @ts-expect-error The target planner is a plain Node script without type declarations.
 import { releaseTargets } from '../scripts/release-targets.mjs';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +59,15 @@ function yamlFile(relative: string): any {
 }
 
 describe('cross-platform packaging targets', () => {
+  it('starts the release assembler CLI without an undefined entry-point helper', () => {
+    const assembler = path.join(root, 'scripts/circleci/assemble-release.mjs');
+    const result = spawnSync(process.execPath, [assembler, '--scope=invalid', '--tag=v0.1.14'], { encoding: 'utf8' });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('platforms must be all or common');
+    expect(result.stderr).not.toContain('pathToFileURL is not defined');
+  });
+
   it('packages every extension entry from the current manifest in the release archive', () => {
     const manifest = JSON.parse(readFileSync(path.join(root, 'browser-extension/manifest.json'), 'utf8')) as {
       background: { service_worker: string };
