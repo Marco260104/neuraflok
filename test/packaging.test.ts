@@ -356,10 +356,12 @@ describe('cross-platform packaging targets', () => {
     ]);
     const linuxSmoke = readFileSync(path.join(root, 'scripts/circleci/smoke-linux-release.sh'), 'utf8');
     const macSmoke = readFileSync(path.join(root, 'scripts/circleci/smoke-macos-release.sh'), 'utf8');
+    const linuxDesktopName = (JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as { desktopName: string }).desktopName.replace(/\.desktop$/, '') + '.desktop';
     expect(linuxSmoke).toContain('XDG_CONFIG_HOME="$smoke_root/config"');
     expect(linuxSmoke).toContain('xvfb-run -a /usr/bin/neuraflok');
     expect(linuxSmoke).toContain('dpkg-deb --field "$deb" Architecture');
     expect(linuxSmoke).toContain('dpkg-query -S "$installed_executable"');
+    expect(linuxSmoke).toContain(`desktop=/usr/share/applications/${linuxDesktopName}`);
     expect(linuxSmoke).toContain('assert_gui_stays_ready');
     expect(linuxSmoke).toContain('Captured output:');
     expect(linuxSmoke).toContain('fake_bin/unshare');

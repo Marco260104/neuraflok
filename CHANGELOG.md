@@ -6,6 +6,12 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-10-29
+
+### Fixed
+
+- Matched the Linux installer smoke test to the desktop-entry filename generated from the app's configured desktop name.
+
 ## [0.1.6] - 2026-10-29
 
 ### Fixed

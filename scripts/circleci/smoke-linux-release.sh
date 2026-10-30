@@ -48,7 +48,7 @@ assert_equals "$(dpkg-deb --field "$deb" Package)" neuraflok 'DEB package name'
 assert_equals "$(dpkg-deb --field "$deb" Version)" "$(node -p "require('./package.json').version")" 'DEB version'
 assert_equals "$(dpkg-deb --field "$deb" Architecture)" "$expected_deb_arch" 'DEB architecture'
 sudo dpkg -i "$deb" || sudo apt-get install -f -y
-desktop=/usr/share/applications/neuraflok.desktop
+desktop=/usr/share/applications/com.neuraflok.desktop
 assert_file_contains "$desktop" 'Name=NEURAFLOK' 'desktop entry'
 assert_file_contains "$desktop" 'Icon=neuraflok' 'desktop icon'
 if [ ! -L /usr/bin/neuraflok ]; then
