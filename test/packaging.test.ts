@@ -200,8 +200,11 @@ describe('cross-platform packaging targets', () => {
     expect(circle.jobs.verify.docker[0].image).toBe('cimg/node:22');
     expect(JSON.stringify(circle.jobs.verify.steps)).toContain('npm run verify:ci');
     expect(circle.jobs['build-windows'].executor.name).toBe('win/server-2022');
+    expect(JSON.stringify(circle.jobs['build-windows'].steps).match(/Remove-Item Env:CIRCLE_BUILD_NUM/g)).toHaveLength(2);
     expect(circle.jobs['build-macos'].resource_class).toBe('m4pro.medium');
     expect(JSON.stringify(circle.jobs['build-macos'].steps)).toContain('unset CIRCLE_BUILD_NUM');
+    expect(JSON.stringify(circle.jobs['build-linux-x64'].steps)).toContain('unset CIRCLE_BUILD_NUM');
+    expect(JSON.stringify(circle.jobs['build-linux-arm64'].steps)).toContain('unset CIRCLE_BUILD_NUM');
     expect(circle.jobs['build-linux-arm64'].resource_class).toBe('arm.medium');
     expect(names).toEqual(expect.arrayContaining([
       'validate-release', 'build-windows-all', 'build-macos-all', 'build-linux-x64',

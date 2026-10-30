@@ -65,6 +65,7 @@ jobs:
       - run:
           name: Build and smoke-test Windows x64
           command: |
+            Remove-Item Env:CIRCLE_BUILD_NUM -ErrorAction SilentlyContinue
             $env:Path = "C:\Program Files\nodejs;$env:Path"
             npm run dist:x64
             New-Item -ItemType Directory -Force ci-artifacts\win32-x64 | Out-Null
@@ -76,6 +77,7 @@ jobs:
             - run:
                 name: Cross-build and smoke-test Windows ARM64
                 command: |
+                  Remove-Item Env:CIRCLE_BUILD_NUM -ErrorAction SilentlyContinue
                   $env:Path = "C:\Program Files\nodejs;$env:Path"
                   npm run dist:arm64
                   New-Item -ItemType Directory -Force ci-artifacts\win32-arm64 | Out-Null
@@ -145,6 +147,7 @@ jobs:
       - run:
           name: Build and install-smoke-test Linux x64 packages
           command: |
+            unset CIRCLE_BUILD_NUM
             npm run dist:linux:x64
             bash scripts/circleci/smoke-linux-release.sh x64
             mkdir -p ci-artifacts/linux-x64
@@ -165,6 +168,7 @@ jobs:
       - run:
           name: Build and install-smoke-test Linux ARM64 packages
           command: |
+            unset CIRCLE_BUILD_NUM
             npm run dist:linux:arm64
             bash scripts/circleci/smoke-linux-release.sh arm64
             mkdir -p ci-artifacts/linux-arm64
