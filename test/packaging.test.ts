@@ -629,6 +629,15 @@ Load command 11
     expect(validateScript).toContain('extensionVersion');
   });
 
+  it('keeps the macOS UI snapshot type visible to the helper files that share it', () => {
+    const windowSystem = readFileSync(path.join(root, 'backend/native/macos-desktop-helper/WindowSystem.swift'), 'utf8');
+    const interaction = readFileSync(path.join(root, 'backend/native/macos-desktop-helper/Interaction.swift'), 'utf8');
+
+    expect(windowSystem).toContain('final class UISnapshot {');
+    expect(windowSystem).not.toContain('private final class UISnapshot {');
+    expect(interaction).toContain('var snapshots: [Int: UISnapshot]');
+  });
+
   it('validates release versions and notes without contacting GitHub during local checks', async () => {
     const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as { version: string };
     let lookup: Record<string, string | undefined> | null = null;

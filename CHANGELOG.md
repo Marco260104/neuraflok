@@ -6,6 +6,13 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-10-29
+
+### Fixed
+
+- Made the macOS UI snapshot type accessible to the helper files that store and read snapshots.
+- Included the Linux maintainer metadata fix in the next full installer build.
+
 ## [0.1.3] - 2026-10-29
 
 ### Fixed

@@ -505,7 +505,7 @@ func focusWindow(_ id: CGWindowID) throws -> Bool {
     return false
 }
 
-private final class UISnapshot {
+final class UISnapshot {
     let window: CGWindowID
     let windowBounds: CGRect
     let elements: [String: AXUIElement]
