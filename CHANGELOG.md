@@ -6,6 +6,12 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-10-29
+
+### Fixed
+
+- Verify the macOS Intel DMG, ZIP, bundle metadata, executable permissions, and thin Intel binaries on Apple Silicon CI without relying on a flaky Rosetta GUI launch. Native macOS GUI startup remains smoke-tested on ARM64 and on Intel hosts.
+
 ## [0.1.9] - 2026-10-29
 
 ### Fixed

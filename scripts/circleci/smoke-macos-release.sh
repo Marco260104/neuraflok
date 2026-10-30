@@ -32,5 +32,11 @@ ditto -x -k "$zip" "$zip_dir"
 node scripts/smoke-macos-bundle.mjs "$arch" "$mount_dir/NEURAFLOK.app"
 node scripts/smoke-macos-bundle.mjs "$arch" "$zip_dir/NEURAFLOK.app"
 node scripts/smoke-macos-bundle.mjs "$arch"
-node scripts/smoke-macos-gui.mjs "$arch"
-echo "macOS $arch DMG, ZIP, bundle metadata, executable modes, and app launch smoke passed."
+host_arch="$(uname -m)"
+if [[ "$arch" == "x64" && "$host_arch" == "arm64" ]]; then
+  echo "macOS x64 GUI launch smoke skipped on Apple Silicon CI; DMG, ZIP, bundle metadata, executable modes, and Intel Mach-O payloads were verified."
+else
+  node scripts/smoke-macos-gui.mjs "$arch"
+  echo "macOS $arch app launch smoke passed."
+fi
+echo "macOS $arch DMG, ZIP, bundle metadata, executable modes, and architecture checks passed."

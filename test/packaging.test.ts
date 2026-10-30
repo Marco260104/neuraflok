@@ -380,6 +380,8 @@ describe('cross-platform packaging targets', () => {
     expect(macSmoke).toContain('codesign --display --verbose=4 "$dmg"');
     expect(macSmoke).toContain('test "$(readlink "$mount_dir/Applications")" = /Applications');
     expect(macSmoke).toContain('ditto -x -k "$zip" "$zip_dir"');
+    expect(macSmoke).toContain('if [[ "$arch" == "x64" && "$host_arch" == "arm64" ]]');
+    expect(macSmoke).toContain('Intel Mach-O payloads were verified');
     expect(macSmoke).toContain('node scripts/smoke-macos-gui.mjs "$arch"');
     const macGuiSmoke = readFileSync(path.join(root, 'scripts/smoke-macos-gui.mjs'), 'utf8');
     expect(macGuiSmoke).toContain("arch === 'x64' ? 60_000 : 15_000");
