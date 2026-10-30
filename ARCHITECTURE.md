@@ -61,7 +61,7 @@ browser-extension/
   _locales/                     Browser-managed localization catalogs
   build-stamp.txt               Release identity used by safe companion updates
 resources/                      Platform packaging inputs
-test/                           Unit, integration, and workflow coverage
+test/                           Unit, integration, and CI workflow coverage
 scripts/                        Build, packaging, and verification tools
 docs/                           Product, release, and license records
 ```

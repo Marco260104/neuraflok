@@ -11,16 +11,15 @@ function releaseLookupUrl(apiBase, repository, tag) {
 function releaseLookupHeaders(token) {
   return {
     Accept: 'application/vnd.github+json',
-    Authorization: `Bearer ${token}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     'X-GitHub-Api-Version': API_VERSION,
     'User-Agent': 'neuraflok-release-preflight'
   };
 }
 
 function requireReleaseInputs({ repository, tag, token }) {
-  if (!repository || !repository.includes('/')) throw new Error('GITHUB_REPOSITORY is missing or invalid');
+  if (!repository || !repository.includes('/')) throw new Error('Repository is missing or invalid');
   if (!tag) throw new Error('Release tag is missing');
-  if (!token) throw new Error('GH_TOKEN is missing');
 }
 
 async function lookupFailure(response, tag) {
@@ -53,11 +52,11 @@ export async function assertReleaseAbsent({
 }
 
 async function main(environment = process.env) {
-  const tag = environment.TAG || environment.GITHUB_REF_NAME;
+  const tag = environment.CIRCLE_TAG || environment.TAG;
   await assertReleaseAbsent({
-    repository: environment.GITHUB_REPOSITORY,
+    repository: environment.NEURAFLOK_REPOSITORY || 'Marco260104/neuraflok',
     tag,
-    token: environment.GH_TOKEN || environment.GITHUB_TOKEN
+    token: environment.GH_TOKEN
   });
   process.stdout.write(`Release ${tag} does not exist yet.\n`);
 }

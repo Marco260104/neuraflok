@@ -58,7 +58,7 @@ for (const name of scripts) {
   const ok = outcome.code === 0;
   results.push({ name, ok, seconds: Math.round((Date.now() - started) / 1000) });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}  (${results.at(-1).seconds}s)${flaky.includes(name) ? '  (failed once, passed on retry)' : ''}`);
-  if (flaky.includes(name) && process.env.GITHUB_ACTIONS) console.log(`::warning title=Flaky UI check::${name} failed once and passed on retry`);
+  if (flaky.includes(name) && process.env.CI) console.log(`Flaky UI check: ${name} failed once and passed on retry`);
   // A retry that passes still keeps why the first run failed: that is the only evidence of a flake.
   if (!ok || flaky.includes(name)) console.log(reasonFor(ok ? first : outcome));
 }

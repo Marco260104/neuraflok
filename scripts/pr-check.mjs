@@ -15,6 +15,7 @@ const STRAY = /(^|\/)(\.DS_Store|Thumbs\.db|npm-debug\.log[^/]*|[^/]+\.log|[^/]+
 
 /** Files that define contracts between processes, the extension and stored data. */
 const CONTRACT = /^(backend\/preload\/[^/]+\.ts|backend\/application\/ipc\/[^/]+\.ts|backend\/features\/integrations\/plugins-ipc\.ts|contracts\/[^/]+\.ts)$/;
+const GITHUB_API = 'https://api.github.com';
 /** The template's headings and the names contributors already use for the same thing. */
 const HEADINGS = {
   why: ['why', 'problem', 'root cause', 'cause', 'summary', 'motivation'],
@@ -55,7 +56,7 @@ export function checkPullRequest({ body, files, draft = false, fromFork = false,
     if (!tests.length && !optedOut) {
       problems.push('Add or update a test for the behavior change, or write "No test: <reason>" under "## Test".');
     }
-    // Whether the new test fails without the change is proved by the "Fail-first test" job, which runs it against main's code. Requiring the word here as well only failed PRs on wording.
+    // The checklist verifies that a regression test is present; the normal CI suite executes it.
   }
 
   if (files.some((file) => UI.test(file.path)) && !/!\[[^\]]*\]\(|<img\s/i.test(section(text, 'screenshots')) &&
@@ -89,19 +90,63 @@ function changedFiles(base) {
   });
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8'));
-  const pr = event.pull_request;
-  if (!pr) { console.log('Not a pull request; nothing to check.'); process.exit(0); }
+async function circlePullRequest(environment) {
+  const candidates = String(environment.CIRCLE_PULL_REQUESTS || environment.CIRCLE_PULL_REQUEST || '')
+    .split(',').map(value => value.trim()).filter(Boolean);
+  if (!candidates.length) return null;
+  const url = new URL(candidates[0]);
+  if (url.hostname !== 'github.com') throw new Error('CircleCI pull request URL must point to github.com.');
+  const match = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/.exec(url.pathname);
+  if (!match) throw new Error(`Unrecognized CircleCI pull request URL: ${url.pathname}`);
+  const [, owner, repository, number] = match;
+  const apiUrl = `${GITHUB_API}/repos/${owner}/${repository}/pulls/${number}`;
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'neuraflok-circleci-pr-check',
+    ...(environment.GH_TOKEN ? { Authorization: `Bearer ${environment.GH_TOKEN}` } : {})
+  };
+  const request = async target => {
+    const response = await fetch(target, { headers });
+    if (!response.ok) throw new Error(`GitHub pull request lookup failed with HTTP ${response.status}.`);
+    return response.json();
+  };
+  const pr = await request(apiUrl);
+  const files = [];
+  for (let page = 1; page <= 30; page++) {
+    const batch = await request(`${apiUrl}/files?per_page=100&page=${page}`);
+    files.push(...batch.map(file => ({ path: file.filename, changes: file.additions + file.deletions })));
+    if (batch.length < 100) return { pr, files };
+  }
+  throw new Error('The pull request has too many changed files for the CircleCI checklist.');
+}
+
+async function main(environment = process.env) {
+  let pr;
+  let files;
+  if (environment.GITHUB_EVENT_PATH) {
+    const event = JSON.parse(readFileSync(environment.GITHUB_EVENT_PATH, 'utf8'));
+    pr = event.pull_request;
+    if (!pr) { console.log('Not a pull request; nothing to check.'); return; }
+    files = changedFiles(`origin/${pr.base.ref}`);
+  } else {
+    const result = await circlePullRequest(environment);
+    if (!result) { console.log('Not a pull request; nothing to check.'); return; }
+    ({ pr, files } = result);
+  }
   const problems = checkPullRequest({
-    body: pr.body ?? '', files: changedFiles(`origin/${pr.base.ref}`), draft: pr.draft === true,
+    body: pr.body ?? '', files, draft: pr.draft === true,
     fromFork: pr.head?.repo?.full_name !== pr.base?.repo?.full_name, maintainerCanModify: pr.maintainer_can_modify !== false
   });
-  if (!problems.length) { console.log('Pull request checklist passed.'); process.exit(0); }
+  if (!problems.length) { console.log('Pull request checklist passed.'); return; }
   console.log('This pull request is not ready for review yet. See CONTRIBUTING.md.\n');
-  for (const problem of problems) {
-    console.log(`- ${problem}`);
-    console.log(`::error::${problem}`);
-  }
-  process.exit(1);
+  for (const problem of problems) console.log(`- ${problem}`);
+  process.exitCode = 1;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch(error => {
+    process.stderr.write(`${error?.stack || error}\n`);
+    process.exitCode = 1;
+  });
 }

@@ -12,7 +12,7 @@ const file = (filename: string, lines = 10): File => ({ filename, additions: lin
 it('labels a PR by the areas its files touch, as the labeler config did', () => {
   expect(areasFor([file('backend/domains/browser/bridge.ts'), file('frontend/locales/de.json'), file('README.md'), file('test/x.test.ts')]))
     .toEqual(['area: app', 'area: interface', 'area: translations', 'documentation']);
-  expect(areasFor([file('browser-extension/src/background/service-worker.js'), file('.github/workflows/ci.yml'), file('docs/release-notes/v0.1.0.md')]))
+  expect(areasFor([file('browser-extension/src/background/service-worker.js'), file('.circleci/config.yml'), file('docs/release-notes/v0.1.0.md')]))
     .toEqual(['area: browser companion', 'area: ci', 'documentation']);
 });
 

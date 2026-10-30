@@ -25,7 +25,7 @@ it('turns every test that passed only on its retry into a warning and a summary 
   reporter.onTestCaseResult(testCase('unattributed activity recovery > refuses a handed action', true));
   reporter.onTestCaseResult(testCase('pairs the extension', false));
   reporter.onTestRunEnd();
-  expect(lines).toEqual(['::warning title=Flaky test::test/bridge.test.ts > unattributed activity recovery > refuses a handed action failed once and passed on retry']);
+  expect(lines).toEqual(['Flaky test: test/bridge.test.ts > unattributed activity recovery > refuses a handed action failed once and passed on retry']);
   expect(readFileSync(summary, 'utf8')).toContain('- test/bridge.test.ts > unattributed activity recovery > refuses a handed action');
 });
 

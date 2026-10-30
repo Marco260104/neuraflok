@@ -7,7 +7,7 @@ export const AREAS = [
   ['area: interface', path => path.startsWith('frontend/') || path.startsWith('backend/preload/')],
   ['area: browser companion', path => path.startsWith('browser-extension/')],
   ['area: translations', path => path.startsWith('frontend/locales/') || path.startsWith('browser-extension/_locales/')],
-  ['area: ci', path => path.startsWith('.github/') || path.startsWith('scripts/')],
+  ['area: ci', path => path.startsWith('.circleci/') || path.startsWith('.github/') || path.startsWith('scripts/')],
   ['documentation', path => path.startsWith('docs/') || (!path.includes('/') && path.endsWith('.md'))]
 ];
 export const SIZE_LIMIT = 1000;
@@ -32,10 +32,10 @@ Thanks for the PR! It changes about ${lines} lines outside tests, translations a
 export const WELCOME = `${WELCOME_MARK}
 Thanks for your first pull request, and welcome! 👋 Please read CONTRIBUTING.md for the project workflow:
 1. Explain why and what in the description (no separate issue needed), and keep one topic per PR.
-2. Add a test that fails without your change; the "Fail-first test" check confirms it.
+2. Add or update a regression test and list the checks you ran; CircleCI runs the project test suite.
 3. For interface changes, add before and after screenshots.
 4. Keep "Allow edits by maintainers" on, so we can help with small fixes.
-5. The "PR checklist" check tells you exactly what is missing, so no need to guess.
+5. CircleCI's PR checklist tells you exactly what is missing, so no need to guess.
 
 We review once the checks are green. Questions are welcome right here.`;
 
