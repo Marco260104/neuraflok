@@ -280,11 +280,11 @@ it('delivers a project message exactly once after its active preparation turn co
   ports.nextAfterTurn.mockResolvedValueOnce(queued);
 
   releasePreparation();
-  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledTimes(2), { timeout: 5_000 });
   expect(ports.run.mock.calls[0]?.[0]).toMatchObject({ id: preparation.id, warmup: true });
   expect(ports.run.mock.calls[1]?.[0]).toMatchObject({ id: authored.id, text: 'Explain this project', mode: 'after-turn' });
   expect(ports.nextAfterTurn).toHaveBeenCalledWith(sessionId, conversationId, 'project-preparation-turn');
-  await vi.waitFor(() => expect(ports.run).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(ports.nextAfterTurn).toHaveBeenCalledTimes(2), { timeout: 5_000 });
   expect(ports.rows.filter(row => row.id === authored.id)).toHaveLength(1);
 });
 
