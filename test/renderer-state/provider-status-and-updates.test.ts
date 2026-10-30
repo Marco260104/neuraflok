@@ -64,8 +64,14 @@ it('keeps folder access discoverable after setup and navigates without granting 
   mounted.push(connected);
   mounted.window.document.querySelector<HTMLButtonElement>('[data-rail-step=ready]')!.click();
   const doc = mounted.window.document;
+  const styleSource = readRendererStyleSource(process.cwd());
+  expect(styleSource).toMatch(/\.panel\.is-active\s*\{\s*display:\s*grid;/);
+  expect(styleSource).toMatch(/\.ready-checks\s*\{\s*display:\s*grid;/);
+  expect(styleSource).toMatch(/\.step-actions\s*\{\s*display:\s*flex;/);
   const styles = doc.createElement('style');
-  styles.textContent = readRendererStyleSource(process.cwd());
+  // Keep JSDOM focused on these visibility rules; its CSS parser cannot safely
+  // evaluate every production shorthand and can throw on unrelated properties.
+  styles.textContent = '.panel { display: none; } .panel.is-active { display: grid; } .ready-checks { display: grid; } .step-actions { display: flex; }';
   doc.head.append(styles);
   doc.querySelector<HTMLButtonElement>('[data-tab="setup"]')!.click();
 

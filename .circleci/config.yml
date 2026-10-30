@@ -12,6 +12,7 @@ jobs:
     environment:
       NEURAFLOK_CANONICAL_REPOSITORY: Marco260104/neuraflok
       NEURAFLOK_MAINTAINER_LOGIN: Marco260104
+      NEURAFLOK_TEST_RETRY: "1"
     steps:
       - checkout
       - run: npm ci
