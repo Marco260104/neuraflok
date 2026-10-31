@@ -82,7 +82,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/node": "^2.1.0",
-    "@modelcontextprotocol/server": "^2.1.0",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@phosphor-icons/web": "2.1.2",
     "@types/js-yaml": "4.0.9",
     "@types/jsdom": "^30.0.0",
