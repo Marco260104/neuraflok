@@ -6,6 +6,12 @@ NEURAFLOK is licensed under the MIT License. See [LICENSE](LICENSE).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18] - 2026-10-31
+
+### Fixed
+
+- Use the multi-size NEURAFLOK ICO for packaged Windows taskbar windows and assign the installed app a fresh Windows shell identity so cached Electron artwork is not reused.
+
 ## [0.1.17] - 2026-10-30
 
 ### Fixed

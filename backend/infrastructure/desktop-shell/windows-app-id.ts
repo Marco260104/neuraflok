@@ -4,7 +4,9 @@ import { app, shell, type BrowserWindow } from 'electron';
 import { packagedRuntime, runningFromDevElectron } from './runtime-packaging.js';
 import { unpackagedIconRoot } from './window-icon.js';
 
-export const WINDOWS_APP_USER_MODEL_ID = 'com.neuraflok.desktop';
+// Windows retained the old Electron taskbar glyph for the previous id. This stable
+// branded id gives the installed app a fresh shell association and icon cache entry.
+export const WINDOWS_APP_USER_MODEL_ID = 'com.neuraflok.desktop.app';
 export const WINDOWS_DEV_APP_USER_MODEL_ID = 'com.neuraflok.desktop.dev';
 
 /** Unpackaged `npm run dev` must not reuse the packaged id: Windows caches that id's taskbar glyph (Electron's atom). */

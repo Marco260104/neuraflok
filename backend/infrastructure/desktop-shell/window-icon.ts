@@ -9,7 +9,8 @@ export function browserWindowIconPath(
   developmentRoot?: string
 ): string | undefined {
   if (packaged) {
-    if (platform === 'win32' || platform === 'linux') return path.join(resourcesPath, 'runtime-icon.png');
+    if (platform === 'win32') return path.join(resourcesPath, 'app-icon.ico');
+    if (platform === 'linux') return path.join(resourcesPath, 'runtime-icon.png');
     return undefined;
   }
   if (!developmentRoot) return undefined;

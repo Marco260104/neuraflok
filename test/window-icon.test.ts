@@ -9,11 +9,12 @@ import { browserWindowIconPath, unpackagedIconRoot, windowsTaskbarIconPath } fro
 const require = createRequire(import.meta.url);
 
 describe('native BrowserWindow icon policy', () => {
-  it.each(['win32', 'linux'] as const)('uses the packaged branded runtime PNG on %s', (platform) => {
+  it.each(['win32', 'linux'] as const)('uses the packaged branded shell icon on %s', (platform) => {
     const resources = platform === 'win32' ? 'C:/Program Files/NEURAFLOK/resources' : '/opt/neuraflok/resources';
-    expect(browserWindowIconPath(platform, true, resources)).toBe(
-      path.join(resources, 'runtime-icon.png')
-    );
+    expect(browserWindowIconPath(platform, true, resources)).toBe(path.join(
+      resources,
+      platform === 'win32' ? 'app-icon.ico' : 'runtime-icon.png'
+    ));
   });
 
   it('preserves the native app-bundle icon on macOS', () => {
@@ -109,6 +110,7 @@ describe('Windows unpackaged identity', () => {
     expect(stamp).toContain('process.env.ELECTRON_EXEC_PATH = brandedExe');
     expect(stamp).not.toContain('--app-user-model-id=');
     expect(identity).toContain('com.neuraflok.desktop.dev');
+    expect(identity).toContain("export const WINDOWS_APP_USER_MODEL_ID = 'com.neuraflok.desktop.app';");
     expect(identity).toContain("writeStartMenuShortcut('NEURAFLOK.lnk', WINDOWS_APP_USER_MODEL_ID, iconPath)");
     expect(identity).toContain("path.join(process.resourcesPath, 'app-icon.ico')");
     expect(identity).toContain('writeShortcutLink');
